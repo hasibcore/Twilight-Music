@@ -1193,11 +1193,13 @@ class AudioStreamExtractor {
             continue;
           }
 
+          final isObak = normCoreTitle.contains('obak') && normCoreTitle.contains('bhalobasha');
+          final maxExactTitleDurDiff = isObak ? 22 : 75;
           final exactDistinctiveTitleMatch = isDistinctiveCoreTitle &&
               (candNormFull == normCoreTitle || candNormBase == normCoreTitle) &&
               (targetDurationSeconds == null ||
                   targetDurationSeconds <= 0 ||
-                  (candDurSec > 0 && (candDurSec - targetDurationSeconds).abs() <= 22));
+                  (candDurSec > 0 && (candDurSec - targetDurationSeconds).abs() <= maxExactTitleDurDiff));
 
           if (artistTokens.isNotEmpty && !artistMatched && !exactDistinctiveTitleMatch) {
             continue;
@@ -1238,7 +1240,7 @@ class AudioStreamExtractor {
           final durDiff = (candDurSec - targetDurationSeconds).abs();
           if (durDiff <= 5) score += 45;
           else if (durDiff <= 15) score += 25;
-          else if (durDiff <= 35) score += 10;
+          else if (durDiff <= 45) score += 10;
         }
 
         if (wantsCokeStudio && candIsCokeStudio) {
@@ -1260,6 +1262,27 @@ class AudioStreamExtractor {
         if (score > bestScore) {
           bestScore = score;
           bestMatch = item;
+        }
+      }
+
+      final isObakTrack = normCoreTitle.contains('obak') && normCoreTitle.contains('bhalobasha');
+      if (bestMatch == null && !isObakTrack && !wantsLiveOrConcert) {
+        for (final item in results) {
+          final moreInfo = item['more_info'] as Map<String, dynamic>? ?? {};
+          final encUrl = moreInfo['encrypted_media_url']?.toString() ?? '';
+          if (encUrl.isEmpty) continue;
+          final candDurSec = int.tryParse(moreInfo['duration']?.toString() ?? '0') ?? 0;
+          if (candDurSec <= 45) continue;
+          final candTitleRaw = _decodeHtmlEntities(item['title']?.toString() ?? '').toLowerCase();
+          final candSubtitle = _decodeHtmlEntities(item['subtitle']?.toString() ?? '').toLowerCase();
+          final candAlbum = _decodeHtmlEntities(moreInfo['album']?.toString() ?? '').toLowerCase();
+          final combined = '$candTitleRaw $candSubtitle $candAlbum';
+          if (wantsCokeStudio != combined.contains('coke studio')) continue;
+          final matchedAnyCore =
+              coreTokens.isEmpty || coreTokens.any((ct) => _tokenMatchesText(ct, combined));
+          if (!matchedAnyCore) continue;
+          bestMatch = item;
+          break;
         }
       }
 

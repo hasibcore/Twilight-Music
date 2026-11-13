@@ -466,11 +466,76 @@ class YouTubeRemoteDatasource {
   }
 
   Future<SearchResultModel> _searchJioSaavnFallback(String query) async {
+    // 1. Primary: Official JioSaavn API (direct & Cloudflare-immune)
+    try {
+      final officialUri = Uri.parse(
+        'https://www.jiosaavn.com/api.php?p=1&q=${Uri.encodeComponent(query.trim())}&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=15&__call=search.getResults',
+      );
+      final offRes = await client
+          .get(officialUri, headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+          .timeout(const Duration(milliseconds: 3500));
+      if (offRes.statusCode == 200) {
+        final offData = jsonDecode(offRes.body);
+        if (offData is Map<String, dynamic>) {
+          final items = (offData['results'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
+          final songs = <SongModel>[];
+          final artists = <ArtistModel>[];
+          final seenArtists = <String>{};
+          for (final item in items) {
+            final id = item['id']?.toString() ?? '';
+            final title = item['title']?.toString() ?? '';
+            final moreInfo = item['more_info'] as Map<String, dynamic>? ?? {};
+            final durSec = int.tryParse(moreInfo['duration']?.toString() ?? '0') ?? 0;
+            final encUrl = moreInfo['encrypted_media_url']?.toString() ?? '';
+            if (id.isEmpty || title.isEmpty || encUrl.isEmpty || durSec <= 35) continue;
+            final artistMap = moreInfo['artistMap'] as Map<String, dynamic>? ?? {};
+            final primaryList = (artistMap['primary_artists'] as List? ?? [])
+                .whereType<Map<String, dynamic>>()
+                .toList();
+            final subtitle = item['subtitle']?.toString() ?? '';
+            final artistName = primaryList.isNotEmpty
+                ? primaryList.map((a) => a['name']?.toString() ?? '').where((s) => s.isNotEmpty).join(', ')
+                : (subtitle.split(' - ').first.trim().isNotEmpty ? subtitle.split(' - ').first.trim() : 'Artist');
+            final rawImg = item['image']?.toString() ?? '';
+            final thumb = rawImg.replaceAll(RegExp(r'150x150|50x50'), '500x500');
+            songs.add(SongModel(
+              id: 'js_$id',
+              title: title,
+              artist: artistName,
+              channelId: 'js_$id',
+              thumbnailUrl: thumb,
+              durationSeconds: durSec,
+              durationFormatted: Formatters.formatDuration(Duration(seconds: durSec)),
+              viewCount: int.tryParse(item['play_count']?.toString() ?? '250000') ?? 250000,
+              publishedAt: null,
+            ));
+            if (artistName.isNotEmpty && !seenArtists.contains(artistName)) {
+              seenArtists.add(artistName);
+              artists.add(ArtistModel(
+                id: 'js_art_$id',
+                name: artistName,
+                thumbnailUrl: thumb,
+              ));
+            }
+          }
+          if (songs.isNotEmpty) {
+            return SearchResultModel(
+              songs: songs,
+              videos: songs,
+              artists: artists,
+              playlists: const [],
+            );
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 2. Secondary backup: saavn.sumit.co
     try {
       final uri = Uri.parse(
         'https://saavn.sumit.co/api/search/songs?query=${Uri.encodeComponent(query.trim())}&limit=15',
       );
-      final res = await client.get(uri).timeout(const Duration(milliseconds: 3800));
+      final res = await client.get(uri).timeout(const Duration(milliseconds: 2800));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         if (data is Map<String, dynamic>) {

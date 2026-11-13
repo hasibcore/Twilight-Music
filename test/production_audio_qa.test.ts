@@ -957,6 +957,44 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     // 5. CI: Android release APK passes --android-skip-build-dependency-validation for Flutter 3.50+
     assert.match(workflowYml, /flutter build apk --release --android-skip-build-dependency-validation/);
   });
+
+  it('Scenario 27: Verify Official JioSaavn catalog fallback, music-video credit duration tolerance (75s), SoundCloud 30s preview rejection, multi-hour compilation exclusion, and in-viewport YT IFrame + removeAttribute(src)', () => {
+    const serverTs = fs.readFileSync(path.join(rootDir, 'server.ts'), 'utf8');
+    const musicApiTs = fs.readFileSync(path.join(rootDir, 'src/services/musicApi.ts'), 'utf8');
+    const musicContextTsx = fs.readFileSync(
+      path.join(rootDir, 'src/context/MusicContext.tsx'),
+      'utf8'
+    );
+    const extractorDart = fs.readFileSync(
+      path.join(rootDir, 'lib/core/services/audio_stream_extractor.dart'),
+      'utf8'
+    );
+    const ytDatasourceDart = fs.readFileSync(
+      path.join(rootDir, 'lib/data/datasources/youtube_remote_datasource.dart'),
+      'utf8'
+    );
+
+    // 1. Server & Flutter allow up to 75s duration difference for music video credits (e.g. Mothura Coke Studio Bangla 385s vs 346s)
+    assert.match(serverTs, /const maxExactTitleDurDiff = isObak \? 22 : 75;/);
+    assert.match(serverTs, /const maxAllowedDurDiff = isObak/);
+    assert.match(extractorDart, /final maxExactTitleDurDiff = isObak \? 22 : 75;/);
+
+    // 2. Official JioSaavn API primary search fallback in both Server and Flutter
+    assert.match(serverTs, /Primary: Official JioSaavn API/);
+    assert.match(ytDatasourceDart, /Primary: Official JioSaavn API/);
+
+    // 3. SoundCloud 30-second snipped preview URLs rejected on Server and Web
+    assert.match(serverTs, /cf-preview-media\\\.sndcdn\\\.com/);
+    assert.match(musicApiTs, /cf-preview-media\\\.sndcdn\\\.com/);
+
+    // 4. Multi-hour compilations excluded from single-song search & Dynamic Taste mixes, and 24/7 live broadcasts filtered from search
+    assert.match(serverTs, /const boundedFallbackYt = wantsMix/);
+    assert.match(serverTs, /const isLiveBroadcast = !rawLengthText \|\| hasLiveBadge;/);
+
+    // 5. Web MusicContext renders YT IFrame inside viewport (200x200) and guards YT watchdog with directResolvedUrl
+    assert.match(musicContextTsx, /width:200px;height:200px;opacity:0\.001/);
+    assert.match(musicContextTsx, /if \(Boolean\(directResolvedUrl\) && pState !== 3\)/);
+  });
 });
 
 

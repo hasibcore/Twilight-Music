@@ -11,3 +11,5 @@ landing/downloads/
 .aistudio/
 public/assets/aistudio/
 bun.lock
+*-watch.html
+*-player-script.js

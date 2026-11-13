@@ -939,11 +939,12 @@ async function resolveExactTrackStreamUrl(
               continue;
             }
 
+            const maxExactTitleDurDiff = isObak ? 22 : 75;
             const exactDistinctiveTitleMatch =
               isDistinctiveCoreTitle &&
               (candNormFull === normCoreTitle || candNormBase === normCoreTitle) &&
               (effectiveDuration === 0 ||
-                (candDurSec > 0 && Math.abs(candDurSec - effectiveDuration) <= 22));
+                (candDurSec > 0 && Math.abs(candDurSec - effectiveDuration) <= maxExactTitleDurDiff));
 
             if (artistTokens.length > 0 && !artistMatched && !exactDistinctiveTitleMatch) {
               continue;
@@ -964,10 +965,18 @@ async function resolveExactTrackStreamUrl(
             }
           }
 
-          // 4. STRICT DURATION GATE:
+          // 4. DURATION GATE (accounts for music video intros/credits up to 75s when title/artist/Coke Studio matches):
           if (effectiveDuration > 0 && candDurSec > 0) {
             const durDiff = Math.abs(candDurSec - effectiveDuration);
-            if (durDiff > 32) {
+            const maxAllowedDurDiff = isObak
+              ? 25
+              : (wantsCokeStudio && candIsCokeStudio) ||
+                artistMatched ||
+                candNormBase === normCoreTitle ||
+                candNormFull === normCoreTitle
+              ? 75
+              : 42;
+            if (durDiff > maxAllowedDurDiff) {
               continue;
             }
           }
@@ -986,6 +995,7 @@ async function resolveExactTrackStreamUrl(
             const durDiff = Math.abs(candDurSec - effectiveDuration);
             if (durDiff <= 5) score += 45;
             else if (durDiff <= 15) score += 25;
+            else if (durDiff <= 45) score += 10;
           }
           if (wantsCokeStudio && candIsCokeStudio) score += 40;
 
@@ -998,7 +1008,8 @@ async function resolveExactTrackStreamUrl(
               candTitleRaw.includes('instrumental') ||
               candSub.includes('sound tower')) &&
             !normCoreTitle.includes('karaoke') &&
-            !normCoreTitle.includes('instrumental')
+            !normCoreTitle.includes('instrumental') &&
+            !wantsLofiOrRemix
           ) {
             score -= 40;
           }
@@ -1006,6 +1017,36 @@ async function resolveExactTrackStreamUrl(
           if (score > bestScore) {
             bestScore = score;
             bestMatch = item;
+          }
+        }
+
+        // Secondary relaxed candidate pass when strict gates yielded no match on non-Obak tracks
+        if (!bestMatch && !isObak && !wantsLiveOrConcert) {
+          for (let i = 0; i < results.length; i++) {
+            const item = results[i];
+            const moreInfo = item?.more_info || {};
+            if (!moreInfo?.encrypted_media_url) continue;
+            const candDurSec = Number(moreInfo?.duration || 0);
+            if (candDurSec <= 45) continue;
+            const candTitleRaw = decodeHtmlEntitiesServer(String(item?.title || '')).toLowerCase();
+            const candTitle = stripParentheticalAndEntities(candTitleRaw).toLowerCase();
+            const candSub = decodeHtmlEntitiesServer(String(item?.subtitle || '')).toLowerCase();
+            const candAlbum = decodeHtmlEntitiesServer(String(moreInfo?.album || '')).toLowerCase();
+            const combined = `${candTitleRaw} ${candSub} ${candAlbum}`;
+            const candIsCokeStudio = combined.includes('coke studio');
+            if (wantsCokeStudio !== candIsCokeStudio) continue;
+            if (
+              !wantsLofiOrRemix &&
+              /\b(?:karaoke|tribute|parody|ringtone)\b/i.test(combined)
+            ) {
+              continue;
+            }
+            const matchedAnyCore =
+              coreTokens.length === 0 || coreTokens.some((ct) => tokenMatchesText(ct, combined));
+            if (!matchedAnyCore) continue;
+            if (effectiveDuration > 0 && Math.abs(candDurSec - effectiveDuration) > 95) continue;
+            bestMatch = item;
+            break;
           }
         }
 
@@ -1199,7 +1240,7 @@ async function resolveExactTrackStreamUrl(
     for (const cand of candidates) {
       try {
         const transcodings: any[] = cand.item.media.transcodings;
-        const progTr = transcodings.find((tr) => tr?.format?.protocol === 'progressive');
+        const progTr = transcodings.find((tr) => tr?.format?.protocol === 'progressive' && !tr?.snipped);
         if (progTr?.url) {
           const sep = String(progTr.url).includes('?') ? '&' : '?';
           const infoRes = await fetchWithRetry(
@@ -1209,9 +1250,13 @@ async function resolveExactTrackStreamUrl(
           );
           if (infoRes.ok) {
             const infoData: any = await infoRes.json();
-            if (infoData?.url) {
+            const candProgUrl = String(infoData?.url || '');
+            if (
+              candProgUrl &&
+              !/cf-preview-media\.sndcdn\.com|\/preview\/0\/30\//i.test(candProgUrl)
+            ) {
               return {
-                url: String(infoData.url),
+                url: candProgUrl,
                 mimeType: 'audio/mpeg',
                 resolvedAt: Date.now(),
               };
@@ -1715,28 +1760,101 @@ function getStaticFallbackMatches(query: string): any[] {
   return matched.length > 0 ? matched : FALLBACK_POPULAR;
 }
 
-// Helper: Search live full-length 320kbps AAC catalog via saavn.sumit.co when YouTube InnerTube is blocked/slow
+// Helper: Search live full-length 320kbps AAC catalog via official JioSaavn API (with saavn.sumit.co fallback)
 async function searchSaavnFallback(
   query: string,
   options: { retries?: number; timeoutMs?: number } = {}
 ): Promise<any[]> {
+  const timeoutMs = options.timeoutMs ?? 2800;
+  const retries = options.retries ?? 1;
+  const songs: any[] = [];
+  const seen = new Set<string>();
+  const wantsRemix = /\b(?:remix|karaoke|instrumental|nightcore|cover)\b/i.test(query);
+  const wantsLofiOrChill = /\b(?:lofi|lo-fi|chill|study|beats|ambient|relax|instrumental)\b/i.test(query);
+
+  // 1. Primary: Official JioSaavn API (direct & Cloudflare-immune)
+  try {
+    const officialUrl = `https://www.jiosaavn.com/api.php?p=1&q=${encodeURIComponent(
+      query.trim()
+    )}&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=15&__call=search.getResults`;
+    const offRes = await withSoftDeadline(
+      fetchWithRetry(
+        officialUrl,
+        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+        { retries, timeoutMs }
+      ),
+      timeoutMs * (retries + 1) + 400,
+      null as any
+    );
+    if (offRes && offRes.ok) {
+      const offData: any = await offRes.json();
+      const offItems: any[] = Array.isArray(offData?.results) ? offData.results : [];
+      for (const item of offItems) {
+        const rawId = String(item?.id || '').trim();
+        const trackId = rawId ? `js_${rawId}` : '';
+        const title = decodeHtmlEntitiesServer(String(item?.title || '').trim());
+        const moreInfo = item?.more_info || {};
+        const primaryArtists = Array.isArray(moreInfo?.artistMap?.primary_artists)
+          ? moreInfo.artistMap.primary_artists
+              .map((a: any) => a?.name)
+              .filter(Boolean)
+              .join(', ')
+          : '';
+        const subtitle = decodeHtmlEntitiesServer(String(item?.subtitle || '').trim());
+        const artist = decodeHtmlEntitiesServer(
+          String(primaryArtists || subtitle.split(' - ')[0] || 'Various Artists').trim()
+        );
+        const durSec = Math.round(Number(moreInfo?.duration || 0));
+        const encUrl = String(moreInfo?.encrypted_media_url || '').trim();
+
+        if (!trackId || !title || !encUrl || durSec <= 45) continue;
+        const rejectRegex = wantsLofiOrChill
+          ? /\b(?:karaoke|nightcore|tribute|parody|zzang|cheesyfox)\b/i
+          : /\b(?:karaoke|instrumental|nightcore|remix|cover|tribute|parody|zzang|cheesyfox)\b/i;
+        if (!wantsRemix && rejectRegex.test(`${title} ${artist}`)) {
+          continue;
+        }
+        if (seen.has(trackId)) continue;
+        seen.add(trackId);
+
+        const mins = Math.floor(durSec / 60);
+        const secs = durSec % 60;
+        const rawImg = String(item?.image || '').trim();
+        const highResArt = rawImg
+          ? rawImg.replace(/150x150|50x50/g, '500x500')
+          : 'https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg';
+
+        songMetaCache.set(trackId, { title, artist, durationSeconds: durSec });
+        songs.push({
+          id: trackId,
+          title,
+          artist,
+          channelId: trackId,
+          thumbnailUrl: highResArt,
+          durationSeconds: durSec,
+          durationFormatted: `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`,
+          viewCount: Number(item?.play_count || 250000),
+        });
+      }
+      if (songs.length > 0) return songs;
+    }
+  } catch {
+    // Fall through to saavn.sumit.co backup
+  }
+
+  // 2. Secondary backup: saavn.sumit.co
   try {
     const saavnUrl = `https://saavn.sumit.co/api/search/songs?query=${encodeURIComponent(
       query.trim()
     )}&limit=15`;
-    const timeoutMs = options.timeoutMs ?? 2800;
-    const retries = options.retries ?? 1;
     const res = await withSoftDeadline(
-      fetchWithRetry(saavnUrl, {}, { retries, timeoutMs }),
-      timeoutMs * (retries + 1) + 400,
+      fetchWithRetry(saavnUrl, {}, { retries: 0, timeoutMs: 2200 }),
+      2500,
       null as any
     );
     if (!res || !res.ok) return [];
     const data: any = await res.json();
     const items: any[] = Array.isArray(data?.data?.results) ? data.data.results : [];
-    const songs: any[] = [];
-    const seen = new Set<string>();
-    const wantsRemix = /\b(?:remix|karaoke|instrumental|nightcore|cover)\b/i.test(query);
 
     for (const item of items) {
       const trackId = item?.id ? `js_${item.id}` : '';
@@ -1751,12 +1869,10 @@ async function searchSaavnFallback(
       const durSec = Math.round(Number(item?.duration || 0));
 
       if (!trackId || !title || !fullStreamUrl || durSec <= 45) continue;
-      if (
-        !wantsRemix &&
-        /\b(?:karaoke|instrumental|nightcore|remix|cover|tribute|parody|zzang|cheesyfox)\b/i.test(
-          `${title} ${artist}`
-        )
-      ) {
+      const rejectRegex = wantsLofiOrChill
+        ? /\b(?:karaoke|nightcore|tribute|parody|zzang|cheesyfox)\b/i
+        : /\b(?:karaoke|instrumental|nightcore|remix|cover|tribute|parody|zzang|cheesyfox)\b/i;
+      if (!wantsRemix && rejectRegex.test(`${title} ${artist}`)) {
         continue;
       }
       if (seen.has(trackId)) continue;
@@ -1849,14 +1965,29 @@ async function searchYouTube(
 
       const traverse = (node: any) => {
         if (!node || typeof node !== 'object') return;
+        const wantsLiveStreamQuery = /\b(?:live\s+stream|livestream|24\/7|radio)\b/i.test(query);
         if (node.videoRenderer) {
           const vr = node.videoRenderer;
           const videoId = vr.videoId;
           const title = extractText(vr.title);
           const author = extractText(vr.ownerText) || extractText(vr.shortBylineText) || 'Various Artists';
-          const durationFormatted = extractText(vr.lengthText) || '03:30';
+          const rawLengthText = extractText(vr.lengthText);
+          const hasLiveBadge = Array.isArray(vr.badges)
+            ? vr.badges.some((b: any) =>
+                String(b?.metadataBadgeRenderer?.style || '').includes('LIVE') ||
+                String(b?.metadataBadgeRenderer?.label || '').toUpperCase() === 'LIVE'
+              )
+            : false;
+          const isLiveBroadcast = !rawLengthText || hasLiveBadge;
+          const durationFormatted = rawLengthText || '03:30';
 
-          if (videoId && title && videoId.length === 11 && !seenIds.has(videoId)) {
+          if (
+            videoId &&
+            title &&
+            videoId.length === 11 &&
+            !seenIds.has(videoId) &&
+            (!isLiveBroadcast || wantsLiveStreamQuery)
+          ) {
             seenIds.add(videoId);
             const durSec = parseDuration(durationFormatted);
             songMetaCache.set(videoId, {
@@ -1910,9 +2041,13 @@ function mergeSingleAndCatalogTracks(ytSongs: any[], saavnSongs: any[], wantsMix
           !COMPILATION_MIX_REGEX.test(String(s.title || ''))
       );
 
+  const boundedFallbackYt = wantsMix
+    ? ytSongs
+    : ytSongs.filter((s) => (s.durationSeconds || 0) <= 900);
+
   const combined: any[] = [];
   const seenKeys = new Set<string>();
-  for (const item of [...filteredYt, ...saavnSongs, ...ytSongs]) {
+  for (const item of [...filteredYt, ...saavnSongs, ...boundedFallbackYt, ...FALLBACK_POPULAR]) {
     if (!item?.id || seenKeys.has(item.id)) continue;
     const dedupeTitle = `${String(item.title || '').toLowerCase().trim()}|${item.durationSeconds || 0}`;
     if (seenKeys.has(dedupeTitle)) continue;

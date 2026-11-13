@@ -188,11 +188,11 @@ const STALE_REMIX_OR_KARAOKE_URLS = new Set([
 export function isShortPreviewUrl(url?: string | null): boolean {
   if (!url) return false;
   if (STALE_REMIX_OR_KARAOKE_URLS.has(url)) return true;
-  return /itunes\.apple\.com|AudioPreview|mzaf_/i.test(url);
+  return /itunes\.apple\.com|AudioPreview|mzaf_|cf-preview-media\.sndcdn\.com|\/preview\/0\/30\//i.test(url);
 }
 
 const clientDirectStreamCache = new Map<string, string>();
-const backendPlayableStatusCache = new Map<string, { playable: boolean; checkedAt: number }>();
+const backendPlayableStatusCache = new Map<string, { playable: boolean; url: string | null; checkedAt: number }>();
 const inFlightClientDirectResolutions = new Map<string, Promise<string | null>>();
 const clientSearchCache = new Map<string, { songs: Song[]; cachedAt: number }>();
 const inFlightClientSearches = new Map<string, Promise<Song[]>>();
@@ -682,8 +682,8 @@ export class MusicApi {
     const cleanId = (song.id || '').trim();
     if (!forceRefresh && cleanId) {
       const known = backendPlayableStatusCache.get(cleanId);
-      if (known && !known.playable && Date.now() - known.checkedAt < 60000) {
-        return { playable: false, url: null };
+      if (known && Date.now() - known.checkedAt < 60000) {
+        return { playable: known.playable, url: known.url };
       }
     }
     const directUrl = await MusicApi.resolveClientDirectStreamUrl(song, forceRefresh);
@@ -691,7 +691,7 @@ export class MusicApi {
       return { playable: true, url: directUrl };
     }
     const updatedStatus = cleanId ? backendPlayableStatusCache.get(cleanId) : undefined;
-    return { playable: Boolean(updatedStatus?.playable), url: null };
+    return { playable: Boolean(updatedStatus?.playable), url: updatedStatus?.url ?? null };
   }
 
   static async resolveClientDirectStreamUrl(
@@ -754,17 +754,23 @@ export class MusicApi {
             backendRespondedOk = true;
             const data = await res.json();
             const resolvedUrl = String(data?.directCdnUrl || '');
-            const isPlayable = Boolean(data?.playable ?? resolvedUrl);
-            backendPlayableStatusCache.set(cleanId, { playable: isPlayable, checkedAt: Date.now() });
-            if (
+            const validResolvedUrl =
               resolvedUrl &&
               !isShortPreviewUrl(resolvedUrl) &&
               (resolvedUrl.startsWith('https://') ||
                 resolvedUrl.startsWith('/api/stream/') ||
                 resolvedUrl.startsWith('/audio/'))
-            ) {
-              clientDirectStreamCache.set(cleanId, resolvedUrl);
-              return resolvedUrl;
+                ? resolvedUrl
+                : null;
+            const isPlayable = Boolean((data?.playable ?? Boolean(validResolvedUrl)) && (!resolvedUrl || validResolvedUrl));
+            backendPlayableStatusCache.set(cleanId, {
+              playable: isPlayable,
+              url: validResolvedUrl,
+              checkedAt: Date.now(),
+            });
+            if (validResolvedUrl) {
+              clientDirectStreamCache.set(cleanId, validResolvedUrl);
+              return validResolvedUrl;
             }
           }
         } catch (err: any) {

@@ -482,7 +482,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       container = document.createElement('div');
       container.id = 'twilight-yt-audio-container';
       container.style.cssText =
-        'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0.01;pointer-events:none;z-index:-1;overflow:hidden;';
+        'position:fixed;right:0;bottom:0;width:200px;height:200px;opacity:0.001;pointer-events:none;z-index:-1;overflow:hidden;';
       const inner = document.createElement('div');
       inner.id = 'twilight-yt-player';
       container.appendChild(inner);
@@ -494,8 +494,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (!YT || !YT.Player || ytPlayerRef.current) return;
       try {
         ytPlayerRef.current = new YT.Player('twilight-yt-player', {
-          width: '1',
-          height: '1',
+          width: '200',
+          height: '200',
           playerVars: {
             autoplay: 0,
             controls: 0,
@@ -1151,7 +1151,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ytPlayerRef.current?.stopVideo?.();
       } catch {}
       audio.pause();
-      audio.src = '';
     };
   }, []);
 
@@ -2075,7 +2074,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           streamResolvedAtRef.current = Date.now();
           if (audioRef.current) {
             audioRef.current.pause();
-            audioRef.current.src = '';
           }
           ytPlayerRef.current.setVolume(Math.round(stateRef.current.volume * 100));
           ytPlayerRef.current.setPlaybackRate(stateRef.current.playbackSpeed);
@@ -2096,25 +2094,31 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               return;
             }
             const pState = ytPlayerRef.current?.getPlayerState?.();
-            if (pState === 3) {
-              // Give YT buffering an extra 3000ms grace period before switching to HTML5
-              ytFallbackWatchdogRef.current = setTimeout(() => {
-                ytFallbackWatchdogRef.current = null;
-                if (
-                  reqId !== playRequestIdRef.current ||
-                  activeEngineRef.current !== 'yt' ||
-                  intentionalPauseRef.current
-                ) {
-                  return;
-                }
-                if (ytPlayerRef.current?.getPlayerState?.() !== 1) {
-                  startHtml5StreamPlayback(0, true);
-                }
-              }, 3000);
-            } else if (pState !== 1) {
-              startHtml5StreamPlayback(0, true);
+            if (pState === 1) return;
+            if (pState !== 3) {
+              try {
+                ytPlayerRef.current?.playVideo?.();
+              } catch {}
             }
-          }, 1800);
+            if (Boolean(directResolvedUrl) && pState !== 3) {
+              startHtml5StreamPlayback(0, true);
+              return;
+            }
+            // Give YT buffering/startup an extra 3200ms grace period before switching to HTML5
+            ytFallbackWatchdogRef.current = setTimeout(() => {
+              ytFallbackWatchdogRef.current = null;
+              if (
+                reqId !== playRequestIdRef.current ||
+                activeEngineRef.current !== 'yt' ||
+                intentionalPauseRef.current
+              ) {
+                return;
+              }
+              if (ytPlayerRef.current?.getPlayerState?.() !== 1) {
+                startHtml5StreamPlayback(0, true);
+              }
+            }, 3200);
+          }, 2000);
           return;
         } catch {
           // Fall through to HTML5 stream playback
