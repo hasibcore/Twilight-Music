@@ -1300,16 +1300,22 @@ class PlayerProvider extends ChangeNotifier {
         final query = seedSong != null
             ? '${seedSong.title} ${seedSong.artist}'
             : 'trending music hits';
-        final remoteResults = await musicRepository.searchAll(query).timeout(const Duration(seconds: 5));
-        if (autoplayReqId != _playRequestId || _intentionalPause) return;
-        final newTracks = remoteResults.songs
-            .where((s) => !_queue.any((q) => q.id == s.id || q.isSameTrack(s)))
-            .toList();
-        if (newTracks.isNotEmpty) {
-          _queue.addAll(newTracks.take(5));
-          _currentIndex = (_currentIndex + 1).clamp(0, _queue.length - 1);
-          await playSong(_queue[_currentIndex], queueIndex: _currentIndex);
-          return;
+        final tempClient = http.Client();
+        try {
+          final ytDatasource = YouTubeRemoteDatasource(client: tempClient, apiKey: '');
+          final remoteResults = await ytDatasource.searchAll(query).timeout(const Duration(seconds: 5));
+          if (autoplayReqId != _playRequestId || _intentionalPause) return;
+          final newTracks = remoteResults.songs
+              .where((s) => !_queue.any((q) => q.id == s.id || q.isSameTrack(s)))
+              .toList();
+          if (newTracks.isNotEmpty) {
+            _queue.addAll(newTracks.take(5));
+            _currentIndex = (_currentIndex + 1).clamp(0, _queue.length - 1);
+            await playSong(_queue[_currentIndex], queueIndex: _currentIndex);
+            return;
+          }
+        } finally {
+          tempClient.close();
         }
       } catch (e) {
         AppLogger.info('Autoplay repository search fallback: $e');
