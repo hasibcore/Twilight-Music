@@ -256,6 +256,11 @@ class PlayerProvider extends ChangeNotifier {
           _errorSkipTimer?.cancel();
           _errorSkipTimer = null;
           if (_intentionalPause) return;
+          if (_isPlayingOfflineFile && _currentSong != null) {
+            _isPlayingOfflineFile = false;
+            unawaited(DownloadService.deleteTrack(_currentSong!.id));
+            YouTubeAudioSource.invalidateDownloadsCache();
+          }
           final pos = _currentPosition;
           if (_currentSong != null &&
               !_isAutoRecovering &&
@@ -645,7 +650,7 @@ class PlayerProvider extends ChangeNotifier {
       // 1. LOCAL-FIRST OFFLINE SHORT-CIRCUIT:
       // Check verified local downloads BEFORE any network resolution call so Airplane Mode
       // plays downloaded tracks (including `sp_...` imported tracks) immediately!
-      final verifiedDownload = DownloadService.findVerifiedDownload(song.id);
+      final verifiedDownload = forceRefreshStream ? null : DownloadService.findVerifiedDownload(song.id);
       if (verifiedDownload != null) {
         cleanId = verifiedDownload.resolvedVideoId;
         _isPlayingOfflineFile = true;
@@ -678,7 +683,7 @@ class PlayerProvider extends ChangeNotifier {
         if (currentRequestId != _playRequestId) return;
 
         // Re-check local downloads with resolved cleanId in case it was downloaded under cleanId
-        final resolvedLocal = DownloadService.findVerifiedDownload(cleanId);
+        final resolvedLocal = forceRefreshStream ? null : DownloadService.findVerifiedDownload(cleanId);
         if (resolvedLocal != null) {
           _isPlayingOfflineFile = true;
         } else if (cleanId.length != 11 && !_isTest) {
@@ -800,6 +805,11 @@ class PlayerProvider extends ChangeNotifier {
         }
       } catch (primaryErr) {
         if (currentRequestId != _playRequestId || _intentionalPause) return;
+        if (_isPlayingOfflineFile) {
+          _isPlayingOfflineFile = false;
+          unawaited(DownloadService.deleteTrack(targetSong.id));
+          YouTubeAudioSource.invalidateDownloadsCache();
+        }
         AppLogger.networkDisconnect(
           'playerProvider:primarySource',
           'Primary audio source failed for "${targetSong.title}", trying fallback',
@@ -920,6 +930,11 @@ class PlayerProvider extends ChangeNotifier {
       unawaited(
         _audioPlayer!.play().catchError((Object playErr) {
           if (currentRequestId != _playRequestId || _intentionalPause) return;
+          if (_isPlayingOfflineFile) {
+            _isPlayingOfflineFile = false;
+            unawaited(DownloadService.deleteTrack(targetSong.id));
+            YouTubeAudioSource.invalidateDownloadsCache();
+          }
           AppLogger.networkDisconnect(
             'playerProvider:nativePlay',
             'Native play() failed for "${targetSong.title}"',

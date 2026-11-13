@@ -159,6 +159,25 @@ async function deleteOfflineBlobFromIdb(songId: string): Promise<void> {
   });
 }
 
+async function isHealthyAudioBlob(blob: Blob | null | undefined): Promise<boolean> {
+  if (!blob || !(blob instanceof Blob) || blob.size <= 10000) return false;
+  try {
+    const headText = (await blob.slice(0, 16).text()).trimStart();
+    if (
+      headText.startsWith('#EXTM3U') ||
+      headText.startsWith('<!DOC') ||
+      headText.startsWith('<html') ||
+      headText.startsWith('<HTML') ||
+      headText.startsWith('{')
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return blob.size > 10000;
+  }
+}
+
 export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Playback state: start with no active song until the user explicitly clicks a track
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
@@ -1008,6 +1027,15 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
           MusicApi.invalidateClientDirectStreamCache(activeSong.id);
           const failedSrc = audioRef.current.getAttribute('src') || '';
+          if (failedSrc.startsWith('blob:')) {
+            try {
+              if ('caches' in window) {
+                const cache = await caches.open(OFFLINE_CACHE_NAME);
+                await cache.delete(`/offline-audio/${encodeURIComponent(activeSong.id)}`);
+              }
+              await deleteOfflineBlobFromIdb(activeSong.id);
+            } catch {}
+          }
           const cleanId = (activeSong.id || '').trim();
           const isStdYt =
             cleanId.length === 11 &&
@@ -1398,10 +1426,15 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         const res = await fetch(url, { signal: controller.signal });
         clearTimeout(timer);
-        const ct = res.headers.get('content-type') || '';
-        if (res.ok && !ct.includes('text/html')) {
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (
+          res.ok &&
+          !ct.includes('text/html') &&
+          !ct.includes('application/json') &&
+          !ct.includes('mpegurl')
+        ) {
           const blob = await res.blob();
-          if (blob.size > 10000) {
+          if (await isHealthyAudioBlob(blob)) {
             return blob;
           }
         }
@@ -1739,18 +1772,19 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if ('caches' in window) {
         try {
           const cache = await caches.open(OFFLINE_CACHE_NAME);
-          const cachedRes = await cache.match(
-            `/offline-audio/${encodeURIComponent(normalizedSong.id)}`
-          );
+          const cachePath = `/offline-audio/${encodeURIComponent(normalizedSong.id)}`;
+          const cachedRes = await cache.match(cachePath);
           if (cachedRes && !abortController.signal.aborted) {
             const blob = await cachedRes.blob();
-            if (blob.size > 1000 && !abortController.signal.aborted) {
+            if ((await isHealthyAudioBlob(blob)) && !abortController.signal.aborted) {
               if (activeObjectUrlRef.current) {
                 URL.revokeObjectURL(activeObjectUrlRef.current);
               }
               resolvedAudioUrl = URL.createObjectURL(blob);
               activeObjectUrlRef.current = resolvedAudioUrl;
               loadedFromOfflineStorage = true;
+            } else if (blob.size <= 10000 || !(await isHealthyAudioBlob(blob))) {
+              await cache.delete(cachePath).catch(() => {});
             }
           }
         } catch {}
@@ -1759,13 +1793,15 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (!loadedFromOfflineStorage && !abortController.signal.aborted) {
         try {
           const idbBlob = await getOfflineBlobFromIdb(normalizedSong.id);
-          if (idbBlob && idbBlob.size > 1000 && !abortController.signal.aborted) {
+          if (idbBlob && (await isHealthyAudioBlob(idbBlob)) && !abortController.signal.aborted) {
             if (activeObjectUrlRef.current) {
               URL.revokeObjectURL(activeObjectUrlRef.current);
             }
             resolvedAudioUrl = URL.createObjectURL(idbBlob);
             activeObjectUrlRef.current = resolvedAudioUrl;
             loadedFromOfflineStorage = true;
+          } else if (idbBlob) {
+            await deleteOfflineBlobFromIdb(normalizedSong.id).catch(() => {});
           }
         } catch {}
       }
@@ -2741,29 +2777,49 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       // Check if we already have the verified blob in IndexedDB or CacheStorage
       let audioBlob = await getOfflineBlobFromIdb(normalized.id);
+      if (audioBlob && !(await isHealthyAudioBlob(audioBlob))) {
+        await deleteOfflineBlobFromIdb(normalized.id).catch(() => {});
+        audioBlob = null;
+      }
       if (!audioBlob && 'caches' in window) {
         try {
           const cache = await caches.open(OFFLINE_CACHE_NAME);
-          const matched = await cache.match(`/offline-audio/${encodeURIComponent(normalized.id)}`);
+          const cachePath = `/offline-audio/${encodeURIComponent(normalized.id)}`;
+          const matched = await cache.match(cachePath);
           if (matched) {
             const b = await matched.blob();
-            if (b.size > 10000) audioBlob = b;
+            if (await isHealthyAudioBlob(b)) {
+              audioBlob = b;
+            } else {
+              await cache.delete(cachePath).catch(() => {});
+            }
           }
         } catch {}
       }
 
       const candidateUrls: string[] = [];
-      const resolvedDirect = await MusicApi.resolveClientDirectStreamUrl(normalized);
-      if (resolvedDirect) candidateUrls.push(resolvedDirect);
+      const explicitProxyStream = `/api/stream/${encodeURIComponent(normalized.id)}?title=${encodeURIComponent(normalized.title)}&artist=${encodeURIComponent(normalized.artist)}&duration=${encodeURIComponent(String(normalized.durationSeconds || 0))}`;
       const knownMaster = MusicApi.resolveKnownFullLengthMaster(normalized);
-      if (knownMaster && !candidateUrls.includes(knownMaster)) candidateUrls.push(knownMaster);
+      if (knownMaster && knownMaster.startsWith('/audio/')) {
+        candidateUrls.push(knownMaster);
+      }
+      candidateUrls.push(explicitProxyStream);
+      const resolvedDirect = await MusicApi.resolveClientDirectStreamUrl(normalized);
+      if (resolvedDirect && !candidateUrls.includes(resolvedDirect)) {
+        candidateUrls.push(resolvedDirect);
+      }
+      if (knownMaster && !candidateUrls.includes(knownMaster)) {
+        candidateUrls.push(knownMaster);
+      }
       const proxyStream = buildStreamUrl(normalized);
-      if (!candidateUrls.includes(proxyStream)) candidateUrls.push(proxyStream);
+      if (!candidateUrls.includes(proxyStream)) {
+        candidateUrls.push(proxyStream);
+      }
 
       if (!audioBlob) {
         for (const url of candidateUrls) {
-          const downloadedBlob = await fetchAudioBlobWithRetry(url, 2, 12000);
-          if (downloadedBlob && downloadedBlob.size > 10000) {
+          const downloadedBlob = await fetchAudioBlobWithRetry(url, 2, 25000);
+          if (downloadedBlob && (await isHealthyAudioBlob(downloadedBlob))) {
             audioBlob = downloadedBlob;
             break;
           }

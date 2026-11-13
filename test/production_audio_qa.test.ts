@@ -958,7 +958,7 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(workflowYml, /flutter build apk --release --android-skip-build-dependency-validation/);
   });
 
-  it('Scenario 27: Verify Official JioSaavn catalog fallback, music-video credit duration tolerance (75s), SoundCloud 30s preview rejection, multi-hour compilation exclusion, and in-viewport YT IFrame + removeAttribute(src)', () => {
+  it('Scenario 27: Verify strict artist/title/duration matching (preventing wrong-song & cover playback), Official JioSaavn catalog fallback, SoundCloud HLS download assembly & binary header validation, and post-download playback resilience', () => {
     const serverTs = fs.readFileSync(path.join(rootDir, 'server.ts'), 'utf8');
     const musicApiTs = fs.readFileSync(path.join(rootDir, 'src/services/musicApi.ts'), 'utf8');
     const musicContextTsx = fs.readFileSync(
@@ -969,32 +969,51 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
       path.join(rootDir, 'lib/core/services/audio_stream_extractor.dart'),
       'utf8'
     );
+    const downloadServiceDart = fs.readFileSync(
+      path.join(rootDir, 'lib/core/services/download_service.dart'),
+      'utf8'
+    );
+    const ytAudioSourceDart = fs.readFileSync(
+      path.join(rootDir, 'lib/core/services/youtube_audio_source.dart'),
+      'utf8'
+    );
     const ytDatasourceDart = fs.readFileSync(
       path.join(rootDir, 'lib/data/datasources/youtube_remote_datasource.dart'),
       'utf8'
     );
 
-    // 1. Server & Flutter allow up to 75s duration difference for music video credits (e.g. Mothura Coke Studio Bangla 385s vs 346s)
-    assert.match(serverTs, /const maxExactTitleDurDiff = isObak \? 22 : 75;/);
+    // 1. Server & Flutter enforce tight exact-title duration gate (18s/20s) when artist doesn't match, allow 65s only for verified Coke Studio matches, and have no relaxed wrong-song fallback loop
+    assert.match(serverTs, /const maxExactTitleDurDiff = isObak \? 18 : 20;/);
     assert.match(serverTs, /const maxAllowedDurDiff = isObak/);
-    assert.match(extractorDart, /final maxExactTitleDurDiff = isObak \? 22 : 75;/);
+    assert.doesNotMatch(serverTs, /Secondary relaxed candidate pass/);
+    assert.match(extractorDart, /final maxExactTitleDurDiff = isObak \? 18 : 20;/);
+    assert.match(extractorDart, /final maxAllowedDurDiff = isObak/);
 
     // 2. Official JioSaavn API primary search fallback in both Server and Flutter
     assert.match(serverTs, /Primary: Official JioSaavn API/);
     assert.match(ytDatasourceDart, /Primary: Official JioSaavn API/);
 
-    // 3. SoundCloud 30-second snipped preview URLs rejected on Server and Web
+    // 3. SoundCloud 30-second snipped preview URLs rejected on Server, Web, and Flutter
     assert.match(serverTs, /cf-preview-media\\\.sndcdn\\\.com/);
     assert.match(musicApiTs, /cf-preview-media\\\.sndcdn\\\.com/);
+    assert.match(extractorDart, /cf-preview-media\.sndcdn\.com/);
 
     // 4. Multi-hour compilations excluded from single-song search & Dynamic Taste mixes, and 24/7 live broadcasts filtered from search
     assert.match(serverTs, /const boundedFallbackYt = wantsMix/);
     assert.match(serverTs, /const isLiveBroadcast = !rawLengthText \|\| hasLiveBadge;/);
 
-    // 5. Web MusicContext renders YT IFrame inside viewport (200x200) and guards YT watchdog with directResolvedUrl
+    // 5. Post-download playback integrity: Flutter assembles HLS .m3u8 segments into normalized fMP4, validates binary headers against #EXTM3U/HTML, and bypasses local files on forceRefresh; Web validates blobs with isHealthyAudioBlob
+    assert.match(downloadServiceDart, /_downloadHlsPlaylistToFile/);
+    assert.match(downloadServiceDart, /_normalizeAssembledFmp4Bytes/);
+    assert.match(downloadServiceDart, /prefix\.startsWith\('#EXTM3U'\)/);
+    assert.doesNotMatch(downloadServiceDart, /0\.985/);
+    assert.match(ytAudioSourceDart, /if \(!forceRefresh\)/);
+    assert.match(musicContextTsx, /isHealthyAudioBlob/);
+    assert.match(musicContextTsx, /explicitProxyStream/);
     assert.match(musicContextTsx, /width:200px;height:200px;opacity:0\.001/);
     assert.match(musicContextTsx, /if \(Boolean\(directResolvedUrl\) && pState !== 3\)/);
   });
 });
+
 
 

@@ -939,7 +939,7 @@ async function resolveExactTrackStreamUrl(
               continue;
             }
 
-            const maxExactTitleDurDiff = isObak ? 22 : 75;
+            const maxExactTitleDurDiff = isObak ? 18 : 20;
             const exactDistinctiveTitleMatch =
               isDistinctiveCoreTitle &&
               (candNormFull === normCoreTitle || candNormBase === normCoreTitle) &&
@@ -965,17 +965,14 @@ async function resolveExactTrackStreamUrl(
             }
           }
 
-          // 4. DURATION GATE (accounts for music video intros/credits up to 75s when title/artist/Coke Studio matches):
+          // 4. DURATION GATE (allows up to 65s for Coke Studio music video intros/credits when artist & Coke Studio match, 32s otherwise):
           if (effectiveDuration > 0 && candDurSec > 0) {
             const durDiff = Math.abs(candDurSec - effectiveDuration);
             const maxAllowedDurDiff = isObak
               ? 25
-              : (wantsCokeStudio && candIsCokeStudio) ||
-                artistMatched ||
-                candNormBase === normCoreTitle ||
-                candNormFull === normCoreTitle
-              ? 75
-              : 42;
+              : wantsCokeStudio && candIsCokeStudio
+              ? 65
+              : 32;
             if (durDiff > maxAllowedDurDiff) {
               continue;
             }
@@ -1017,36 +1014,6 @@ async function resolveExactTrackStreamUrl(
           if (score > bestScore) {
             bestScore = score;
             bestMatch = item;
-          }
-        }
-
-        // Secondary relaxed candidate pass when strict gates yielded no match on non-Obak tracks
-        if (!bestMatch && !isObak && !wantsLiveOrConcert) {
-          for (let i = 0; i < results.length; i++) {
-            const item = results[i];
-            const moreInfo = item?.more_info || {};
-            if (!moreInfo?.encrypted_media_url) continue;
-            const candDurSec = Number(moreInfo?.duration || 0);
-            if (candDurSec <= 45) continue;
-            const candTitleRaw = decodeHtmlEntitiesServer(String(item?.title || '')).toLowerCase();
-            const candTitle = stripParentheticalAndEntities(candTitleRaw).toLowerCase();
-            const candSub = decodeHtmlEntitiesServer(String(item?.subtitle || '')).toLowerCase();
-            const candAlbum = decodeHtmlEntitiesServer(String(moreInfo?.album || '')).toLowerCase();
-            const combined = `${candTitleRaw} ${candSub} ${candAlbum}`;
-            const candIsCokeStudio = combined.includes('coke studio');
-            if (wantsCokeStudio !== candIsCokeStudio) continue;
-            if (
-              !wantsLofiOrRemix &&
-              /\b(?:karaoke|tribute|parody|ringtone)\b/i.test(combined)
-            ) {
-              continue;
-            }
-            const matchedAnyCore =
-              coreTokens.length === 0 || coreTokens.some((ct) => tokenMatchesText(ct, combined));
-            if (!matchedAnyCore) continue;
-            if (effectiveDuration > 0 && Math.abs(candDurSec - effectiveDuration) > 95) continue;
-            bestMatch = item;
-            break;
           }
         }
 
@@ -1416,6 +1383,14 @@ async function resolveExactTrackStreamUrl(
       }
     } catch {
       // continue
+    } finally {
+      try {
+        for (const f of fs.readdirSync(process.cwd())) {
+          if (f.endsWith('-watch.html') || f.endsWith('-player-script.js')) {
+            fs.unlinkSync(path.join(process.cwd(), f));
+          }
+        }
+      } catch {}
     }
     return null;
   };

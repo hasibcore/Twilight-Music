@@ -31,12 +31,30 @@ class DownloadItem {
     String? resolvedVideoId,
   }) : resolvedVideoId = resolvedVideoId ?? song.id;
 
-  /// Checks whether the downloaded local audio file exists on disk and is non-corrupted (>10KB)
+  /// Checks whether the downloaded local audio file exists on disk, is non-corrupted (>10KB),
+  /// and is a genuine binary media container (not an #EXTM3U playlist, HTML page, or JSON error).
   bool get isFileHealthy {
     if (kIsWeb || localFilePath.isEmpty) return false;
     try {
       final file = File(localFilePath);
-      return file.existsSync() && file.lengthSync() > 10000;
+      if (!file.existsSync()) return false;
+      final len = file.lengthSync();
+      if (len <= 10000) return false;
+      final raf = file.openSync(mode: FileMode.read);
+      try {
+        final headBytes = raf.readSync(len < 16 ? len : 16);
+        final prefix = String.fromCharCodes(headBytes).trimLeft();
+        if (prefix.startsWith('#EXTM3U') ||
+            prefix.startsWith('<!DOC') ||
+            prefix.startsWith('<html') ||
+            prefix.startsWith('<HTML') ||
+            prefix.startsWith('{')) {
+          return false;
+        }
+      } finally {
+        raf.closeSync();
+      }
+      return true;
     } catch (_) {
       return false;
     }
@@ -193,14 +211,37 @@ class DownloadService {
       final doneM4a = File('${tempDir.path}/twilight_cache_$cleanId.m4a.done');
       final doneWebm = File('${tempDir.path}/twilight_cache_$cleanId.webm.done');
 
+      bool isValidBinaryAudioFile(File f) {
+        try {
+          if (!f.existsSync() || f.lengthSync() <= 10000) return false;
+          final raf = f.openSync(mode: FileMode.read);
+          try {
+            final headBytes = raf.readSync(16);
+            final prefix = String.fromCharCodes(headBytes).trimLeft();
+            if (prefix.startsWith('#EXTM3U') ||
+                prefix.startsWith('<!DOC') ||
+                prefix.startsWith('<html') ||
+                prefix.startsWith('<HTML') ||
+                prefix.startsWith('{')) {
+              return false;
+            }
+          } finally {
+            raf.closeSync();
+          }
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }
+
       File? sourceCached;
-      if (v31CacheM4a.existsSync() && v31DoneM4a.existsSync() && v31CacheM4a.lengthSync() > 100000) {
+      if (v31CacheM4a.existsSync() && v31DoneM4a.existsSync() && v31CacheM4a.lengthSync() > 100000 && isValidBinaryAudioFile(v31CacheM4a)) {
         sourceCached = v31CacheM4a;
-      } else if (v31CacheWebm.existsSync() && v31DoneWebm.existsSync() && v31CacheWebm.lengthSync() > 100000) {
+      } else if (v31CacheWebm.existsSync() && v31DoneWebm.existsSync() && v31CacheWebm.lengthSync() > 100000 && isValidBinaryAudioFile(v31CacheWebm)) {
         sourceCached = v31CacheWebm;
-      } else if (cacheM4a.existsSync() && doneM4a.existsSync() && cacheM4a.lengthSync() > 100000) {
+      } else if (cacheM4a.existsSync() && doneM4a.existsSync() && cacheM4a.lengthSync() > 100000 && isValidBinaryAudioFile(cacheM4a)) {
         sourceCached = cacheM4a;
-      } else if (cacheWebm.existsSync() && doneWebm.existsSync() && cacheWebm.lengthSync() > 100000) {
+      } else if (cacheWebm.existsSync() && doneWebm.existsSync() && cacheWebm.lengthSync() > 100000 && isValidBinaryAudioFile(cacheWebm)) {
         sourceCached = cacheWebm;
       }
 
@@ -223,7 +264,8 @@ class DownloadService {
             preferDownload: true,
             title: targetSong.title,
             artist: targetSong.artist,
-          ).timeout(const Duration(seconds: 8));
+            durationSeconds: targetSong.durationSeconds,
+          ).timeout(const Duration(seconds: 9));
           if (streamResult != null && streamResult.url.isNotEmpty) {
             streamUrl = streamResult.url;
             streamHeaders = streamResult.headers;
@@ -267,24 +309,34 @@ class DownloadService {
           throw Exception('Download cancelled by user');
         }
 
-        // 3. Download using resilient chunked Range requests to prevent CDN bandwidth throttling
-        final downloadedBytes = await _downloadUrlWithResilientRanges(
-          url: streamUrl,
-          headers: streamHeaders,
-          tmpFilePath: tmpFilePath,
-          knownTotalBytes: streamTotalBytes,
-          songId: cleanId,
-          originalSongId: originalSongId,
-          onProgress: onProgress,
-        );
+        // 3. Download using HLS segment assembly (for .m3u8 SoundCloud streams) or resilient chunked Range requests
+        final bool isHlsStream = streamUrl.contains('.m3u8');
+        final downloadedBytes = isHlsStream
+            ? await _downloadHlsPlaylistToFile(
+                url: streamUrl,
+                headers: streamHeaders,
+                tmpFilePath: tmpFilePath,
+                songId: cleanId,
+                originalSongId: originalSongId,
+                onProgress: onProgress,
+              )
+            : await _downloadUrlWithResilientRanges(
+                url: streamUrl,
+                headers: streamHeaders,
+                tmpFilePath: tmpFilePath,
+                knownTotalBytes: streamTotalBytes,
+                songId: cleanId,
+                originalSongId: originalSongId,
+                onProgress: onProgress,
+              );
 
         if (_cancelledDownloads.contains(cleanId) || _cancelledDownloads.contains(originalSongId)) {
           throw Exception('Download cancelled by user');
         }
 
         final tmpFile = File(tmpFilePath);
-        if (!tmpFile.existsSync() || tmpFile.lengthSync() < 10000) {
-          throw Exception('Downloaded file is incomplete or empty.');
+        if (!isValidBinaryAudioFile(tmpFile)) {
+          throw Exception('Downloaded file is incomplete or invalid container.');
         }
 
         final finalAudioFile = File(audioFilePath);
@@ -426,13 +478,6 @@ class DownloadService {
             throw Exception('Download cancelled by user');
           }
 
-          // Critical Safeguard: If within 32 KB of totalBytes or >= 98.5% downloaded,
-          // all audible frames are already written. Finalize immediately to prevent CDN tail-range hangs!
-          if (downloadedBytes >= (totalBytes - 32768) || (downloadedBytes >= (totalBytes * 0.985).toInt())) {
-            downloadedBytes = totalBytes;
-            break;
-          }
-
           final int start = downloadedBytes;
           final int end = (start + chunkSize - 1) < totalBytes ? (start + chunkSize - 1) : (totalBytes - 1);
 
@@ -492,19 +537,8 @@ class DownloadService {
             } catch (e) {
               if (isCancelled()) rethrow;
               retries++;
-              // If more than 88% of file is already downloaded, finalize immediately without hanging user
-              if (downloadedBytes >= (totalBytes * 0.88).toInt()) {
-                chunkSuccess = true;
-                downloadedBytes = totalBytes;
-                break;
-              }
               await Future.delayed(const Duration(milliseconds: 250));
-              if (retries >= 2) {
-                if (downloadedBytes >= (totalBytes * 0.75).toInt()) {
-                  chunkSuccess = true;
-                  downloadedBytes = totalBytes;
-                  break;
-                }
+              if (retries >= 3) {
                 rethrow;
               }
             }
@@ -543,6 +577,198 @@ class DownloadService {
       rethrow;
     } finally {
       client.close();
+    }
+  }
+
+  /// Downloads an HLS .m3u8 audio playlist (such as SoundCloud AAC 160k/96k fMP4 or MP3 segments),
+  /// assembles all segments in order, normalizes fMP4 container boxes, and writes a clean binary .m4a file.
+  static Future<int> _downloadHlsPlaylistToFile({
+    required String url,
+    required Map<String, String> headers,
+    required String tmpFilePath,
+    required String songId,
+    String? originalSongId,
+    required void Function(double progress) onProgress,
+  }) async {
+    bool isCancelled() =>
+        _cancelledDownloads.contains(songId) ||
+        (originalSongId != null && _cancelledDownloads.contains(originalSongId));
+
+    final client = http.Client();
+    try {
+      final playlistRes = await client
+          .get(Uri.parse(url), headers: headers)
+          .timeout(const Duration(seconds: 6));
+      if (playlistRes.statusCode != 200) {
+        throw Exception('HLS playlist HTTP ${playlistRes.statusCode}');
+      }
+      final m3u8Text = playlistRes.body;
+      final baseUri = Uri.parse(url);
+      String resolveSegUrl(String raw) {
+        final trimmed = raw.trim();
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+          return trimmed;
+        }
+        return baseUri.resolve(trimmed).toString();
+      }
+
+      final segmentUrls = <String>[];
+      final mapMatch = RegExp(r'#EXT-X-MAP:URI="([^"]+)"').firstMatch(m3u8Text);
+      if (mapMatch != null && mapMatch.group(1) != null && mapMatch.group(1)!.isNotEmpty) {
+        segmentUrls.add(resolveSegUrl(mapMatch.group(1)!));
+      }
+
+      for (final rawLine in m3u8Text.split('\n')) {
+        final line = rawLine.trim();
+        if (line.isEmpty || line.startsWith('#')) continue;
+        segmentUrls.add(resolveSegUrl(line));
+      }
+
+      if (segmentUrls.isEmpty) {
+        throw Exception('HLS playlist contained no audio segments');
+      }
+
+      final segmentBytes = List<Uint8List?>.filled(segmentUrls.length, null);
+      int completedCount = 0;
+      const int batchSize = 4;
+
+      for (int batchStart = 0; batchStart < segmentUrls.length; batchStart += batchSize) {
+        if (isCancelled()) {
+          throw Exception('Download cancelled by user');
+        }
+        final int batchEnd = (batchStart + batchSize < segmentUrls.length)
+            ? batchStart + batchSize
+            : segmentUrls.length;
+
+        await Future.wait(
+          List.generate(batchEnd - batchStart, (offset) async {
+            final idx = batchStart + offset;
+            final segUrl = segmentUrls[idx];
+            Uint8List? fetched;
+            for (int attempt = 0; attempt < 3; attempt++) {
+              if (isCancelled()) return;
+              try {
+                final res = await client
+                    .get(Uri.parse(segUrl), headers: headers)
+                    .timeout(const Duration(seconds: 6));
+                if (res.statusCode == 200 || res.statusCode == 206) {
+                  fetched = res.bodyBytes;
+                  break;
+                }
+              } catch (_) {}
+              await Future.delayed(Duration(milliseconds: 180 * (attempt + 1)));
+            }
+            if (fetched == null || fetched.isEmpty) {
+              throw Exception('Failed to download HLS segment $idx');
+            }
+            segmentBytes[idx] = fetched;
+            completedCount++;
+            final progress = 0.08 + (0.88 * (completedCount / segmentUrls.length));
+            onProgress(progress.clamp(0.08, 0.96));
+          }),
+        );
+      }
+
+      final builder = BytesBuilder(copy: false);
+      for (final b in segmentBytes) {
+        if (b != null) builder.add(b);
+      }
+      final rawAll = builder.takeBytes();
+      final finalBytes = mapMatch != null ? _normalizeAssembledFmp4Bytes(rawAll) : rawAll;
+
+      final file = File(tmpFilePath);
+      if (file.existsSync()) {
+        try {
+          file.deleteSync();
+        } catch (_) {}
+      }
+      await file.writeAsBytes(finalBytes, flush: true);
+      onProgress(0.99);
+      return finalBytes.length;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Strips fragmented MP4 `styp` and `sidx` boxes and patches `moov` (`mvhd`, `mdhd`, `tkhd`)
+  /// total duration so native players (ExoPlayer, AVPlayer, Windows Media Player) seek & play seamlessly.
+  static Uint8List _normalizeAssembledFmp4Bytes(Uint8List input) {
+    try {
+      final bd = ByteData.sublistView(input);
+      int off = 0;
+      final boxes = <Map<String, dynamic>>[];
+      int totalSubsegDur = 0;
+      int sidxTimescale = 44100;
+
+      while (off + 8 <= input.length) {
+        final sz = bd.getUint32(off, Endian.big);
+        final tp = String.fromCharCodes(input.sublist(off + 4, off + 8));
+        if (sz < 8 || off + sz > input.length) break;
+        final data = Uint8List.sublistView(input, off, off + sz);
+        boxes.add({'tp': tp, 'sz': sz, 'data': data});
+        if (tp == 'sidx' && sz >= 44) {
+          final ver = data[8];
+          final subBd = ByteData.sublistView(data);
+          final ts = subBd.getUint32(16, Endian.big);
+          if (ts > 0) sidxTimescale = ts;
+          final subsegDur = subBd.getUint32(ver == 0 ? 36 : 44, Endian.big);
+          totalSubsegDur += subsegDur;
+        }
+        off += sz;
+      }
+
+      if (boxes.isEmpty || totalSubsegDur <= 0) return input;
+      final double durSec = sidxTimescale > 0 ? totalSubsegDur / sidxTimescale : 0;
+
+      void patchMoovDurations(Uint8List slice) {
+        final sliceBd = ByteData.sublistView(slice);
+        int p = 0;
+        while (p + 8 <= slice.length) {
+          final bsz = sliceBd.getUint32(p, Endian.big);
+          final btp = String.fromCharCodes(slice.sublist(p + 4, p + 8));
+          if (bsz < 8 || p + bsz > slice.length) break;
+          if (const {'moov', 'trak', 'mdia', 'minf', 'stbl', 'mvex'}.contains(btp)) {
+            patchMoovDurations(Uint8List.sublistView(slice, p + 8, p + bsz));
+          } else if (btp == 'mvhd' || btp == 'mdhd') {
+            final ver = slice[p + 8];
+            final ts = sliceBd.getUint32(p + (ver == 0 ? 20 : 28), Endian.big);
+            if (ts > 0) {
+              final targetDur = (durSec * ts).round();
+              if (ver == 0) {
+                sliceBd.setUint32(p + 24, targetDur, Endian.big);
+              } else {
+                sliceBd.setUint64(p + 32, targetDur, Endian.big);
+              }
+            }
+          } else if (btp == 'tkhd') {
+            final ver = slice[p + 8];
+            final targetDur = (durSec * 1000).round();
+            if (ver == 0) {
+              sliceBd.setUint32(p + 28, targetDur, Endian.big);
+            } else {
+              sliceBd.setUint64(p + 36, targetDur, Endian.big);
+            }
+          }
+          p += bsz;
+        }
+      }
+
+      final out = BytesBuilder(copy: false);
+      for (final b in boxes) {
+        final tp = b['tp'] as String;
+        final data = b['data'] as Uint8List;
+        if (tp == 'styp' || tp == 'sidx') continue;
+        if (tp == 'moov' && durSec > 0) {
+          final moovCopy = Uint8List.fromList(data);
+          patchMoovDurations(moovCopy);
+          out.add(moovCopy);
+        } else {
+          out.add(data);
+        }
+      }
+      return out.takeBytes();
+    } catch (_) {
+      return input;
     }
   }
 

@@ -404,16 +404,15 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                   ],
                 ),
                 onTap: () {
-                  if (isHealthy) {
-                    context.read<PlayerProvider>().selectAndPlaySong(
-                          item.song,
-                          newQueue: downloadProv.downloadedSongs,
-                        );
-                  } else if (!isDownloading) {
+                  final allDownloadedQueue = downloadProv.downloads.map((d) => d.song).toList();
+                  context.read<PlayerProvider>().selectAndPlaySong(
+                        item.song,
+                        newQueue: allDownloadedQueue.isNotEmpty
+                            ? allDownloadedQueue
+                            : downloadProv.downloadedSongs,
+                      );
+                  if (!isHealthy && !isDownloading) {
                     downloadProv.retryDownload(item.song);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Re-downloading "${item.song.title}"...')),
-                    );
                   }
                 },
               );

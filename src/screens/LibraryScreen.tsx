@@ -463,12 +463,13 @@ export const LibraryScreen: React.FC = () => {
                   </div>
                 </div>
 
-                {downloads.filter((d) => d.offlineStatus !== 'missing').length > 0 && (
+                {downloads.length > 0 && (
                   <button
                     onClick={() => {
                       const playable = downloads.filter((d) => d.offlineStatus !== 'missing');
-                      if (playable.length > 0) {
-                        selectAndPlaySong(playable[0], playable);
+                      const queueToUse = playable.length > 0 ? playable : downloads;
+                      if (queueToUse.length > 0) {
+                        selectAndPlaySong(queueToUse[0], queueToUse);
                       }
                     }}
                     className="px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs flex items-center gap-2 self-start sm:self-auto shadow-lg shadow-emerald-500/25"
@@ -491,10 +492,9 @@ export const LibraryScreen: React.FC = () => {
                     <div
                       key={`dl_${song.id}`}
                       onClick={() => {
-                        if (isMissing) {
+                        selectAndPlaySong(song, downloads);
+                        if (isMissing && !isSaving) {
                           retryDownload(song);
-                        } else if (!isSaving) {
-                          selectAndPlaySong(song, downloads.filter((d) => d.offlineStatus !== 'missing'));
                         }
                       }}
                       className="group flex items-center gap-3.5 p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all cursor-pointer"

@@ -498,6 +498,7 @@ class YouTubeAudioSource extends StreamAudioSource {
     }
 
     // 1. Check permanent offline downloads (uses in-memory cache, refreshes every 30s)
+    // Bypass local files when forceRefresh is requested so corrupt local files never trap retries.
     final now = DateTime.now();
     if (_downloadsCacheSnapshot == null ||
         now.difference(_downloadsCacheTime).inSeconds > 30) {
@@ -518,25 +519,27 @@ class YouTubeAudioSource extends StreamAudioSource {
           duration: Duration(seconds: fallbackSecs),
         );
 
-    for (final d in _downloadsCacheSnapshot!) {
-      if ((d.song.id == cleanId || d.song.id == song.id || d.resolvedVideoId == cleanId) &&
-          d.isFileHealthy) {
-        // For offline playback, we need the local artwork — fetch it (fast, local FS only)
-        artUri = await ArtworkService.getArtworkUri(
-          thumbnailUrl: song.thumbnailUrl,
-          songId: cleanId,
-        );
-        AppLogger.info('Playing "${song.title}" from permanent offline downloads');
-        final mediaItem = buildMediaItem(artUri);
-        return AudioSource.file(
-          d.localFilePath,
-          tag: mediaItem.copyWith(
-            album: 'Twilight Offline',
-            artUri: (d.localThumbnailPath != null && d.localThumbnailPath!.isNotEmpty && File(d.localThumbnailPath!).existsSync())
-                ? Uri.file(d.localThumbnailPath!)
-                : mediaItem.artUri,
-          ),
-        );
+    if (!forceRefresh) {
+      for (final d in _downloadsCacheSnapshot!) {
+        if ((d.song.id == cleanId || d.song.id == song.id || d.resolvedVideoId == cleanId) &&
+            d.isFileHealthy) {
+          // For offline playback, we need the local artwork — fetch it (fast, local FS only)
+          artUri = await ArtworkService.getArtworkUri(
+            thumbnailUrl: song.thumbnailUrl,
+            songId: cleanId,
+          );
+          AppLogger.info('Playing "${song.title}" from permanent offline downloads');
+          final mediaItem = buildMediaItem(artUri);
+          return AudioSource.file(
+            d.localFilePath,
+            tag: mediaItem.copyWith(
+              album: 'Twilight Offline',
+              artUri: (d.localThumbnailPath != null && d.localThumbnailPath!.isNotEmpty && File(d.localThumbnailPath!).existsSync())
+                  ? Uri.file(d.localThumbnailPath!)
+                  : mediaItem.artUri,
+            ),
+          );
+        }
       }
     }
 
@@ -547,22 +550,24 @@ class YouTubeAudioSource extends StreamAudioSource {
     final doneM4a = File('${tempDir.path}/twilight_v31_cache_$cleanId.m4a.done');
     final doneWebm = File('${tempDir.path}/twilight_v31_cache_$cleanId.webm.done');
 
-    if (cacheFileM4a.existsSync() && doneM4a.existsSync() && cacheFileM4a.lengthSync() > 100000) {
+    if (!forceRefresh && cacheFileM4a.existsSync() && doneM4a.existsSync() && cacheFileM4a.lengthSync() > 100000) {
       artUri = await ArtworkService.getArtworkUri(thumbnailUrl: song.thumbnailUrl, songId: cleanId);
       AppLogger.info('Playing "${song.title}" from verified local progressive cache (m4a)');
       return AudioSource.file(cacheFileM4a.path, tag: buildMediaItem(artUri));
     }
-    if (cacheFileWebm.existsSync() && doneWebm.existsSync() && cacheFileWebm.lengthSync() > 100000) {
+    if (!forceRefresh && cacheFileWebm.existsSync() && doneWebm.existsSync() && cacheFileWebm.lengthSync() > 100000) {
       artUri = await ArtworkService.getArtworkUri(thumbnailUrl: song.thumbnailUrl, songId: cleanId);
       AppLogger.info('Playing "${song.title}" from verified local progressive cache (webm)');
       return AudioSource.file(cacheFileWebm.path, tag: buildMediaItem(artUri));
     }
     // Clean up any unverified or corrupt cache file
-    if (cacheFileM4a.existsSync() && !doneM4a.existsSync()) {
+    if (cacheFileM4a.existsSync() && (!doneM4a.existsSync() || forceRefresh)) {
       try { cacheFileM4a.deleteSync(); } catch (_) {}
+      try { if (doneM4a.existsSync()) doneM4a.deleteSync(); } catch (_) {}
     }
-    if (cacheFileWebm.existsSync() && !doneWebm.existsSync()) {
+    if (cacheFileWebm.existsSync() && (!doneWebm.existsSync() || forceRefresh)) {
       try { cacheFileWebm.deleteSync(); } catch (_) {}
+      try { if (doneWebm.existsSync()) doneWebm.deleteSync(); } catch (_) {}
     }
 
     // 3. NETWORK PATH: Run stream resolution & artwork fetch IN PARALLEL

@@ -1194,7 +1194,7 @@ class AudioStreamExtractor {
           }
 
           final isObak = normCoreTitle.contains('obak') && normCoreTitle.contains('bhalobasha');
-          final maxExactTitleDurDiff = isObak ? 22 : 75;
+          final maxExactTitleDurDiff = isObak ? 18 : 20;
           final exactDistinctiveTitleMatch = isDistinctiveCoreTitle &&
               (candNormFull == normCoreTitle || candNormBase == normCoreTitle) &&
               (targetDurationSeconds == null ||
@@ -1220,6 +1220,19 @@ class AudioStreamExtractor {
               targetDurationSeconds > 0 &&
               candDurSec > 0 &&
               (candDurSec - targetDurationSeconds).abs() > 28) {
+            continue;
+          }
+        }
+
+        final isObak = normCoreTitle.contains('obak') && normCoreTitle.contains('bhalobasha');
+        if (targetDurationSeconds != null && targetDurationSeconds > 0 && candDurSec > 0) {
+          final durDiff = (candDurSec - targetDurationSeconds).abs();
+          final maxAllowedDurDiff = isObak
+              ? 25
+              : (wantsCokeStudio && candIsCokeStudio)
+                  ? 65
+                  : 32;
+          if (durDiff > maxAllowedDurDiff) {
             continue;
           }
         }
@@ -1262,27 +1275,6 @@ class AudioStreamExtractor {
         if (score > bestScore) {
           bestScore = score;
           bestMatch = item;
-        }
-      }
-
-      final isObakTrack = normCoreTitle.contains('obak') && normCoreTitle.contains('bhalobasha');
-      if (bestMatch == null && !isObakTrack && !wantsLiveOrConcert) {
-        for (final item in results) {
-          final moreInfo = item['more_info'] as Map<String, dynamic>? ?? {};
-          final encUrl = moreInfo['encrypted_media_url']?.toString() ?? '';
-          if (encUrl.isEmpty) continue;
-          final candDurSec = int.tryParse(moreInfo['duration']?.toString() ?? '0') ?? 0;
-          if (candDurSec <= 45) continue;
-          final candTitleRaw = _decodeHtmlEntities(item['title']?.toString() ?? '').toLowerCase();
-          final candSubtitle = _decodeHtmlEntities(item['subtitle']?.toString() ?? '').toLowerCase();
-          final candAlbum = _decodeHtmlEntities(moreInfo['album']?.toString() ?? '').toLowerCase();
-          final combined = '$candTitleRaw $candSubtitle $candAlbum';
-          if (wantsCokeStudio != combined.contains('coke studio')) continue;
-          final matchedAnyCore =
-              coreTokens.isEmpty || coreTokens.any((ct) => _tokenMatchesText(ct, combined));
-          if (!matchedAnyCore) continue;
-          bestMatch = item;
-          break;
         }
       }
 
@@ -1518,8 +1510,26 @@ class AudioStreamExtractor {
         final item = cand['item'] as Map<String, dynamic>;
         final media = item['media'] as Map<String, dynamic>? ?? {};
         final transcodings = (media['transcodings'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
-        final progTr = transcodings.where((tr) => (tr['format'] as Map<String, dynamic>?)?['protocol'] == 'progressive').toList();
-        final hlsTr = transcodings.where((tr) => (tr['format'] as Map<String, dynamic>?)?['protocol'] == 'hls').toList();
+        final progTr = transcodings
+            .where((tr) =>
+                (tr['format'] as Map<String, dynamic>?)?['protocol'] == 'progressive' &&
+                tr['snipped'] != true)
+            .toList();
+        final hlsTr = transcodings
+            .where((tr) =>
+                (tr['format'] as Map<String, dynamic>?)?['protocol'] == 'hls' &&
+                tr['snipped'] != true &&
+                !(((tr['format'] as Map<String, dynamic>?)?['mime_type']?.toString() ?? '')
+                    .toLowerCase()
+                    .contains('mpegurl')))
+            .toList();
+        hlsTr.sort((a, b) {
+          final pA = a['preset']?.toString() ?? '';
+          final pB = b['preset']?.toString() ?? '';
+          final scoreA = pA.contains('160k') ? 3 : (pA.contains('96k') ? 2 : 1);
+          final scoreB = pB.contains('160k') ? 3 : (pB.contains('96k') ? 2 : 1);
+          return scoreB.compareTo(scoreA);
+        });
         final chosenList = progTr.isNotEmpty ? progTr : hlsTr;
         for (final chosen in chosenList) {
           final trUrl = chosen['url']?.toString() ?? '';
@@ -1534,7 +1544,9 @@ class AudioStreamExtractor {
             if (infoRes != null && infoRes.statusCode == 200) {
               final info = jsonDecode(infoRes.body) as Map<String, dynamic>;
               final streamUrl = info['url']?.toString() ?? '';
-              if (streamUrl.isNotEmpty) {
+              if (streamUrl.isNotEmpty &&
+                  !streamUrl.contains('cf-preview-media.sndcdn.com') &&
+                  !streamUrl.contains('/preview/0/30/')) {
                 final isHls = streamUrl.contains('.m3u8') || progTr.isEmpty;
                 final formatMime = ((chosen['format'] as Map<String, dynamic>?)?['mime_type']?.toString() ?? '').toLowerCase();
                 final resolvedMime = isHls
