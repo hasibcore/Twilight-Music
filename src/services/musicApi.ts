@@ -206,8 +206,9 @@ let saavnDirectCooldownUntil = 0;
 
 const CLIENT_SEARCH_CACHE_TTL_MS = 2 * 60 * 1000;
 const CLIENT_TRENDING_CACHE_TTL_MS = 3 * 60 * 1000;
-const SAAVN_COOLDOWN_MS = 45 * 1000;
+const SAAVN_COOLDOWN_MS = 5 * 60 * 1000;
 const CLIENT_RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+let backendApiConfirmedReachable = false;
 
 function createClientTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
@@ -224,11 +225,12 @@ function createClientTimeoutSignal(timeoutMs: number): { signal: AbortSignal; ca
 async function clientFetchWithRetry(
   url: string,
   init: RequestInit = {},
-  options: { retries?: number; timeoutMs?: number; baseDelayMs?: number } = {}
+  options: { retries?: number; timeoutMs?: number; baseDelayMs?: number; silent?: boolean } = {}
 ): Promise<Response> {
   const retries = options.retries ?? 1;
   const timeoutMs = options.timeoutMs ?? 8500;
   const baseDelayMs = options.baseDelayMs ?? 240;
+  const silent = Boolean(options.silent);
   const endpointLabel = url.split('?')[0];
 
   let lastErr: unknown;
@@ -240,8 +242,11 @@ async function clientFetchWithRetry(
         signal,
       });
       cancel();
+      if (url.startsWith('/api/') && res.ok) {
+        backendApiConfirmedReachable = true;
+      }
       if (!CLIENT_RETRYABLE_STATUSES.has(res.status) || attempt === retries) {
-        if (CLIENT_RETRYABLE_STATUSES.has(res.status) && attempt === retries) {
+        if (CLIENT_RETRYABLE_STATUSES.has(res.status) && attempt === retries && !silent) {
           StreamLogger.logDisconnect('musicApi', `Exhausted retries for ${endpointLabel}`, {
             statusCode: res.status,
             attempt: attempt + 1,
@@ -251,30 +256,36 @@ async function clientFetchWithRetry(
         return res;
       }
       const delayMs = Math.min(2000, baseDelayMs * Math.pow(2, attempt) + Math.floor(Math.random() * 100));
-      StreamLogger.logRetry('musicApi', `Retrying ${endpointLabel} after HTTP ${res.status}`, {
-        statusCode: res.status,
-        attempt: attempt + 1,
-        maxAttempts: retries + 1,
-        detail: `delay=${delayMs}ms`,
-      });
+      if (!silent) {
+        StreamLogger.logRetry('musicApi', `Retrying ${endpointLabel} after HTTP ${res.status}`, {
+          statusCode: res.status,
+          attempt: attempt + 1,
+          maxAttempts: retries + 1,
+          detail: `delay=${delayMs}ms`,
+        });
+      }
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     } catch (err: any) {
       cancel();
       lastErr = err;
       if (attempt === retries) {
-        StreamLogger.logDisconnect('musicApi', `Network request failed for ${endpointLabel}`, {
-          attempt: attempt + 1,
-          maxAttempts: retries + 1,
-          detail: err?.message || String(err),
-        });
+        if (!silent) {
+          StreamLogger.logDisconnect('musicApi', `Network request failed for ${endpointLabel}`, {
+            attempt: attempt + 1,
+            maxAttempts: retries + 1,
+            detail: err?.message || String(err),
+          });
+        }
         throw err;
       }
       const delayMs = Math.min(2000, baseDelayMs * Math.pow(2, attempt) + Math.floor(Math.random() * 100));
-      StreamLogger.logRetry('musicApi', `Retrying ${endpointLabel} after connection error`, {
-        attempt: attempt + 1,
-        maxAttempts: retries + 1,
-        detail: `${err?.message || String(err)} (delay=${delayMs}ms)`,
-      });
+      if (!silent) {
+        StreamLogger.logRetry('musicApi', `Retrying ${endpointLabel} after connection error`, {
+          attempt: attempt + 1,
+          maxAttempts: retries + 1,
+          detail: `${err?.message || String(err)} (delay=${delayMs}ms)`,
+        });
+      }
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
@@ -283,13 +294,13 @@ async function clientFetchWithRetry(
 
 async function fetchSaavnDirectItemsCoalesced(
   saavnUrl: string,
-  timeoutMs = 8500
+  timeoutMs = 3500
 ): Promise<{ items: any[]; networkFailed: boolean }> {
   const cached = saavnDirectJsonCache.get(saavnUrl);
   if (cached && Date.now() - cached.cachedAt < CLIENT_SEARCH_CACHE_TTL_MS) {
     return { items: cached.items, networkFailed: false };
   }
-  if (Date.now() < saavnDirectCooldownUntil) {
+  if (backendApiConfirmedReachable || Date.now() < saavnDirectCooldownUntil) {
     return { items: [], networkFailed: true };
   }
 
@@ -302,7 +313,11 @@ async function fetchSaavnDirectItemsCoalesced(
   let sawNetworkFailure = false;
   const pending = (async (): Promise<any[] | null> => {
     try {
-      const res = await clientFetchWithRetry(saavnUrl, {}, { retries: 1, timeoutMs });
+      const res = await clientFetchWithRetry(
+        saavnUrl,
+        {},
+        { retries: 0, timeoutMs: Math.min(timeoutMs, 3500), silent: true }
+      );
       if (!res.ok) return [];
       const data = await res.json();
       const items: any[] = Array.isArray(data?.data?.results) ? data.data.results : [];
@@ -785,6 +800,9 @@ export class MusicApi {
       // If the backend already ran full multi-source resolution and confirmed no external CDN audio master exists,
       // immediately hand off to YT IFrame / HTML5 playback instead of blocking another 5-9s on redundant searches.
       if (backendRespondedOk && !forceRefresh) {
+        return null;
+      }
+      if (backendRespondedOk) {
         return null;
       }
 

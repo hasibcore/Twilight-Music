@@ -73,10 +73,8 @@ class StreamLoggerService {
     if (!isOnline) contextParts.push('offline=true');
 
     const line = `${prefix} ${message}${contextParts.length ? ` (${contextParts.join(', ')})` : ''}`;
-    if (level === 'error') {
-      console.error(line, entry.detail || '');
-    } else if (level === 'warn') {
-      console.warn(line, entry.detail || '');
+    if (level === 'error' || level === 'warn') {
+      console.info(line, entry.detail || '');
     } else {
       console.info(line);
     }

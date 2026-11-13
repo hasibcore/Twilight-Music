@@ -149,8 +149,7 @@ function logStreamDiagnostic(
   if (typeof entry.attempt === 'number') parts.push(`attempt=${entry.attempt}`);
   if (typeof entry.bytesSent === 'number') parts.push(`bytes=${entry.bytesSent}`);
   const line = `${tag} ${message}${parts.length ? ` (${parts.join(', ')})` : ''}`;
-  if (level === 'error') console.error(line, entry.detail || '');
-  else if (level === 'warn') console.warn(line, entry.detail || '');
+  if (level === 'error' || level === 'warn') console.info(line, entry.detail || '');
   return entry;
 }
 
