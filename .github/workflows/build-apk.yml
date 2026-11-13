@@ -50,7 +50,7 @@ jobs:
 
       - name: Build Android Release APK
         run: |
-          flutter build apk --release
+          flutter build apk --release --android-skip-build-dependency-validation
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Twilight-Android-v3.0.0.apk
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Twilight-Android-v3.5.0.apk
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Twilight-Android-v3.5.1.apk

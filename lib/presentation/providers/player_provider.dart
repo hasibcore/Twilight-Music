@@ -151,9 +151,19 @@ class PlayerProvider extends ChangeNotifier {
               }
             });
           }
-        } else if (state.processingState == ProcessingState.ready ||
-            state.processingState == ProcessingState.completed) {
-          // Song is buffered and ready — clear all resolving/loading flags
+        } else if (state.processingState == ProcessingState.ready) {
+          // Do not prematurely clear resolving state during initial setAudioSource() before play() starts
+          if (!_isResolvingSong || state.playing) {
+            _isLoading = false;
+            _isResolvingSong = false;
+            _loadingWatchdog?.cancel();
+            _resumeStallWatchdog?.cancel();
+            if (!_intentionalPause) {
+              _isPlaying = state.playing;
+            }
+          }
+        } else if (state.processingState == ProcessingState.completed) {
+          // Song completed — clear all resolving/loading flags
           _isLoading = false;
           _isResolvingSong = false;
           _loadingWatchdog?.cancel();
@@ -492,8 +502,9 @@ class PlayerProvider extends ChangeNotifier {
         initialPosition == null &&
         !forceRefreshStream &&
         isSameActiveTrack &&
+        _errorMessage == null &&
         !isDebouncePending) {
-      if (_isPlaying) {
+      if (_isPlaying || _isLoading || _isResolvingSong) {
         pause();
       } else {
         play();
@@ -1067,16 +1078,20 @@ class PlayerProvider extends ChangeNotifier {
         _streamPrewarmedWhilePaused;
     final bool streamExpired = _streamResolvedAt != null &&
         now.difference(_streamResolvedAt!) >= const Duration(minutes: 5);
-    final bool playerIdle = !_isTest &&
-        (_audioPlayer == null || _audioPlayer!.processingState == ProcessingState.idle);
+    final bool playerNotReady = !_isTest &&
+        (_audioPlayer == null ||
+            _audioPlayer!.processingState == ProcessingState.idle ||
+            _audioPlayer!.processingState == ProcessingState.completed ||
+            (!_isPlayingOfflineFile &&
+                _audioPlayer!.processingState != ProcessingState.ready));
 
     final bool wasPrewarmed = _streamPrewarmedWhilePaused;
     _pausedAt = null;
     _streamPrewarmedWhilePaused = false;
 
-    // Reload cleanly if player engine is idle (including offline tracks paused mid-load), or proactively refresh expired online streams
-    if (playerIdle || (!_isPlayingOfflineFile && (pauseExpired || streamExpired))) {
-      AppLogger.info('Proactive stream refresh on resume at ${_currentPosition.inSeconds}s (pauseExpired: $pauseExpired, streamExpired: $streamExpired, prewarmed: $wasPrewarmed, playerIdle: $playerIdle)');
+    // Reload cleanly if player engine is idle/completed/unready, or proactively refresh expired online streams
+    if (playerNotReady || (!_isPlayingOfflineFile && (pauseExpired || streamExpired))) {
+      AppLogger.info('Proactive stream refresh on resume at ${_currentPosition.inSeconds}s (pauseExpired: $pauseExpired, streamExpired: $streamExpired, prewarmed: $wasPrewarmed, playerNotReady: $playerNotReady)');
       _isPlaying = true;
       _isLoading = true;
       _isRefreshingStream = true;
@@ -1121,6 +1136,9 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void pause() {
+    if (_isLoading || _isResolvingSong || isDebouncePending) {
+      _playRequestId++;
+    }
     _intentionalPause = true;
     _pausedAt = DateTime.now();
     _streamPrewarmedWhilePaused = false;
@@ -1134,6 +1152,8 @@ class PlayerProvider extends ChangeNotifier {
       _pendingPlayCompleter!.complete();
     }
     _pendingPlayCompleter = null;
+    _loadingWatchdog?.cancel();
+    _loadingWatchdog = null;
     _resumeStallWatchdog?.cancel();
     _proactivePauseRefreshTimer?.cancel();
 

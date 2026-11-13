@@ -716,7 +716,7 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(musicContextTsx, /html5LoadWatchdogRef/);
     assert.match(musicContextTsx, /if \(err && err\.name === 'AbortError'\)/);
     assert.match(musicContextTsx, /if \(errorRecoveryTimerRef\.current \|\| audioRef\.current\?\.error\)/);
-    assert.match(musicContextTsx, /const isCleanPausedReady =/);
+    assert.match(musicContextTsx, /if \(\s*!options\?\.forceRestart &&\s*isSameTrack &&/);
 
     // 5. AudioPlayer play/pause button stays clickable while loading (not locked with disabled={isLoading})
     assert.doesNotMatch(audioPlayerTsx, /disabled=\{isLoading\}/);
@@ -872,7 +872,7 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
 
     // 3. Flutter PlayerProvider: unlocked togglePlayPause, playerIdle offline reload, autoplayReqId guard
     assert.doesNotMatch(playerProvDart, /void togglePlayPause\(\)\s*\{\s*if \(_currentSong == null \|\| _isResolvingSong\)/);
-    assert.match(playerProvDart, /if \(playerIdle \|\| \(!_isPlayingOfflineFile && \(pauseExpired \|\| streamExpired\)\)\)/);
+    assert.match(playerProvDart, /if \((?:playerIdle|playerNotReady) \|\| \(!_isPlayingOfflineFile && \(pauseExpired \|\| streamExpired\)\)\)/);
     assert.match(playerProvDart, /final autoplayReqId = \+\+_playRequestId;/);
     assert.match(playerProvDart, /if \(currentRequestId != _playRequestId \|\| _intentionalPause\) return;/);
 
@@ -912,6 +912,50 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(musicApiTs, /inFlightClientSearches/);
     assert.match(musicApiTs, /inFlightClientDynamicMix/);
     assert.match(musicApiTs, /saavnDirectCooldownUntil/);
+  });
+
+  it('Scenario 26: Verify Play & Pause/Play synchronization across Web (MediaSession split, YT resume watchdog, HTML5 readyState/ended resume, loading-state toggle), Flutter (PlayerProvider completed/non-ready resume & loading cancel on pause), and Android CI build flag', () => {
+    const musicContextTsx = fs.readFileSync(
+      path.join(rootDir, 'src/context/MusicContext.tsx'),
+      'utf8'
+    );
+    const searchScreenTsx = fs.readFileSync(
+      path.join(rootDir, 'src/screens/SearchScreen.tsx'),
+      'utf8'
+    );
+    const playerProvDart = fs.readFileSync(
+      path.join(rootDir, 'lib/presentation/providers/player_provider.dart'),
+      'utf8'
+    );
+    const workflowYml = fs.readFileSync(
+      path.join(rootDir, '.github/workflows/build-apk.yml'),
+      'utf8'
+    );
+
+    // 1. Web: MediaSession metadata/handlers registered once per song; playbackState & positionState separated
+    assert.match(musicContextTsx, /\}, \[currentSong\]\);/);
+    assert.match(musicContextTsx, /\}, \[currentSong, isPlaying\]\);/);
+    assert.match(musicContextTsx, /flooredPositionSec/);
+
+    // 2. Web: Same-track toggle handles loading/debounce & paused HTML5 states; pause clears errorRecoveryTimerRef
+    assert.match(musicContextTsx, /stateRef\.current\.isPlaying \|\|\s*stateRef\.current\.isLoading \|\|\s*playDebounceTimerRef\.current !== null/);
+    assert.match(musicContextTsx, /const pauseSong = \(\) => \{[\s\S]*?errorRecoveryTimerRef\.current/);
+    assert.match(searchScreenTsx, /currentSong\?\.id === song\.id && \(isPlaying \|\| isLoading\)/);
+
+    // 3. Web: YT IFrame resume verifies state with 3.5s watchdog & background handoff; HTML5 checks readyState === 1 & ended
+    assert.match(musicContextTsx, /needsYtReload/);
+    assert.match(musicContextTsx, /const isAudioEnded = Boolean\(audioRef\.current\?\.ended\)/);
+    assert.match(musicContextTsx, /audioRef\.current\?\.readyState === 1/);
+    assert.match(musicContextTsx, /skipYtFallback:\s*boolean\s*=\s*false/);
+
+    // 4. Flutter PlayerProvider: guard ProcessingState.ready mid-resolve, toggle cancels loading, play reloads completed/non-ready, pause cancels _loadingWatchdog & bumps _playRequestId
+    assert.match(playerProvDart, /if \(!_isResolvingSong \|\| state\.playing\)/);
+    assert.match(playerProvDart, /if \(_isPlaying \|\| _isLoading \|\| _isResolvingSong\)/);
+    assert.match(playerProvDart, /_audioPlayer!\.processingState == ProcessingState\.completed/);
+    assert.match(playerProvDart, /if \(_isLoading \|\| _isResolvingSong \|\| isDebouncePending\) \{\s*_playRequestId\+\+;\s*\}/);
+
+    // 5. CI: Android release APK passes --android-skip-build-dependency-validation for Flutter 3.50+
+    assert.match(workflowYml, /flutter build apk --release --android-skip-build-dependency-validation/);
   });
 });
 

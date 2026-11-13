@@ -42,13 +42,13 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ initialQuery = '', o
   //   updates optimistic UI state on tap (0ms), and debounces stream initialization by 300ms
   const handleSelectAndPlaySong = useCallback(
     (song: Song, queueContext: Song[]) => {
-      if (currentSong?.id === song.id && isPlaying) {
+      if (currentSong?.id === song.id && (isPlaying || isLoading)) {
         pauseSong();
         return;
       }
       selectAndPlaySong(song, queueContext);
     },
-    [currentSong?.id, isPlaying, pauseSong, selectAndPlaySong]
+    [currentSong?.id, isPlaying, isLoading, pauseSong, selectAndPlaySong]
   );
 
   const trendingTags = [

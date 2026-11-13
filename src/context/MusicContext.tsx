@@ -1155,7 +1155,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, []);
 
-  // Register Web MediaSession for lockscreen & background playback
+  // Register Web MediaSession metadata & action handlers per song (not 4x/sec during timeupdate)
   useEffect(() => {
     if (!('mediaSession' in navigator) || !currentSong) return;
 
@@ -1173,18 +1173,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           { src: currentSong.thumbnailUrl, sizes: '512x512', type: 'image/jpeg' },
         ],
       });
-
-      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-
-      if ('setPositionState' in navigator.mediaSession && duration > 0) {
-        try {
-          navigator.mediaSession.setPositionState({
-            duration: Math.max(duration, 1),
-            playbackRate: playbackSpeed,
-            position: Math.min(Math.max(currentTime, 0), duration),
-          });
-        } catch (_) {}
-      }
 
       navigator.mediaSession.setActionHandler('play', () =>
         (handlersRef.current?.resumeSong || resumeSong)()
@@ -1206,7 +1194,28 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (e) {
       console.warn('MediaSession registration error:', e);
     }
-  }, [currentSong, isPlaying, currentTime, duration, playbackSpeed]);
+  }, [currentSong]);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentSong) return;
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    } catch {}
+  }, [currentSong, isPlaying]);
+
+  const flooredPositionSec = Math.floor(currentTime);
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentSong || duration <= 0) return;
+    if ('setPositionState' in navigator.mediaSession) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: Math.max(duration, 1),
+          playbackRate: playbackSpeed,
+          position: Math.min(Math.max(flooredPositionSec, 0), duration),
+        });
+      } catch {}
+    }
+  }, [currentSong, flooredPositionSec, duration, playbackSpeed]);
 
   // Keep screen wake lock active while music is playing to prevent OS audio sleep
   useEffect(() => {
@@ -1601,24 +1610,16 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const isSameTrack =
       stateRef.current.currentSong?.id === normalizedSong.id ||
       stateRef.current.currentSong?.id === song.id;
-    const isCleanPausedReady =
-      !stateRef.current.isLoading &&
-      !stateRef.current.playbackError &&
-      (stateRef.current.isPlaying ||
-        activeEngineRef.current === 'yt' ||
-        Boolean(
-          audioRef.current &&
-            audioRef.current.readyState >= 2 &&
-            !(audioRef.current.getAttribute('src') || '').startsWith('data:audio/wav')
-        ));
     if (
       !options?.forceRestart &&
       isSameTrack &&
-      hasInitializedStreamRef.current &&
-      !playDebounceTimerRef.current &&
-      isCleanPausedReady
+      !stateRef.current.playbackError
     ) {
-      if (stateRef.current.isPlaying) {
+      if (
+        stateRef.current.isPlaying ||
+        stateRef.current.isLoading ||
+        playDebounceTimerRef.current !== null
+      ) {
         pauseSong();
       } else {
         resumeSong();
@@ -1770,7 +1771,10 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } catch {}
       }
 
-      const startHtml5StreamPlayback = async (startOffsetSeconds: number = 0) => {
+      const startHtml5StreamPlayback = async (
+        startOffsetSeconds: number = 0,
+        skipYtFallback: boolean = false
+      ) => {
         if (
           !audioRef.current ||
           reqId !== playRequestIdRef.current ||
@@ -1805,7 +1809,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               !cid.startsWith('sp_') &&
               !cid.startsWith('js_') &&
               /^[a-zA-Z0-9_-]{11}$/.test(cid);
-            if (isStdYt && ytReadyRef.current && ytPlayerRef.current && !document.hidden) {
+            if (!skipYtFallback && isStdYt && ytReadyRef.current && ytPlayerRef.current && !document.hidden) {
               try {
                 activeEngineRef.current = 'yt';
                 hasInitializedStreamRef.current = true;
@@ -1815,13 +1819,30 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   startSeconds: startOffsetSeconds > 1 ? Math.floor(startOffsetSeconds) : 0,
                 });
                 ytPlayerRef.current.playVideo();
+                if (ytFallbackWatchdogRef.current) clearTimeout(ytFallbackWatchdogRef.current);
+                ytFallbackWatchdogRef.current = setTimeout(() => {
+                  ytFallbackWatchdogRef.current = null;
+                  if (
+                    reqId !== playRequestIdRef.current ||
+                    activeEngineRef.current !== 'yt' ||
+                    intentionalPauseRef.current
+                  ) {
+                    return;
+                  }
+                  const pState = ytPlayerRef.current?.getPlayerState?.();
+                  if (pState !== 1 && pState !== 3) {
+                    setIsLoading(false);
+                    setIsPlaying(false);
+                    setPlaybackError('Tap Play to start audio');
+                  }
+                }, 4000);
                 return;
               } catch {}
             }
             setIsLoading(false);
             setIsRefreshingStream(false);
             setIsPlaying(false);
-            setPlaybackError('Stream unavailable. Tap Retry.');
+            setPlaybackError(skipYtFallback ? 'Tap Play to start audio' : 'Stream unavailable. Tap Retry.');
             return;
           }
         }
@@ -2087,11 +2108,11 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   return;
                 }
                 if (ytPlayerRef.current?.getPlayerState?.() !== 1) {
-                  startHtml5StreamPlayback(0);
+                  startHtml5StreamPlayback(0, true);
                 }
               }, 3000);
             } else if (pState !== 1) {
-              startHtml5StreamPlayback(0);
+              startHtml5StreamPlayback(0, true);
             }
           }, 1800);
           return;
@@ -2125,6 +2146,10 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (playDebounceTimerRef.current) {
       clearTimeout(playDebounceTimerRef.current);
       playDebounceTimerRef.current = null;
+    }
+    if (errorRecoveryTimerRef.current) {
+      clearTimeout(errorRecoveryTimerRef.current);
+      errorRecoveryTimerRef.current = null;
     }
     if (ytFallbackWatchdogRef.current) {
       clearTimeout(ytFallbackWatchdogRef.current);
@@ -2242,21 +2267,14 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
 
-    if (activeEngineRef.current === 'yt' && ytPlayerRef.current && ytReadyRef.current) {
-      pausedAtRef.current = null;
-      try {
-        ytPlayerRef.current.playVideo();
-        setIsPlaying(true);
-        setIsLoading(false);
-        return;
-      } catch {}
-    }
-
     const now = Date.now();
     const pausedDurationMs = pausedAtRef.current ? now - pausedAtRef.current : 0;
     const streamAgeMs = streamResolvedAtRef.current ? now - streamResolvedAtRef.current : 0;
     const isBlobOffline = audioRef.current?.src?.startsWith('blob:') ?? false;
-    const savedPosition = audioRef.current?.currentTime || stateRef.current.currentTime || 0;
+    const savedPosition =
+      activeEngineRef.current === 'yt'
+        ? Number(ytPlayerRef.current?.getCurrentTime?.() || stateRef.current.currentTime || 0)
+        : audioRef.current?.currentTime || stateRef.current.currentTime || 0;
     const hasPrewarmedForTrack = prewarmedStreamRef.current?.songId === activeSong.id;
     pausedAtRef.current = null;
 
@@ -2264,6 +2282,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const audio = audioRef.current;
       if (!audio) return;
       const reqId = ++playRequestIdRef.current;
+      activeEngineRef.current = 'html5';
       setStreamRefreshCount((c) => c + 1);
       setIsRefreshingStream(true);
       setIsLoading(true);
@@ -2354,6 +2373,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (reqId !== playRequestIdRef.current) return;
             setIsLoading(false);
             setIsRefreshingStream(false);
+            setIsPlaying(false);
             setPlaybackError('Stream timed out. Tap Retry.');
           });
       }, 8000);
@@ -2373,17 +2393,106 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setIsLoading(false);
           setIsRefreshingStream(false);
         })
-        .catch(() => {
+        .catch((playErr: any) => {
           if (reqId !== playRequestIdRef.current) return;
+          if (playErr?.name === 'AbortError') return;
+          if (resumeWatchdogRef.current) {
+            clearTimeout(resumeWatchdogRef.current);
+            resumeWatchdogRef.current = null;
+          }
           setIsLoading(false);
           setIsRefreshingStream(false);
+          setIsPlaying(false);
+          if (
+            playErr &&
+            (playErr.name === 'NotAllowedError' || String(playErr.message || '').includes('NotAllowedError'))
+          ) {
+            setPlaybackError('Tap Play to start audio');
+          }
         });
     };
 
-    // Proactive stream refresh if paused >= 3 minutes (180,000ms), stream age >= 5 minutes (300,000ms), pre-warmed while paused, or previous stream had an error or unloaded source
+    if (activeEngineRef.current === 'yt' && ytPlayerRef.current && ytReadyRef.current) {
+      if (document.hidden) {
+        refreshAndResumeAtPosition(savedPosition);
+        return;
+      }
+      const ytReqId = ++playRequestIdRef.current;
+      try {
+        const ytState = ytPlayerRef.current.getPlayerState?.();
+        const needsYtReload =
+          pausedDurationMs >= PROACTIVE_PAUSE_REFRESH_MS ||
+          ytState === -1 ||
+          ytState === 0 ||
+          ytState === 5 ||
+          ytState === undefined;
+        if (needsYtReload) {
+          ytPlayerRef.current.loadVideoById({
+            videoId: (activeSong.id || '').trim(),
+            startSeconds: savedPosition > 1 ? Math.floor(savedPosition) : 0,
+          });
+        }
+        setIsLoading(ytState !== 1);
+        ytPlayerRef.current.playVideo();
+
+        if (resumeWatchdogRef.current) clearTimeout(resumeWatchdogRef.current);
+        resumeWatchdogRef.current = setTimeout(() => {
+          resumeWatchdogRef.current = null;
+          if (
+            ytReqId !== playRequestIdRef.current ||
+            activeEngineRef.current !== 'yt' ||
+            intentionalPauseRef.current
+          ) {
+            return;
+          }
+          const curYtState = ytPlayerRef.current?.getPlayerState?.();
+          if (curYtState === 1) {
+            setIsLoading(false);
+            setIsPlaying(true);
+            return;
+          }
+          if (curYtState === 3) {
+            // Still buffering — keep loading and let ytBufferingWatchdog handle stalls
+            return;
+          }
+          MusicApi.checkProxyStreamPlayable(activeSong)
+            .then((avail) => {
+              if (
+                ytReqId !== playRequestIdRef.current ||
+                activeEngineRef.current !== 'yt' ||
+                intentionalPauseRef.current
+              ) {
+                return;
+              }
+              if (avail.playable) {
+                refreshAndResumeAtPosition(savedPosition);
+              } else {
+                setIsLoading(false);
+                setIsPlaying(false);
+                setPlaybackError('Tap Play to start audio');
+              }
+            })
+            .catch(() => {
+              if (ytReqId === playRequestIdRef.current) {
+                setIsLoading(false);
+                setIsPlaying(false);
+                setPlaybackError('Tap Play to start audio');
+              }
+            });
+        }, 3500);
+        return;
+      } catch {
+        // Fall through to HTML5 stream refresh
+      }
+    }
+
+    // Proactive stream refresh if paused >= 3 minutes (180,000ms), stream age >= 5 minutes (300,000ms), pre-warmed while paused, or previous stream ended/errored/unloaded
     const hasAudioError = Boolean(audioRef.current?.error);
+    const isAudioEnded = Boolean(audioRef.current?.ended);
     const isAudioUnloaded = Boolean(
-      audioRef.current?.readyState === 0 || audioRef.current?.networkState === 3
+      audioRef.current?.readyState === 0 ||
+        audioRef.current?.readyState === 1 ||
+        audioRef.current?.networkState === 3
     );
     if (
       !isBlobOffline &&
@@ -2391,6 +2500,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         streamAgeMs >= STREAM_MAX_AGE_MS ||
         hasPrewarmedForTrack ||
         hasAudioError ||
+        isAudioEnded ||
         isAudioUnloaded)
     ) {
       refreshAndResumeAtPosition(savedPosition);
@@ -2398,14 +2508,16 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     if (audioRef.current && currentAttrSrc) {
+      setIsLoading(true);
       // 6-second stall watchdog on resume
       if (resumeWatchdogRef.current) clearTimeout(resumeWatchdogRef.current);
       if (!isBlobOffline) {
         resumeWatchdogRef.current = setTimeout(() => {
+          resumeWatchdogRef.current = null;
           if (
             !intentionalPauseRef.current &&
             audioRef.current &&
-            Math.abs(audioRef.current.currentTime - savedPosition) < 0.2
+            (audioRef.current.paused || Math.abs(audioRef.current.currentTime - savedPosition) < 0.2)
           ) {
             refreshAndResumeAtPosition(savedPosition);
           }
@@ -2415,14 +2527,31 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       audioRef.current
         .play()
         .then(() => {
-          if (!intentionalPauseRef.current) {
-            setIsPlaying(true);
-            setIsLoading(false);
+          if (intentionalPauseRef.current) {
+            audioRef.current?.pause();
+            return;
           }
+          if (resumeWatchdogRef.current) {
+            clearTimeout(resumeWatchdogRef.current);
+            resumeWatchdogRef.current = null;
+          }
+          setIsPlaying(true);
+          setIsLoading(false);
         })
         .catch((e) => {
-          console.warn('Resume retry with refreshed stream:', e);
+          console.warn('Resume retry:', e);
+          if (resumeWatchdogRef.current) {
+            clearTimeout(resumeWatchdogRef.current);
+            resumeWatchdogRef.current = null;
+          }
+          if (e?.name === 'AbortError') return;
           if (!intentionalPauseRef.current) {
+            if (e && (e.name === 'NotAllowedError' || String(e.message || '').includes('NotAllowedError'))) {
+              setIsLoading(false);
+              setIsPlaying(false);
+              setPlaybackError('Tap Play to start audio');
+              return;
+            }
             refreshAndResumeAtPosition(savedPosition);
           }
         });
