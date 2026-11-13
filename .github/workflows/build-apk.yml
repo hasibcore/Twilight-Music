@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: twilight-release-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   RELEASE_TAG: v3.0.0
   RELEASE_NAME: "Twilight Music v3.0.0 — Official Android APK, iOS IPA & Windows PC Release"

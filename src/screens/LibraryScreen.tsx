@@ -13,6 +13,7 @@ export const LibraryScreen: React.FC = () => {
     selectAndPlaySong,
     deletePlaylist,
     createPlaylist,
+    removeFromPlaylist,
     downloadSong,
     isDownloaded,
     isDownloading,
@@ -21,7 +22,10 @@ export const LibraryScreen: React.FC = () => {
   } = useMusic();
 
   const [activeTab, setActiveTab] = useState<'favorites' | 'playlists' | 'history' | 'downloads'>('downloads');
-  const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
+  const [selectedPlaylistSnapshot, setSelectedPlaylist] = useState<Playlist | null>(null);
+  const selectedPlaylist = selectedPlaylistSnapshot
+    ? playlists.find((p) => p.id === selectedPlaylistSnapshot.id) ?? null
+    : null;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -165,7 +169,7 @@ export const LibraryScreen: React.FC = () => {
             <div className="flex items-center gap-2">
               {selectedPlaylist.songs.length > 0 && (
                 <button
-                  onClick={() => playSong(selectedPlaylist.songs[0], selectedPlaylist.songs)}
+                  onClick={() => selectAndPlaySong(selectedPlaylist.songs[0], selectedPlaylist.songs)}
                   className="px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-indigo-600/30"
                 >
                   <Play className="w-4 h-4 fill-white" />
@@ -184,7 +188,7 @@ export const LibraryScreen: React.FC = () => {
           <div className="space-y-2">
             {selectedPlaylist.songs.length === 0 ? (
               <p className="text-sm text-slate-400 py-8 text-center">
-                This playlist is currently empty. Use the '+' button while playing any track to add songs here!
+                This playlist is currently empty. Use the '+' button on any song or player to add tracks here!
               </p>
             ) : (
               selectedPlaylist.songs.map((song, idx) => {
@@ -193,7 +197,7 @@ export const LibraryScreen: React.FC = () => {
                 return (
                   <div
                     key={`pl_song_${song.id}_${idx}`}
-                    onClick={() => playSong(song, selectedPlaylist.songs)}
+                    onClick={() => selectAndPlaySong(song, selectedPlaylist.songs)}
                     className="group flex items-center gap-3.5 p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all cursor-pointer"
                   >
                     <span className="text-xs font-mono text-slate-500 w-5 text-center group-hover:text-indigo-400">
@@ -231,6 +235,19 @@ export const LibraryScreen: React.FC = () => {
                         <Download className="w-4 h-4" />
                       )}
                     </button>
+                    {selectedPlaylist.isCustom && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeFromPlaylist(selectedPlaylist.id, song.id);
+                        }}
+                        className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0"
+                        title="Remove from playlist"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 );
               })
@@ -253,7 +270,7 @@ export const LibraryScreen: React.FC = () => {
                   return (
                     <div
                       key={`fav_${song.id}`}
-                      onClick={() => playSong(song, favorites)}
+                      onClick={() => selectAndPlaySong(song, favorites)}
                       className="group flex items-center gap-3.5 p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all cursor-pointer"
                     >
                       <img src={song.thumbnailUrl} alt={song.title} className="w-12 h-12 rounded-xl object-cover shrink-0" />
@@ -388,7 +405,7 @@ export const LibraryScreen: React.FC = () => {
                   return (
                     <div
                       key={`hist_${song.id}_${idx}`}
-                      onClick={() => playSong(song, history)}
+                      onClick={() => selectAndPlaySong(song, history)}
                       className="group flex items-center gap-3.5 p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all cursor-pointer"
                     >
                       <img src={song.thumbnailUrl} alt={song.title} className="w-12 h-12 rounded-xl object-cover shrink-0" />
@@ -477,7 +494,7 @@ export const LibraryScreen: React.FC = () => {
                         if (isMissing) {
                           retryDownload(song);
                         } else if (!isSaving) {
-                          playSong(song, downloads.filter((d) => d.offlineStatus !== 'missing'));
+                          selectAndPlaySong(song, downloads.filter((d) => d.offlineStatus !== 'missing'));
                         }
                       }}
                       className="group flex items-center gap-3.5 p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all cursor-pointer"
@@ -518,7 +535,7 @@ export const LibraryScreen: React.FC = () => {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  playSong(song, downloads.filter((d) => d.offlineStatus !== 'missing'));
+                                  selectAndPlaySong(song, downloads.filter((d) => d.offlineStatus !== 'missing'));
                                 }}
                                 className="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-1 transition-colors"
                                 title="Play offline inside app"

@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
@@ -97,8 +98,14 @@ class YouTubeAudioSource extends StreamAudioSource {
         ? ((end - s) > 0 ? (end - s) : 1)
         : (_hasExactTotalBytes && (_totalBytes - s) > 0 ? (_totalBytes - s) : null);
 
-    final isMp4 = _mimeType.toLowerCase().contains('mp4') ||
-        _mimeType.toLowerCase().contains('m4a');
+    final lowerMime = _mimeType.toLowerCase();
+    final String resolvedContentType = (lowerMime.contains('mpeg') || lowerMime.contains('mp3'))
+        ? 'audio/mpeg'
+        : (lowerMime.contains('mp4') || lowerMime.contains('m4a'))
+            ? 'audio/mp4'
+            : lowerMime.contains('aac')
+                ? 'audio/aac'
+                : 'audio/webm';
 
     return StreamAudioResponse(
       rangeRequestsSupported: true,
@@ -106,8 +113,18 @@ class YouTubeAudioSource extends StreamAudioSource {
       contentLength: contentLength,
       offset: s,
       stream: _createResilientStream(s, end ?? (_hasExactTotalBytes ? _totalBytes : null)),
-      contentType: isMp4 ? 'audio/mp4' : 'audio/webm',
+      contentType: resolvedContentType,
     );
+  }
+
+  static Duration _computeStreamBackoff(int attempt, {String? retryAfterHeader}) {
+    final retrySeconds = int.tryParse((retryAfterHeader ?? '').trim());
+    if (retrySeconds != null && retrySeconds > 0) {
+      return Duration(milliseconds: math.min(3000, retrySeconds * 1000));
+    }
+    final expMs = math.min(2800, 240 * (1 << math.min(attempt, 4)));
+    final jitterMs = DateTime.now().microsecondsSinceEpoch % 140;
+    return Duration(milliseconds: expMs + jitterMs);
   }
 
   Stream<List<int>> _createResilientStream(int start, int? end) async* {
@@ -155,13 +172,17 @@ class YouTubeAudioSource extends StreamAudioSource {
       }
     }
 
+    final songId = _mediaItem.id.trim();
+    bool completedCleanly = false;
     try {
       while ((targetEnd == null || currentPos < targetEnd) && retryAttempts < maxRetries) {
         http.Client? client;
         try {
           client = http.Client();
           final url = _streamUrl ?? (_streamInfo?.url.toString() ?? '');
-          if (url.isEmpty) break;
+          if (url.isEmpty) {
+            throw Exception('Empty stream URL');
+          }
 
           final request = http.Request('GET', Uri.parse(url));
           if (_headers != null && _headers!.isNotEmpty) {
@@ -180,31 +201,82 @@ class YouTubeAudioSource extends StreamAudioSource {
           final response = await client.send(request).timeout(const Duration(seconds: 12));
 
           if (response.statusCode == 200 || response.statusCode == 206) {
+            if (retryAttempts > 0) {
+              AppLogger.streamEvent(
+                StreamLogSeverity.info,
+                'recovery',
+                'youtubeAudioSource',
+                'Byte-range stream reconnected cleanly',
+                songId: songId,
+                statusCode: response.statusCode,
+                attempt: retryAttempts,
+                bytePosition: currentPos,
+              );
+            }
             retryAttempts = 0; // reset retry counter on successful connection
             _lastActiveAt = DateTime.now();
+            // Guard against servers returning 200 OK (full body from byte 0) when Range >= currentPos was requested
+            int bytesToSkip = (response.statusCode == 200 && currentPos > 0) ? currentPos : 0;
             int bytesReadThisChunk = 0;
             await for (final chunk in response.stream.timeout(const Duration(seconds: 25))) {
               if (chunk.isNotEmpty) {
                 _lastActiveAt = DateTime.now();
-                currentPos += chunk.length;
-                bytesReadThisChunk += chunk.length;
-                if (cacheSink != null) {
-                  cacheSink.add(chunk);
+                List<int> slice = chunk;
+                if (bytesToSkip > 0) {
+                  if (slice.length <= bytesToSkip) {
+                    bytesToSkip -= slice.length;
+                    continue;
+                  }
+                  slice = slice.sublist(bytesToSkip);
+                  bytesToSkip = 0;
                 }
-                yield chunk;
+                currentPos += slice.length;
+                bytesReadThisChunk += slice.length;
+                if (cacheSink != null) {
+                  cacheSink.add(slice);
+                }
+                yield slice;
               }
             }
 
-            // If we reached targetEnd or open-ended stream reached clean server EOF (0 bytes on next range), we are done
-            if ((targetEnd != null && currentPos >= targetEnd) ||
-                (targetEnd == null && bytesReadThisChunk == 0)) {
+            final expectedChunkLen = response.contentLength;
+            final reachedTarget = targetEnd != null && currentPos >= targetEnd;
+            final reachedOpenEndedEof = targetEnd == null &&
+                bytesReadThisChunk == 0 &&
+                currentPos > start &&
+                (expectedChunkLen == null || expectedChunkLen <= 0);
+
+            if (reachedTarget || reachedOpenEndedEof) {
+              completedCleanly = true;
               break;
             }
-            // If the connection closed without reaching targetEnd, loop and reconnect from currentPos!
-            AppLogger.info('Stream socket finished at byte $currentPos of $targetEnd, auto-reconnecting...');
-          } else if (response.statusCode == 403 || response.statusCode == 410) {
-            // Stream URL expired or rate limited. Switch to verified CDN fallback immediately!
-            AppLogger.warning('Stream URL status ${response.statusCode} at $currentPos. Switching to verified stream...');
+
+            if (bytesReadThisChunk == 0) {
+              retryAttempts++;
+              AppLogger.networkDisconnect(
+                'youtubeAudioSource',
+                'Premature 0-byte chunk from upstream',
+                category: 'premature_eof_disconnect',
+                songId: songId,
+                attempt: retryAttempts,
+                bytePosition: currentPos,
+              );
+              await Future.delayed(_computeStreamBackoff(retryAttempts));
+            } else {
+              // Connection closed cleanly after delivering partial data; reconnect from currentPos
+              AppLogger.info('Stream socket finished at byte $currentPos of $targetEnd, auto-reconnecting...');
+            }
+          } else if (response.statusCode == 401 || response.statusCode == 403 || response.statusCode == 410) {
+            // Stream URL expired or forbidden. Invalidate cache and refresh immediately!
+            AppLogger.networkDisconnect(
+              'youtubeAudioSource',
+              'Stream URL rejected or expired (${response.statusCode}), refreshing URL',
+              category: 'url_expired_disconnect',
+              songId: songId,
+              statusCode: response.statusCode,
+              attempt: retryAttempts + 1,
+              bytePosition: currentPos,
+            );
             final cleanId = _mediaItem.id.trim();
             if (cleanId.isNotEmpty) {
               AudioStreamExtractor.invalidateCache(cleanId);
@@ -225,21 +297,75 @@ class YouTubeAudioSource extends StreamAudioSource {
               }
             }
             retryAttempts++;
-            await Future.delayed(Duration(milliseconds: 300 * retryAttempts));
+            await Future.delayed(_computeStreamBackoff(retryAttempts));
           } else if (response.statusCode == 416) {
             // Reached end of stream (range not satisfiable = file completely delivered)
             AppLogger.info('Reached end of stream (HTTP 416) at byte $currentPos');
+            completedCleanly = true;
             break;
-          } else {
-            AppLogger.warning('Stream HTTP status ${response.statusCode} at byte $currentPos');
+          } else if (response.statusCode == 429 ||
+              response.statusCode == 500 ||
+              response.statusCode == 502 ||
+              response.statusCode == 503 ||
+              response.statusCode == 504 ||
+              response.statusCode == 408) {
+            AppLogger.networkDisconnect(
+              'youtubeAudioSource',
+              'Transient upstream HTTP ${response.statusCode} while streaming',
+              category: 'upstream_retry',
+              songId: songId,
+              statusCode: response.statusCode,
+              attempt: retryAttempts + 1,
+              bytePosition: currentPos,
+            );
+            if (retryAttempts >= 2 || DateTime.now().difference(_urlResolvedAt) >= const Duration(seconds: 90)) {
+              final cleanId = _mediaItem.id.trim();
+              if (cleanId.isNotEmpty) {
+                AudioStreamExtractor.invalidateCache(cleanId);
+                final fresh = await AudioStreamExtractor.extractAudioStream(
+                  cleanId,
+                  forceRefresh: true,
+                  preferCdnFallback: true,
+                  title: _mediaItem.title,
+                  artist: _mediaItem.artist,
+                );
+                if (fresh != null) {
+                  _streamUrl = fresh.url;
+                  _headers = fresh.headers;
+                  _urlResolvedAt = DateTime.now();
+                }
+              }
+            }
             retryAttempts++;
-            await Future.delayed(Duration(milliseconds: 400 * retryAttempts));
+            await Future.delayed(
+              _computeStreamBackoff(retryAttempts, retryAfterHeader: response.headers['retry-after']),
+            );
+          } else {
+            AppLogger.networkDisconnect(
+              'youtubeAudioSource',
+              'Unexpected stream HTTP status ${response.statusCode}',
+              songId: songId,
+              statusCode: response.statusCode,
+              attempt: retryAttempts + 1,
+              bytePosition: currentPos,
+            );
+            retryAttempts++;
+            await Future.delayed(_computeStreamBackoff(retryAttempts));
           }
         } catch (e) {
-          AppLogger.warning('Stream network drop at byte $currentPos: $e');
-          // On network timeout or reset, also refresh the stream URL if older than 2 minutes
+          AppLogger.networkDisconnect(
+            'youtubeAudioSource',
+            'Intermittent network disconnection during byte-range transfer',
+            category: e is TimeoutException ? 'timeout_disconnect' : 'socket_disconnect',
+            songId: songId,
+            attempt: retryAttempts + 1,
+            bytePosition: currentPos,
+            error: e,
+          );
           final cleanId = _mediaItem.id.trim();
-          if (cleanId.isNotEmpty && DateTime.now().difference(_urlResolvedAt) >= const Duration(minutes: 2)) {
+          if (cleanId.isNotEmpty &&
+              (retryAttempts >= 2 || DateTime.now().difference(_urlResolvedAt) >= const Duration(minutes: 2))) {
+            AudioStreamExtractor.invalidateCache(cleanId);
             final fresh = await AudioStreamExtractor.extractAudioStream(
               cleanId,
               forceRefresh: true,
@@ -253,10 +379,23 @@ class YouTubeAudioSource extends StreamAudioSource {
             }
           }
           retryAttempts++;
-          await Future.delayed(Duration(milliseconds: 500 * retryAttempts));
+          await Future.delayed(_computeStreamBackoff(retryAttempts));
         } finally {
           client?.close();
         }
+      }
+      if (!completedCleanly &&
+          ((targetEnd != null && currentPos < targetEnd) || retryAttempts >= maxRetries)) {
+        AppLogger.networkDisconnect(
+          'youtubeAudioSource',
+          'Stream connection exhausted after $retryAttempts retries',
+          severity: StreamLogSeverity.error,
+          category: 'retry_exhausted',
+          songId: songId,
+          attempt: retryAttempts,
+          bytePosition: currentPos,
+        );
+        throw Exception('Stream connection failed at byte $currentPos after $retryAttempts retries');
       }
     } finally {
       if (cacheSink != null) {
@@ -325,6 +464,14 @@ class YouTubeAudioSource extends StreamAudioSource {
         durationSeconds: song.durationSeconds,
       );
       if (streamResult != null) {
+        if (streamResult.url.contains('.m3u8') ||
+            streamResult.mimeType.toLowerCase().contains('mpegurl')) {
+          AppLogger.info('Web playing "${song.title}" via HlsAudioSource');
+          return HlsAudioSource(
+            Uri.parse(streamResult.url),
+            tag: webMediaItem,
+          );
+        }
         AppLogger.info('Web playing "${song.title}" via direct AudioSource.uri');
         return AudioSource.uri(
           Uri.parse(streamResult.url),
@@ -487,7 +634,7 @@ class YouTubeAudioSource extends StreamAudioSource {
 
         final isMp4 = bestStream.container.name.toLowerCase().contains('mp4') ||
             bestStream.container.name.toLowerCase().contains('m4a');
-        final cacheFile = File('${tempDir.path}/twilight_cache_$cleanId.${isMp4 ? "m4a" : "webm"}');
+        final cacheFile = File('${tempDir.path}/twilight_v31_cache_$cleanId.${isMp4 ? "m4a" : "webm"}');
 
         return YouTubeAudioSource.fromStreamInfo(
           yt: yt,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Play, Radio, Users } from 'lucide-react';
+import { ArrowLeft, Play, Radio, Download, Check, Loader2 } from 'lucide-react';
 import { Song } from '../types';
 import { useMusic } from '../context/MusicContext';
 import { MusicApi, POPULAR_FEATURED_SONGS } from '../services/musicApi';
@@ -10,18 +10,32 @@ interface ArtistScreenProps {
 }
 
 export const ArtistScreen: React.FC<ArtistScreenProps> = ({ artistName, onBack }) => {
-  const { playSong } = useMusic();
+  const { selectAndPlaySong, downloadSong, isDownloaded, isDownloading } = useMusic();
   const [songs, setSongs] = useState<Song[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     MusicApi.searchSongs(`${artistName} top tracks hits`)
       .then((res) => {
-        setSongs(res.length > 0 ? res : POPULAR_FEATURED_SONGS);
+        if (!cancelled) {
+          setSongs(res.length > 0 ? res : POPULAR_FEATURED_SONGS);
+        }
       })
-      .catch(() => setSongs(POPULAR_FEATURED_SONGS))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (!cancelled) {
+          setSongs(POPULAR_FEATURED_SONGS);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [artistName]);
 
   return (
@@ -56,7 +70,7 @@ export const ArtistScreen: React.FC<ArtistScreenProps> = ({ artistName, onBack }
           {songs.length > 0 && (
             <div className="pt-2">
               <button
-                onClick={() => playSong(songs[0], songs)}
+                onClick={() => selectAndPlaySong(songs[0], songs)}
                 className="px-6 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-transform active:scale-95"
               >
                 <Play className="w-4 h-4 fill-white" />
@@ -77,25 +91,53 @@ export const ArtistScreen: React.FC<ArtistScreenProps> = ({ artistName, onBack }
           </div>
         ) : (
           <div className="space-y-2">
-            {songs.map((song, idx) => (
-              <div
-                key={`artist_song_${song.id}_${idx}`}
-                onClick={() => playSong(song, songs)}
-                className="group flex items-center gap-3.5 p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all cursor-pointer"
-              >
-                <span className="text-xs font-mono text-slate-500 w-5 text-center group-hover:text-indigo-400">
-                  {idx + 1}
-                </span>
-                <img src={song.thumbnailUrl} alt={song.title} className="w-12 h-12 rounded-xl object-cover shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <h4 className="text-sm font-bold text-white truncate group-hover:text-indigo-400">{song.title}</h4>
-                  <p className="text-xs text-slate-400 truncate">{song.artist}</p>
+            {songs.map((song, idx) => {
+              const isDown = isDownloaded(song.id);
+              const isDownLoading = isDownloading(song.id);
+              return (
+                <div
+                  key={`artist_song_${song.id}_${idx}`}
+                  onClick={() => selectAndPlaySong(song, songs)}
+                  className="group flex items-center gap-3.5 p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all cursor-pointer"
+                >
+                  <span className="text-xs font-mono text-slate-500 w-5 text-center group-hover:text-indigo-400">
+                    {idx + 1}
+                  </span>
+                  <img src={song.thumbnailUrl} alt={song.title} className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-sm font-bold text-white truncate group-hover:text-indigo-400">{song.title}</h4>
+                    <p className="text-xs text-slate-400 truncate">{song.artist}</p>
+                  </div>
+                  <span className="text-xs text-slate-500 font-mono shrink-0">
+                    {song.durationFormatted || '03:30'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      downloadSong(song);
+                    }}
+                    disabled={isDownLoading}
+                    className={`p-2 rounded-xl border transition-colors shrink-0 ${
+                      isDown
+                        ? 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30'
+                        : isDownLoading
+                        ? 'text-indigo-400 bg-indigo-500/15 border-indigo-500/30'
+                        : 'text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 border-white/10'
+                    }`}
+                    title={isDown ? 'Saved Offline' : 'Download Song for Offline Playback'}
+                  >
+                    {isDownLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : isDown ? (
+                      <Check className="w-4 h-4" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
-                <span className="text-xs text-slate-500 font-mono shrink-0">
-                  {song.durationFormatted || '03:30'}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

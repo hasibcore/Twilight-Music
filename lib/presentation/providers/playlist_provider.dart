@@ -12,6 +12,7 @@ class PlaylistProvider extends ChangeNotifier {
   List<Song> _recentlyPlayed = [];
   bool _isLoading = false;
   bool _isDisposed = false;
+  int _syncSeq = 0;
 
   PlaylistProvider({required this.musicRepository}) {
     musicRepository.addChangeListener(_onRepositoryChanged);
@@ -31,13 +32,14 @@ class PlaylistProvider extends ChangeNotifier {
 
   Future<void> _onRepositoryChanged() async {
     if (_isDisposed) return;
+    final seq = ++_syncSeq;
     try {
       final results = await Future.wait([
         musicRepository.getUserPlaylists(),
         musicRepository.getFavorites(),
         musicRepository.getRecentlyPlayed(),
       ]);
-      if (_isDisposed) return;
+      if (_isDisposed || seq != _syncSeq) return;
       _playlists = results[0] as List<Playlist>;
       _favorites = results[1] as List<Song>;
       _recentlyPlayed = results[2] as List<Song>;
@@ -46,6 +48,7 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   Future<void> loadAll() async {
+    final seq = ++_syncSeq;
     _isLoading = true;
     _safeNotify();
 
@@ -55,15 +58,17 @@ class PlaylistProvider extends ChangeNotifier {
         musicRepository.getFavorites(),
         musicRepository.getRecentlyPlayed(),
       ]);
-
+      if (_isDisposed || seq != _syncSeq) return;
       _playlists = results[0] as List<Playlist>;
       _favorites = results[1] as List<Song>;
       _recentlyPlayed = results[2] as List<Song>;
     } catch (_) {
       // Retain existing state if load encounters an error
     } finally {
-      _isLoading = false;
-      _safeNotify();
+      if (!_isDisposed) {
+        _isLoading = false;
+        _safeNotify();
+      }
     }
   }
 
@@ -111,7 +116,6 @@ class PlaylistProvider extends ChangeNotifier {
       _safeNotify();
     }
     await musicRepository.addSongToPlaylist(playlistId, song);
-    await loadAll();
   }
 
   Future<void> removeSongFromPlaylist(String playlistId, String songId) async {
@@ -128,7 +132,6 @@ class PlaylistProvider extends ChangeNotifier {
       _safeNotify();
     }
     await musicRepository.removeSongFromPlaylist(playlistId, songId);
-    await loadAll();
   }
 
   Future<void> toggleFavorite(Song song) async {

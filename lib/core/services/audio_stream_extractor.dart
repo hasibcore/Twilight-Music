@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../utils/logger.dart';
@@ -94,6 +97,299 @@ class AudioStreamExtractor {
   static const int _maxCacheSize = 100;
   static const Duration _cacheTTL = Duration(minutes: 5, seconds: 30);
 
+  static const Set<int> _retryableStatuses = {408, 425, 429, 500, 502, 503, 504};
+  static final Map<String, Future<AudioStreamResult?>> _inFlightExtractions = {};
+
+  static String _cachedScClientId = '39AVoiZVrdvJEMFLH8T0c5WGshQaAPRJ';
+  static DateTime _lastScClientIdRefresh = DateTime.fromMillisecondsSinceEpoch(0);
+
+  static String _safeUriLabel(Uri uri) => '${uri.host}${uri.path}';
+
+  static Duration _computeRetryDelay(int attempt, int baseDelayMs, http.Response? res) {
+    final retryAfterRaw = res?.headers['retry-after'] ?? '';
+    final retrySeconds = int.tryParse(retryAfterRaw.trim());
+    if (retrySeconds != null && retrySeconds > 0) {
+      return Duration(milliseconds: math.min(2500, retrySeconds * 1000));
+    }
+    final expMs = math.min(2000, baseDelayMs * (1 << math.min(attempt, 3)));
+    final jitterMs = ((DateTime.now().microsecondsSinceEpoch % 110) + 15);
+    return Duration(milliseconds: expMs + jitterMs);
+  }
+
+  static Future<http.Response?> _getWithRetry(
+    Uri uri, {
+    Map<String, String>? headers,
+    Duration timeout = const Duration(milliseconds: 3000),
+    int retries = 2,
+    int baseDelayMs = 200,
+  }) async {
+    http.Response? lastResponse;
+    final label = _safeUriLabel(uri);
+    for (int attempt = 0; attempt <= retries; attempt++) {
+      try {
+        final res = await http.get(uri, headers: headers).timeout(timeout);
+        lastResponse = res;
+        if (!_retryableStatuses.contains(res.statusCode) || attempt == retries) {
+          if (_retryableStatuses.contains(res.statusCode) && attempt == retries) {
+            AppLogger.networkDisconnect(
+              'extractor:GET',
+              'Retryable HTTP status exhausted for $label',
+              category: 'retry_exhausted',
+              statusCode: res.statusCode,
+              attempt: attempt + 1,
+            );
+          }
+          return res;
+        }
+        AppLogger.networkDisconnect(
+          'extractor:GET',
+          'Retrying $label after HTTP ${res.statusCode}',
+          category: 'upstream_retry',
+          statusCode: res.statusCode,
+          attempt: attempt + 1,
+        );
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, res));
+      } on TimeoutException catch (e) {
+        AppLogger.networkDisconnect(
+          'extractor:GET',
+          'GET timeout on $label',
+          severity: attempt == retries ? StreamLogSeverity.error : StreamLogSeverity.warn,
+          category: 'timeout_disconnect',
+          attempt: attempt + 1,
+          error: e,
+        );
+        if (attempt == retries) return lastResponse;
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, null));
+      } on SocketException catch (e) {
+        AppLogger.networkDisconnect(
+          'extractor:GET',
+          'Socket disconnect on $label',
+          severity: attempt == retries ? StreamLogSeverity.error : StreamLogSeverity.warn,
+          category: 'socket_disconnect',
+          attempt: attempt + 1,
+          error: e,
+        );
+        if (attempt == retries) return lastResponse;
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, null));
+      } on http.ClientException catch (e) {
+        AppLogger.networkDisconnect(
+          'extractor:GET',
+          'HTTP client disconnect on $label',
+          severity: attempt == retries ? StreamLogSeverity.error : StreamLogSeverity.warn,
+          category: 'client_disconnect',
+          attempt: attempt + 1,
+          error: e,
+        );
+        if (attempt == retries) return lastResponse;
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, null));
+      } catch (e) {
+        AppLogger.networkDisconnect(
+          'extractor:GET',
+          'Unexpected network error on $label',
+          attempt: attempt + 1,
+          error: e,
+        );
+        if (attempt == retries) return lastResponse;
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, null));
+      }
+    }
+    return lastResponse;
+  }
+
+  static Future<http.Response?> _postWithRetry(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+    Duration timeout = const Duration(milliseconds: 3000),
+    int retries = 1,
+    int baseDelayMs = 200,
+  }) async {
+    http.Response? lastResponse;
+    final label = _safeUriLabel(uri);
+    for (int attempt = 0; attempt <= retries; attempt++) {
+      try {
+        final res = await http.post(uri, headers: headers, body: body).timeout(timeout);
+        lastResponse = res;
+        if (!_retryableStatuses.contains(res.statusCode) || attempt == retries) {
+          if (_retryableStatuses.contains(res.statusCode) && attempt == retries) {
+            AppLogger.networkDisconnect(
+              'extractor:POST',
+              'Retryable HTTP status exhausted for $label',
+              category: 'retry_exhausted',
+              statusCode: res.statusCode,
+              attempt: attempt + 1,
+            );
+          }
+          return res;
+        }
+        AppLogger.networkDisconnect(
+          'extractor:POST',
+          'Retrying POST $label after HTTP ${res.statusCode}',
+          category: 'upstream_retry',
+          statusCode: res.statusCode,
+          attempt: attempt + 1,
+        );
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, res));
+      } on TimeoutException catch (e) {
+        AppLogger.networkDisconnect(
+          'extractor:POST',
+          'POST timeout on $label',
+          category: 'timeout_disconnect',
+          attempt: attempt + 1,
+          error: e,
+        );
+        if (attempt == retries) return lastResponse;
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, null));
+      } on SocketException catch (e) {
+        AppLogger.networkDisconnect(
+          'extractor:POST',
+          'POST socket disconnect on $label',
+          category: 'socket_disconnect',
+          attempt: attempt + 1,
+          error: e,
+        );
+        if (attempt == retries) return lastResponse;
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, null));
+      } on http.ClientException catch (e) {
+        AppLogger.networkDisconnect(
+          'extractor:POST',
+          'POST HTTP client disconnect on $label',
+          category: 'client_disconnect',
+          attempt: attempt + 1,
+          error: e,
+        );
+        if (attempt == retries) return lastResponse;
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, null));
+      } catch (e) {
+        AppLogger.networkDisconnect(
+          'extractor:POST',
+          'Unexpected POST error on $label',
+          attempt: attempt + 1,
+          error: e,
+        );
+        if (attempt == retries) return lastResponse;
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, null));
+      }
+    }
+    return lastResponse;
+  }
+
+  static Future<http.Response?> _headWithRetry(
+    Uri uri, {
+    Map<String, String>? headers,
+    Duration timeout = const Duration(milliseconds: 2200),
+    int retries = 1,
+    int baseDelayMs = 180,
+  }) async {
+    http.Response? lastResponse;
+    final label = _safeUriLabel(uri);
+    for (int attempt = 0; attempt <= retries; attempt++) {
+      try {
+        final res = await http.head(uri, headers: headers).timeout(timeout);
+        lastResponse = res;
+        if (!_retryableStatuses.contains(res.statusCode) || attempt == retries) {
+          return res;
+        }
+        AppLogger.networkDisconnect(
+          'extractor:HEAD',
+          'Retrying HEAD $label after HTTP ${res.statusCode}',
+          category: 'upstream_retry',
+          statusCode: res.statusCode,
+          attempt: attempt + 1,
+        );
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, res));
+      } catch (e) {
+        AppLogger.networkDisconnect(
+          'extractor:HEAD',
+          'HEAD probe disconnect on $label',
+          category: 'socket_disconnect',
+          attempt: attempt + 1,
+          error: e,
+        );
+        if (attempt == retries) return lastResponse;
+        await Future.delayed(_computeRetryDelay(attempt, baseDelayMs, null));
+      }
+    }
+    return lastResponse;
+  }
+
+  static Future<String> _getSoundCloudClientId({bool forceRefresh = false}) async {
+    if (!forceRefresh &&
+        _cachedScClientId.isNotEmpty &&
+        DateTime.now().difference(_lastScClientIdRefresh) < const Duration(minutes: 30)) {
+      return _cachedScClientId;
+    }
+    try {
+      final homeRes = await _getWithRetry(
+        Uri.parse('https://soundcloud.com'),
+        headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+        timeout: const Duration(milliseconds: 2500),
+        retries: 1,
+      );
+      if (homeRes != null && homeRes.statusCode == 200) {
+        final scriptMatches = RegExp(r'src="(https://a-v2\.sndcdn\.com/assets/[^"]+\.js)"')
+            .allMatches(homeRes.body)
+            .map((m) => m.group(1) ?? '')
+            .where((u) => u.isNotEmpty)
+            .toList();
+        for (final scriptUrl in scriptMatches.reversed.take(3)) {
+          try {
+            final jsRes = await _getWithRetry(
+              Uri.parse(scriptUrl),
+              timeout: const Duration(milliseconds: 2500),
+              retries: 1,
+            );
+            if (jsRes != null && jsRes.statusCode == 200) {
+              final idMatch = RegExp(r'client_id\s*:\s*"([a-zA-Z0-9]{32})"').firstMatch(jsRes.body);
+              if (idMatch != null && idMatch.group(1) != null) {
+                _cachedScClientId = idMatch.group(1)!;
+                _lastScClientIdRefresh = DateTime.now();
+                return _cachedScClientId;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    _lastScClientIdRefresh = DateTime.now();
+    return _cachedScClientId;
+  }
+
+  /// Races [futures] concurrently and resolves immediately as soon as ANY future returns non-null.
+  /// Never discards an already-succeeded fast stream just because a slow tier timed out.
+  static Future<T?> _firstNonNull<T>(List<Future<T?>> futures, Duration timeout) {
+    if (futures.isEmpty) return Future.value(null);
+    final completer = Completer<T?>();
+    int remaining = futures.length;
+    final timer = Timer(timeout, () {
+      if (!completer.isCompleted) {
+        completer.complete(null);
+      }
+    });
+
+    for (final f in futures) {
+      f.then((value) {
+        if (value != null && !completer.isCompleted) {
+          timer.cancel();
+          completer.complete(value);
+          return;
+        }
+        remaining--;
+        if (remaining <= 0 && !completer.isCompleted) {
+          timer.cancel();
+          completer.complete(null);
+        }
+      }).catchError((_) {
+        remaining--;
+        if (remaining <= 0 && !completer.isCompleted) {
+          timer.cancel();
+          completer.complete(null);
+        }
+      });
+    }
+    return completer.future;
+  }
+
   static void _setCache(String key, AudioStreamResult result) {
     if (_cache.length >= _maxCacheSize) {
       final oldest = _cacheTime.entries.reduce((a, b) => a.value.isBefore(b.value) ? a : b);
@@ -105,15 +401,22 @@ class AudioStreamExtractor {
   }
 
   static void invalidateCache(String videoId) {
-    _cache.remove('${videoId}_false');
-    _cache.remove('${videoId}_true');
-    _cacheTime.remove('${videoId}_false');
-    _cacheTime.remove('${videoId}_true');
+    final cleanId = videoId.trim();
+    final keysToRemove = _cache.keys
+        .where((k) => k == '${cleanId}_false' || k == '${cleanId}_true' || k.startsWith('v35_${cleanId}_'))
+        .toList();
+    for (final k in keysToRemove) {
+      _cache.remove(k);
+      _cacheTime.remove(k);
+    }
   }
 
   /// Returns the age of the cached stream URL for [videoId], or null if not cached.
   static Duration? getCacheAge(String videoId, {bool preferDownload = false}) {
-    final ts = _cacheTime['${videoId}_$preferDownload'];
+    final cleanId = videoId.trim();
+    final ts = _cacheTime['v35_${cleanId}_${preferDownload}_false'] ??
+        _cacheTime['v35_${cleanId}_${preferDownload}_true'] ??
+        _cacheTime['${cleanId}_$preferDownload'];
     if (ts == null) return null;
     return DateTime.now().difference(ts);
   }
@@ -126,10 +429,28 @@ class AudioStreamExtractor {
   static const Set<String> _coreTitleStopWords = {
     'the', 'and', 'for', 'with', 'from', 'feat', 'ft', 'of', 'in', 'on', 'to', 'at', 'by', 'is', 'it', 'my', 'me',
     'official', 'music', 'video', 'audio', 'song', 'songs', 'full', 'lyric', 'lyrics', 'lyrical',
-    'hd', '4k', 'hq', 'live', 'session', 'studio', 'coke', 'bangla', 'bengali', 'hindi',
+    'hd', '4k', 'hq', 'live', 'session', 'studio', 'coke', 'bangla', 'bengali', 'hindi', 'english',
     'season', 'episode', 'version', 'unplugged', 'rabindra', 'sangeet', 'tagore', 'records', 'creations',
-    'anniversary', 'concert', 'performance', 'track', 'album',
+    'anniversary', 'concert', 'performance', 'track', 'album', 'movie', 'film', 'ost', 'soundtrack',
+    'title', 'theme', 'natok', 'drama', 'telefilm', 'new', 'hit', 'hits', 'single',
   };
+
+  static String _decodeHtmlEntities(String input) {
+    return input
+        .replaceAll(RegExp(r'&quot;', caseSensitive: false), '"')
+        .replaceAll(RegExp(r'&#0*39;|&apos;', caseSensitive: false), "'")
+        .replaceAll(RegExp(r'&amp;', caseSensitive: false), '&')
+        .replaceAll(RegExp(r'&lt;', caseSensitive: false), '<')
+        .replaceAll(RegExp(r'&gt;', caseSensitive: false), '>');
+  }
+
+  static String _stripParentheticalAndEntities(String input) {
+    return _decodeHtmlEntities(input)
+        .replaceAll(RegExp(r'\([^)]*\)'), ' ')
+        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
 
   static String _normalizePhoneticToken(String input) {
     return input
@@ -157,7 +478,7 @@ class AudioStreamExtractor {
   }
 
   static List<String> _getCoreTitleTokens(String coreTitle) {
-    final allTokens = coreTitle
+    final allTokens = _stripParentheticalAndEntities(coreTitle)
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
         .split(RegExp(r'\s+'))
@@ -170,13 +491,18 @@ class AudioStreamExtractor {
   static bool _hasForeignSongTitleWords(
     String candTitle,
     List<String> coreTokens,
-    List<String> artistTokens,
-  ) {
+    List<String> artistTokens, [
+    String extraAllowedText = '',
+  ]) {
     if (coreTokens.isEmpty) return false;
-    final stripped = candTitle
+    final extraTokens = _stripParentheticalAndEntities(extraAllowedText)
         .toLowerCase()
-        .replaceAll(RegExp(r'\([^)]*\)'), ' ')
-        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
+        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .split(RegExp(r'\s+'))
+        .where((w) => w.length >= 3)
+        .toList();
+    final stripped = _stripParentheticalAndEntities(candTitle)
+        .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
         .split(RegExp(r'\s+'))
         .where((w) => w.length >= 3 && !_coreTitleStopWords.contains(w) && !RegExp(r'^\d+$').hasMatch(w))
@@ -184,7 +510,8 @@ class AudioStreamExtractor {
     for (final w in stripped) {
       final matchesCore = coreTokens.any((ct) => _tokenMatchesText(ct, w) || _tokenMatchesText(w, ct));
       final matchesArtist = artistTokens.any((at) => _tokenMatchesText(at, w) || _tokenMatchesText(w, at));
-      if (!matchesCore && !matchesArtist) {
+      final matchesExtra = extraTokens.any((et) => _tokenMatchesText(et, w) || _tokenMatchesText(w, et));
+      if (!matchesCore && !matchesArtist && !matchesExtra) {
         return true;
       }
     }
@@ -193,12 +520,12 @@ class AudioStreamExtractor {
 
   /// Cleans YouTube video titles and channel names into a canonical song search query
   static String cleanTrackText(String input) {
-    return input
+    return _decodeHtmlEntities(input)
         .replaceAll(RegExp(r'#\S+'), ' ')
         .replaceAll(RegExp(r'\(\s*[^\x00-\x7F]+\s*\)'), ' ')
         .replaceAll(RegExp(r'\[\s*[^\x00-\x7F]+\s*\]'), ' ')
-        .replaceAll(RegExp(r'\([^)]*(?:official|video|audio|lyric|lyrics|visualizer|hd|4k|hq|remaster|live|mv|full\s+song|coke\s+studio|season\s*\d+|anniversary|concert)[^)]*\)', caseSensitive: false), ' ')
-        .replaceAll(RegExp(r'\[[^\]]*(?:official|video|audio|lyric|lyrics|visualizer|hd|4k|hq|remaster|live|mv|full\s+song|coke\s+studio|season\s*\d+|anniversary|concert)[^\]]*\]', caseSensitive: false), ' ')
+        .replaceAll(RegExp(r'\([^)]*(?:official|video|audio|lyric|lyrics|visualizer|hd|4k|hq|remaster|live|mv|full\s+song|coke\s+studio|season\s*\d+|anniversary|concert|from\s+|feat\.?\s+|ft\.?\s+|original\s+motion|soundtrack|ost|film|movie|natok|drama|telefilm)[^)]*\)', caseSensitive: false), ' ')
+        .replaceAll(RegExp(r'\[[^\]]*(?:official|video|audio|lyric|lyrics|visualizer|hd|4k|hq|remaster|live|mv|full\s+song|coke\s+studio|season\s*\d+|anniversary|concert|from\s+|feat\.?\s+|ft\.?\s+|original\s+motion|soundtrack|ost|film|movie|natok|drama|telefilm)[^\]]*\]', caseSensitive: false), ' ')
         .replaceAll(RegExp(r'\b(?:official\s+music\s+video|official\s+video|official\s+audio|lyric(?:al)?\s+video|full\s+video|full\s+audio|full\s+song|4k\s+remaster|audio\s+song|video\s+song)\b', caseSensitive: false), ' ')
         .replaceAll(RegExp(r'\s*[-|•·]\s*(?:official|topic|vevo).*$', caseSensitive: false), ' ')
         .replaceAll(RegExp(r'\b(?:VEVO|Topic)\b', caseSensitive: false), ' ')
@@ -302,8 +629,10 @@ class AudioStreamExtractor {
         ? (extractedArtist.isNotEmpty ? extractedArtist : cleanedChannelArtist)
         : (cleanedChannelArtist.isNotEmpty ? cleanedChannelArtist : extractedArtist);
 
+    final finalCore = _stripParentheticalAndEntities(coreTitle.trim().isNotEmpty ? coreTitle.trim() : cleanTrackText(rawTitle));
+
     return {
-      'title': coreTitle.trim().isNotEmpty ? coreTitle.trim() : cleanTrackText(rawTitle),
+      'title': finalCore.isNotEmpty ? finalCore : (coreTitle.trim().isNotEmpty ? coreTitle.trim() : cleanTrackText(rawTitle)),
       'artist': primaryArtist.trim(),
       'rawContext': '$rawTitle ${rawArtist ?? ''}',
     };
@@ -333,8 +662,12 @@ class AudioStreamExtractor {
         final oembedUri = Uri.parse(
           'https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$cleanId&format=json',
         );
-        final res = await http.get(oembedUri).timeout(const Duration(milliseconds: 2500));
-        if (res.statusCode == 200) {
+        final res = await _getWithRetry(
+          oembedUri,
+          timeout: const Duration(milliseconds: 2500),
+          retries: 1,
+        );
+        if (res != null && res.statusCode == 200) {
           final data = jsonDecode(res.body) as Map<String, dynamic>;
           final oembedTitle = data['title']?.toString() ?? '';
           final oembedArtist = data['author_name']?.toString() ?? '';
@@ -352,55 +685,86 @@ class AudioStreamExtractor {
 
   /// Probes a candidate stream URL with a fast Range: bytes=0-511 request to verify
   /// it returns HTTP 200 or 206 (and not 403 Forbidden) before handing it to just_audio.
+  /// Retries once on transient socket/timeout or 5xx/429 responses.
   static Future<AudioStreamResult?> _verifyStreamPlayable(
     AudioStreamResult? candidate, {
     Duration timeout = const Duration(milliseconds: 1800),
   }) async {
     if (candidate == null || candidate.url.isEmpty) return null;
-    http.Client? client;
-    try {
-      client = http.Client();
-      final req = http.Request('GET', Uri.parse(candidate.url));
-      if (candidate.headers.isNotEmpty) {
-        req.headers.addAll(candidate.headers);
-      } else {
-        req.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
-      }
-      req.headers['Range'] = 'bytes=0-511';
+    for (int attempt = 0; attempt < 2; attempt++) {
+      http.Client? client;
+      try {
+        client = http.Client();
+        final req = http.Request('GET', Uri.parse(candidate.url));
+        if (candidate.headers.isNotEmpty) {
+          req.headers.addAll(candidate.headers);
+        } else {
+          req.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
+        }
+        req.headers['Range'] = 'bytes=0-511';
 
-      final res = await client.send(req).timeout(timeout);
-      if (res.statusCode == 200 || res.statusCode == 206) {
-        int resolvedTotal = candidate.totalBytes;
-        final contentRange = res.headers['content-range'] ?? '';
-        if (contentRange.contains('/')) {
-          final slashTotal = int.tryParse(contentRange.split('/').last.trim()) ?? 0;
-          if (slashTotal > 10000) {
-            resolvedTotal = slashTotal;
+        final res = await client.send(req).timeout(timeout);
+        if (res.statusCode == 200 || res.statusCode == 206) {
+          final contentType = (res.headers['content-type'] ?? '').toLowerCase();
+          if (contentType.contains('text/html') ||
+              contentType.contains('application/json') ||
+              contentType.contains('text/plain') ||
+              contentType.contains('application/xml') ||
+              contentType.contains('text/xml')) {
+            AppLogger.networkDisconnect(
+              'extractor:probe',
+              'Stream probe rejected non-audio content-type "$contentType"',
+              statusCode: res.statusCode,
+              attempt: attempt + 1,
+            );
+            return null;
           }
-        }
-        if (resolvedTotal <= 0) {
-          final clen = int.tryParse(res.headers['content-length'] ?? '0') ?? 0;
-          if (clen > 10000) {
-            resolvedTotal = clen;
+          int resolvedTotal = candidate.totalBytes;
+          final contentRange = res.headers['content-range'] ?? '';
+          if (contentRange.contains('/')) {
+            final slashTotal = int.tryParse(contentRange.split('/').last.trim()) ?? 0;
+            if (slashTotal > 10000) {
+              resolvedTotal = slashTotal;
+            }
           }
+          if (resolvedTotal <= 0) {
+            final clen = int.tryParse(res.headers['content-length'] ?? '0') ?? 0;
+            if (clen > 10000) {
+              resolvedTotal = clen;
+            }
+          }
+          return AudioStreamResult(
+            url: candidate.url,
+            totalBytes: resolvedTotal,
+            mimeType: candidate.mimeType,
+            bitrate: candidate.bitrate,
+            headers: candidate.headers,
+            isDirectDownloadable: candidate.isDirectDownloadable,
+          );
         }
-        return AudioStreamResult(
-          url: candidate.url,
-          totalBytes: resolvedTotal,
-          mimeType: candidate.mimeType,
-          bitrate: candidate.bitrate,
-          headers: candidate.headers,
-          isDirectDownloadable: candidate.isDirectDownloadable,
+        AppLogger.networkDisconnect(
+          'extractor:probe',
+          'Stream probe rejected status ${res.statusCode}',
+          statusCode: res.statusCode,
+          attempt: attempt + 1,
         );
+        if (!_retryableStatuses.contains(res.statusCode) || attempt == 1) {
+          return null;
+        }
+      } catch (e) {
+        AppLogger.networkDisconnect(
+          'extractor:probe',
+          'Stream probe disconnected',
+          attempt: attempt + 1,
+          error: e,
+        );
+        if (attempt == 1) return null;
+      } finally {
+        client?.close();
       }
-      AppLogger.info('Stream probe rejected status ${res.statusCode} for ${candidate.url.split("?").first}');
-      return null;
-    } catch (e) {
-      AppLogger.info('Stream probe failed: $e');
-      return null;
-    } finally {
-      client?.close();
+      await Future.delayed(const Duration(milliseconds: 180));
     }
+    return null;
   }
 
   /// Races all YouTube direct/Invidious extractors in parallel and returns the first
@@ -454,20 +818,16 @@ class AudioStreamExtractor {
       probeTier('Android Music', () => _extractFromAndroidMusic(cleanId)),
       probeTier('TV Embedded', () => _extractFromTvEmbedded(cleanId)),
       probeTier('Android App', () => _extractFromAndroidApp(cleanId)),
-      probeTier('Invidious', () => _extractFromInvidious(cleanId)),
+      probeTier('MWEB', () => _extractFromMweb(cleanId)),
+      probeTier('Invidious/Piped', () => _extractFromInvidious(cleanId)),
       probeTier('YoutubeExplode', extractYoutubeExplode),
     ];
 
     try {
-      final results = await Future.wait(candidates).timeout(
-        const Duration(milliseconds: 3200),
-        onTimeout: () => const <AudioStreamResult?>[],
-      );
-      for (final r in results) {
-        if (r != null) return r;
-      }
-    } catch (_) {}
-    return null;
+      return await _firstNonNull(candidates, const Duration(milliseconds: 3500));
+    } catch (_) {
+      return null;
+    }
   }
 
   static const Map<String, String> _knownDirectMastersByVideoId = {
@@ -591,6 +951,7 @@ class AudioStreamExtractor {
           return await _extractFromItunesSearch(
             title: trackTitle,
             artist: trackArtist,
+            rawContext: rawContext,
             targetDurationSeconds: durationSeconds,
           );
         } catch (_) {
@@ -600,15 +961,10 @@ class AudioStreamExtractor {
     ];
 
     try {
-      final results = await Future.wait(cdnFutures).timeout(
-        const Duration(milliseconds: 4200),
-        onTimeout: () => const <AudioStreamResult?>[],
-      );
-      for (final r in results) {
-        if (r != null) return r;
-      }
-    } catch (_) {}
-    return null;
+      return await _firstNonNull(cdnFutures, const Duration(milliseconds: 5200));
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Extracts the best playable audio stream URL for a given YouTube video ID and optional track metadata.
@@ -644,78 +1000,103 @@ class AudioStreamExtractor {
       }
     }
 
-    // 0ms fast-path for known verified direct masters (Bohemian Rhapsody, Despacito, Shape of You, etc.)
     final instantMaster = _matchKnownDirectMaster(cleanId, title ?? '', artist ?? '', '$title $artist');
     if (instantMaster != null) {
       _setCache(cacheKey, instantMaster);
       return instantMaster;
     }
 
-    final isStandardYouTubeId = cleanId.length == 11 &&
-        !cleanId.startsWith('sp_') &&
-        !cleanId.startsWith('js_') &&
-        RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(cleanId);
+    if (!forceRefresh && _inFlightExtractions.containsKey(cacheKey)) {
+      return _inFlightExtractions[cacheKey]!;
+    }
 
-    // Launch both verified YouTube extraction and verified CDN extraction concurrently!
-    final Future<AudioStreamResult?> ytFuture =
-        (isStandardYouTubeId && !preferCdnFallback)
-            ? _extractVerifiedYouTubeDirect(cleanId)
-            : Future.value(null);
+    Future<AudioStreamResult?> runExtraction() async {
+      final isStandardYouTubeId = cleanId.length == 11 &&
+          !cleanId.startsWith('sp_') &&
+          !cleanId.startsWith('js_') &&
+          RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(cleanId);
 
-    final Future<AudioStreamResult?> cdnFuture = _extractVerifiedCdnMaster(
-      cleanId,
-      title: title,
-      artist: artist,
-      durationSeconds: durationSeconds,
-    );
+      // Launch both verified YouTube extraction and verified CDN extraction concurrently!
+      final Future<AudioStreamResult?> ytFuture =
+          (isStandardYouTubeId && !preferCdnFallback)
+              ? _extractVerifiedYouTubeDirect(cleanId)
+              : Future.value(null);
 
-    if (preferCdnFallback) {
-      final cdnRes = await cdnFuture;
-      if (cdnRes != null) {
-        _setCache(cacheKey, cdnRes);
-        return cdnRes;
-      }
-      if (isStandardYouTubeId) {
-        final ytRes = await _extractVerifiedYouTubeDirect(cleanId);
-        if (ytRes != null) {
-          _setCache(cacheKey, ytRes);
-          return ytRes;
+      final Future<AudioStreamResult?> cdnFuture = _extractVerifiedCdnMaster(
+        cleanId,
+        title: title,
+        artist: artist,
+        durationSeconds: durationSeconds,
+      );
+
+      if (preferCdnFallback) {
+        final cdnRes = await cdnFuture;
+        if (cdnRes != null) {
+          _setCache(cacheKey, cdnRes);
+          return cdnRes;
         }
+        if (isStandardYouTubeId) {
+          final ytRes = await _extractVerifiedYouTubeDirect(cleanId);
+          if (ytRes != null) {
+            _setCache(cacheKey, ytRes);
+            return ytRes;
+          }
+        }
+        return null;
       }
+
+      // Wait up to 1.8s for verified exact YouTube stream first
+      AudioStreamResult? ytResult;
+      try {
+        ytResult = await ytFuture.timeout(
+          const Duration(milliseconds: 1800),
+          onTimeout: () => null,
+        );
+      } catch (_) {}
+
+      if (ytResult != null) {
+        _setCache(cacheKey, ytResult);
+        return ytResult;
+      }
+
+      // If YouTube direct streams were blocked (HTTP 403) or timed out, use the concurrent CDN result (bounded 4s wait)
+      final cdnResult = await cdnFuture.timeout(
+        const Duration(seconds: 4),
+        onTimeout: () => null,
+      );
+      if (cdnResult != null) {
+        AppLogger.info('Resolved verified high-bitrate CDN stream for $cleanId');
+        _setCache(cacheKey, cdnResult);
+        return cdnResult;
+      }
+
+      // Final bounded check in case ytFuture finished while awaiting cdnFuture
+      final lateYt = await ytFuture.timeout(
+        const Duration(milliseconds: 1200),
+        onTimeout: () => null,
+      );
+      if (lateYt != null) {
+        _setCache(cacheKey, lateYt);
+        return lateYt;
+      }
+
+      AppLogger.error('All audio stream extraction tiers failed for $cleanId');
       return null;
     }
 
-    // Wait up to 2.2s for verified exact YouTube stream first
-    AudioStreamResult? ytResult;
+    if (forceRefresh) {
+      return await runExtraction();
+    }
+
+    final flight = runExtraction();
+    _inFlightExtractions[cacheKey] = flight;
     try {
-      ytResult = await ytFuture.timeout(
-        const Duration(milliseconds: 2200),
-        onTimeout: () => null,
-      );
-    } catch (_) {}
-
-    if (ytResult != null) {
-      _setCache(cacheKey, ytResult);
-      return ytResult;
+      return await flight;
+    } finally {
+      if (identical(_inFlightExtractions[cacheKey], flight)) {
+        _inFlightExtractions.remove(cacheKey);
+      }
     }
-
-    // If YouTube direct streams were blocked (HTTP 403) or timed out, immediately use the concurrent CDN result
-    final cdnResult = await cdnFuture;
-    if (cdnResult != null) {
-      AppLogger.info('Resolved verified high-bitrate CDN stream for $cleanId');
-      _setCache(cacheKey, cdnResult);
-      return cdnResult;
-    }
-
-    // Final check in case ytFuture finished while awaiting cdnFuture
-    final lateYt = await ytFuture;
-    if (lateYt != null) {
-      _setCache(cacheKey, lateYt);
-      return lateYt;
-    }
-
-    AppLogger.error('All audio stream extraction tiers failed for $cleanId');
-    return null;
   }
 
   /// Resolves a full-length 320kbps AAC (.mp4) direct CDN stream for the exact [title] and [artist]
@@ -751,12 +1132,14 @@ class AudioStreamExtractor {
       final searchUri = Uri.parse(
         'https://www.jiosaavn.com/api.php?p=1&q=${Uri.encodeComponent(q.trim())}&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=10&__call=search.getResults',
       );
-      final searchRes = await http.get(
+      final searchRes = await _getWithRetry(
         searchUri,
         headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-      ).timeout(const Duration(milliseconds: 3500));
+        timeout: const Duration(milliseconds: 3500),
+        retries: 2,
+      );
 
-      if (searchRes.statusCode != 200) continue;
+      if (searchRes == null || searchRes.statusCode != 200) continue;
       final searchData = jsonDecode(searchRes.body);
       if (searchData is! Map<String, dynamic>) continue;
       final results = (searchData['results'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
@@ -771,16 +1154,22 @@ class AudioStreamExtractor {
         final encUrl = moreInfo['encrypted_media_url']?.toString() ?? '';
         if (encUrl.isEmpty) continue;
 
-        final candTitle = (item['title']?.toString() ?? '').toLowerCase();
-        final candSubtitle = (item['subtitle']?.toString() ?? '').toLowerCase();
-        final candAlbum = (moreInfo['album']?.toString() ?? '').toLowerCase();
-        final combined = '$candTitle $candSubtitle $candAlbum';
+        final candTitleRaw = _decodeHtmlEntities(item['title']?.toString() ?? '').toLowerCase();
+        final candTitle = _stripParentheticalAndEntities(candTitleRaw).toLowerCase();
+        final candSubtitle = _decodeHtmlEntities(item['subtitle']?.toString() ?? '').toLowerCase();
+        final candAlbum = _decodeHtmlEntities(moreInfo['album']?.toString() ?? '').toLowerCase();
+        final combined = '$candTitleRaw $candSubtitle $candAlbum';
         final candDurSec = int.tryParse(moreInfo['duration']?.toString() ?? '0') ?? 0;
         if (candDurSec > 0 && candDurSec <= 45) continue;
 
+        final candNormFull = candTitle.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+        final candNormBase = candTitle.split('|').first.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+        final isDistinctiveCoreTitle =
+            coreTokens.length >= 2 || (coreTokens.length == 1 && normCoreTitle.length >= 6);
+
         // STRICT CORE-TITLE MATCH GATE:
         if (coreTokens.isNotEmpty) {
-          if (_hasForeignSongTitleWords(candTitle, coreTokens, artistTokens)) {
+          if (_hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candSubtitle)) {
             continue;
           }
           int matchedCoreCount = 0;
@@ -804,7 +1193,13 @@ class AudioStreamExtractor {
             continue;
           }
 
-          if (artistTokens.isNotEmpty && !artistMatched) {
+          final exactDistinctiveTitleMatch = isDistinctiveCoreTitle &&
+              (candNormFull == normCoreTitle || candNormBase == normCoreTitle) &&
+              (targetDurationSeconds == null ||
+                  targetDurationSeconds <= 0 ||
+                  (candDurSec > 0 && (candDurSec - targetDurationSeconds).abs() <= 22));
+
+          if (artistTokens.isNotEmpty && !artistMatched && !exactDistinctiveTitleMatch) {
             continue;
           }
         }
@@ -828,8 +1223,6 @@ class AudioStreamExtractor {
         }
 
         int score = 20 - (i * 2);
-        final candNormFull = candTitle.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
-        final candNormBase = candTitle.split('|').first.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
         if (candNormFull == normCoreTitle) {
           score += 35;
         } else if (candNormBase == normCoreTitle) {
@@ -878,12 +1271,14 @@ class AudioStreamExtractor {
       final authUri = Uri.parse(
         'https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=${Uri.encodeComponent(encUrl)}&bitrate=320&api_version=4&_format=json&ctx=web6dot0&_marker=0',
       );
-      final authRes = await http.get(
+      final authRes = await _getWithRetry(
         authUri,
         headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-      ).timeout(const Duration(milliseconds: 2800));
+        timeout: const Duration(milliseconds: 2800),
+        retries: 2,
+      );
 
-      if (authRes.statusCode != 200) continue;
+      if (authRes == null || authRes.statusCode != 200) continue;
       final authData = jsonDecode(authRes.body);
       if (authData is! Map<String, dynamic>) continue;
       final rawAuthUrl = authData['auth_url']?.toString() ?? '';
@@ -897,11 +1292,13 @@ class AudioStreamExtractor {
 
       int contentLen = 0;
       try {
-        final headRes = await http.head(
+        final headRes = await _headWithRetry(
           Uri.parse(directCdnUrl),
           headers: const {'User-Agent': 'Mozilla/5.0'},
-        ).timeout(const Duration(milliseconds: 2200));
-        if (headRes.statusCode == 200 || headRes.statusCode == 206) {
+          timeout: const Duration(milliseconds: 2200),
+          retries: 1,
+        );
+        if (headRes != null && (headRes.statusCode == 200 || headRes.statusCode == 206)) {
           contentLen = int.tryParse(headRes.headers['content-length'] ?? '0') ?? 0;
         } else {
           continue;
@@ -931,7 +1328,7 @@ class AudioStreamExtractor {
     String rawContext = '',
     int? targetDurationSeconds,
   }) async {
-    const scClientId = '39AVoiZVrdvJEMFLH8T0c5WGshQaAPRJ';
+    String scClientId = await _getSoundCloudClientId();
     final coreTokens = _getCoreTitleTokens(title);
     final normTargetArtist = artist.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
     final artistTokens = normTargetArtist
@@ -944,96 +1341,197 @@ class AudioStreamExtractor {
       r'\b(?:concert|live|anniversary|unplugged|acoustic|reprise)\b',
       caseSensitive: false,
     ).hasMatch(rawContextLower);
+    final wantsRemixOrCover = RegExp(
+      r'\b(?:remix|karaoke|instrumental|nightcore|slowed|reverb|cover|lofi|lo-fi)\b',
+      caseSensitive: false,
+    ).hasMatch(rawContextLower);
 
-    final q = artist.isNotEmpty ? '$artist $title' : title;
-    final searchUri = Uri.parse(
-      'https://api-v2.soundcloud.com/search/tracks?q=${Uri.encodeComponent(q.trim())}&client_id=$scClientId&limit=10',
-    );
-    final res = await http.get(
-      searchUri,
-      headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-    ).timeout(const Duration(milliseconds: 3500));
-    if (res.statusCode != 200) return null;
+    final scQueries = <String>{
+      if (artist.isNotEmpty) '$artist $title' else title,
+      if (artist.isNotEmpty) '$title $artist',
+      title,
+    }.where((q) => q.trim().isNotEmpty).toList();
 
-    final data = jsonDecode(res.body);
-    if (data is! Map<String, dynamic>) return null;
-    final collection = (data['collection'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
-    if (collection.isEmpty) return null;
+    final normCoreTitle = _stripParentheticalAndEntities(title)
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final isDistinctiveCoreTitle =
+        coreTokens.length >= 2 || (coreTokens.length == 1 && normCoreTitle.length >= 6);
 
-    for (final item in collection) {
-      final candTitle = (item['title']?.toString() ?? '').toLowerCase();
-      final candUser = ((item['user'] as Map<String, dynamic>?)?['username']?.toString() ?? '').toLowerCase();
-      final combined = '$candTitle $candUser';
-      final candDurSec = ((int.tryParse(item['duration']?.toString() ?? '0') ?? 0) / 1000).round();
-      if (candDurSec <= 45) continue;
+    for (final q in scQueries) {
+      var searchUri = Uri.parse(
+        'https://api-v2.soundcloud.com/search/tracks?q=${Uri.encodeComponent(q.trim())}&client_id=${Uri.encodeComponent(scClientId)}&limit=12',
+      );
+      var res = await _getWithRetry(
+        searchUri,
+        headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+        timeout: const Duration(milliseconds: 3500),
+        retries: 2,
+      );
 
-      if (coreTokens.isNotEmpty) {
-        if (_hasForeignSongTitleWords(candTitle, coreTokens, artistTokens)) {
-          continue;
-        }
-        int matched = 0;
-        for (final ct in coreTokens) {
-          if (_tokenMatchesText(ct, candTitle)) matched += 1;
-        }
-        final minReq = coreTokens.length <= 2 ? coreTokens.length : (coreTokens.length * 0.6).ceil();
-        if (matched < minReq) continue;
+      if (res != null && (res.statusCode == 401 || res.statusCode == 403)) {
+        scClientId = await _getSoundCloudClientId(forceRefresh: true);
+        searchUri = Uri.parse(
+          'https://api-v2.soundcloud.com/search/tracks?q=${Uri.encodeComponent(q.trim())}&client_id=${Uri.encodeComponent(scClientId)}&limit=12',
+        );
+        res = await _getWithRetry(
+          searchUri,
+          headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+          timeout: const Duration(milliseconds: 3500),
+          retries: 1,
+        );
       }
 
-      if (artistTokens.isNotEmpty && !artistTokens.any((at) => _tokenMatchesText(at, combined))) {
-        continue;
-      }
-      if (wantsCokeStudio != combined.contains('coke studio')) {
-        continue;
-      }
-      if (wantsLiveOrConcert &&
-          !RegExp(r'\b(?:concert|live|anniversary|unplugged|acoustic|reprise)\b', caseSensitive: false)
-              .hasMatch(combined) &&
-          targetDurationSeconds != null &&
-          targetDurationSeconds > 0 &&
-          candDurSec > 0 &&
-          (candDurSec - targetDurationSeconds).abs() > 28) {
-        continue;
-      }
-      if (targetDurationSeconds != null && targetDurationSeconds > 0 && candDurSec > 0) {
-        if ((candDurSec - targetDurationSeconds).abs() > 45) {
-          continue;
-        }
-      }
-      if (RegExp(r'\b(?:cover|karaoke|instrumental|remix)\b').hasMatch(candTitle) &&
-          !title.toLowerCase().contains('cover') &&
-          !title.toLowerCase().contains('remix')) {
-        continue;
-      }
+      if (res == null || res.statusCode != 200) continue;
 
-      final media = item['media'] as Map<String, dynamic>? ?? {};
-      final transcodings = (media['transcodings'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
-      final progTr = transcodings.where((tr) => (tr['format'] as Map<String, dynamic>?)?['protocol'] == 'progressive').toList();
-      final hlsTr = transcodings.where((tr) => (tr['format'] as Map<String, dynamic>?)?['protocol'] == 'hls').toList();
-      final chosenList = progTr.isNotEmpty ? progTr : hlsTr;
-      for (final chosen in chosenList) {
-        final trUrl = chosen['url']?.toString() ?? '';
-        if (trUrl.isEmpty) continue;
-        final sep = trUrl.contains('?') ? '&' : '?';
-        try {
-          final infoRes = await http
-              .get(Uri.parse('$trUrl${sep}client_id=$scClientId'))
-              .timeout(const Duration(milliseconds: 2500));
-          if (infoRes.statusCode == 200) {
-            final info = jsonDecode(infoRes.body) as Map<String, dynamic>;
-            final streamUrl = info['url']?.toString() ?? '';
-            if (streamUrl.isNotEmpty) {
-              final isHls = streamUrl.contains('.m3u8') || progTr.isEmpty;
-              return AudioStreamResult(
-                url: streamUrl,
-                totalBytes: 0,
-                mimeType: isHls ? 'application/vnd.apple.mpegurl' : 'audio/mp4',
-                bitrate: 160000,
-                headers: const {'User-Agent': 'Mozilla/5.0'},
-                isDirectDownloadable: !isHls,
-              );
+      final data = jsonDecode(res.body);
+      if (data is! Map<String, dynamic>) continue;
+      final collection = (data['collection'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
+      if (collection.isEmpty) continue;
+
+      final scoredCandidates = <Map<String, dynamic>>[];
+
+      for (int i = 0; i < collection.length; i++) {
+        final item = collection[i];
+        if ((item['policy']?.toString() ?? '').toUpperCase() == 'SNIP') continue;
+        final media = item['media'] as Map<String, dynamic>? ?? {};
+        final transcodings = (media['transcodings'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
+        if (transcodings.isEmpty) continue;
+
+        final candTitleRaw = _decodeHtmlEntities(item['title']?.toString() ?? '').toLowerCase();
+        final candTitle = _stripParentheticalAndEntities(candTitleRaw).toLowerCase();
+        final candUser = _decodeHtmlEntities((item['user'] as Map<String, dynamic>?)?['username']?.toString() ?? '').toLowerCase();
+        final combined = '$candTitleRaw $candUser';
+        final candDurSec = ((int.tryParse(item['duration']?.toString() ?? '0') ?? 0) / 1000).round();
+        if (candDurSec <= 45) continue;
+
+        String candSongSegment = candTitle;
+        if (candTitle.contains('-')) {
+          final hParts = candTitle.split(RegExp(r'\s*[-–—]\s*')).map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
+          if (hParts.length == 2) {
+            final matchLeft = coreTokens.where((ct) => _tokenMatchesText(ct, hParts[0])).length;
+            final matchRight = coreTokens.where((ct) => _tokenMatchesText(ct, hParts[1])).length;
+            if (matchRight > matchLeft) {
+              candSongSegment = hParts[1];
+            } else if (matchLeft > matchRight) {
+              candSongSegment = hParts[0];
             }
           }
-        } catch (_) {}
+        }
+
+        if (coreTokens.isNotEmpty) {
+          final hasForeignFull = _hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candUser);
+          final hasForeignSeg = _hasForeignSongTitleWords(candSongSegment, coreTokens, artistTokens, candUser);
+          final isMedleyOrOtherAlbumTrack = candTitle.contains('valobashar magh') ||
+              (hasForeignFull && artistTokens.isNotEmpty && artistTokens.any((at) => _tokenMatchesText(at, candTitle)));
+          if (isMedleyOrOtherAlbumTrack || (hasForeignFull && hasForeignSeg)) {
+            continue;
+          }
+          int matched = 0;
+          for (final ct in coreTokens) {
+            if (_tokenMatchesText(ct, candTitle)) matched += 1;
+          }
+          final minReq = coreTokens.length <= 2 ? coreTokens.length : (coreTokens.length * 0.6).ceil();
+          if (matched < minReq) continue;
+        }
+
+        final candSegNorm = candSongSegment.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+        final artistMatched = artistTokens.isEmpty || artistTokens.any((at) => _tokenMatchesText(at, combined));
+        final durationExactMatch =
+            targetDurationSeconds != null && targetDurationSeconds > 0 && (candDurSec - targetDurationSeconds).abs() <= 8;
+        final exactDistinctiveMatch = isDistinctiveCoreTitle &&
+            candSegNorm == normCoreTitle &&
+            (targetDurationSeconds == null || targetDurationSeconds <= 0 || (candDurSec - targetDurationSeconds).abs() <= 28);
+
+        if (!artistMatched && !durationExactMatch && !exactDistinctiveMatch) {
+          continue;
+        }
+        if (wantsCokeStudio != combined.contains('coke studio')) {
+          continue;
+        }
+        if (wantsLiveOrConcert &&
+            !RegExp(r'\b(?:concert|live|anniversary|unplugged|acoustic|reprise)\b', caseSensitive: false)
+                .hasMatch(combined) &&
+            targetDurationSeconds != null &&
+            targetDurationSeconds > 0 &&
+            candDurSec > 0 &&
+            (candDurSec - targetDurationSeconds).abs() > 28) {
+          continue;
+        }
+        if (targetDurationSeconds != null && targetDurationSeconds > 0 && candDurSec > 0) {
+          if ((candDurSec - targetDurationSeconds).abs() > (artistMatched ? 80 : 40)) {
+            continue;
+          }
+        }
+        if (!wantsRemixOrCover &&
+            RegExp(r'\b(?:cover|karaoke|instrumental|remix|nightcore|slowed)\b').hasMatch(candTitleRaw)) {
+          continue;
+        }
+
+        int score = 20 - i;
+        for (final ct in coreTokens) {
+          if (_tokenMatchesText(ct, candTitle)) score += 20;
+        }
+        for (final at in artistTokens) {
+          if (_tokenMatchesText(at, combined)) score += 18;
+        }
+        if (targetDurationSeconds != null && targetDurationSeconds > 0) {
+          final diff = (candDurSec - targetDurationSeconds).abs();
+          if (diff <= 3) score += 75;
+          else if (diff <= 8) score += 50;
+          else if (diff <= 20) score += 25;
+        }
+        final hasProg = transcodings.any((tr) => (tr['format'] as Map<String, dynamic>?)?['protocol'] == 'progressive');
+        if (hasProg) score += 15;
+
+        scoredCandidates.add({'item': item, 'score': score});
+      }
+
+      scoredCandidates.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
+
+      for (final cand in scoredCandidates.take(3)) {
+        final item = cand['item'] as Map<String, dynamic>;
+        final media = item['media'] as Map<String, dynamic>? ?? {};
+        final transcodings = (media['transcodings'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
+        final progTr = transcodings.where((tr) => (tr['format'] as Map<String, dynamic>?)?['protocol'] == 'progressive').toList();
+        final hlsTr = transcodings.where((tr) => (tr['format'] as Map<String, dynamic>?)?['protocol'] == 'hls').toList();
+        final chosenList = progTr.isNotEmpty ? progTr : hlsTr;
+        for (final chosen in chosenList) {
+          final trUrl = chosen['url']?.toString() ?? '';
+          if (trUrl.isEmpty) continue;
+          final sep = trUrl.contains('?') ? '&' : '?';
+          try {
+            final infoRes = await _getWithRetry(
+              Uri.parse('$trUrl${sep}client_id=${Uri.encodeComponent(scClientId)}'),
+              timeout: const Duration(milliseconds: 2500),
+              retries: 1,
+            );
+            if (infoRes != null && infoRes.statusCode == 200) {
+              final info = jsonDecode(infoRes.body) as Map<String, dynamic>;
+              final streamUrl = info['url']?.toString() ?? '';
+              if (streamUrl.isNotEmpty) {
+                final isHls = streamUrl.contains('.m3u8') || progTr.isEmpty;
+                final formatMime = ((chosen['format'] as Map<String, dynamic>?)?['mime_type']?.toString() ?? '').toLowerCase();
+                final resolvedMime = isHls
+                    ? 'application/vnd.apple.mpegurl'
+                    : (formatMime.contains('mpeg') || streamUrl.contains('.mp3') ? 'audio/mpeg' : 'audio/mp4');
+                final candidate = AudioStreamResult(
+                  url: streamUrl,
+                  totalBytes: 0,
+                  mimeType: resolvedMime,
+                  bitrate: 160000,
+                  headers: const {'User-Agent': 'Mozilla/5.0'},
+                  isDirectDownloadable: !isHls,
+                );
+                if (isHls) return candidate;
+                final verified = await _verifyStreamPlayable(candidate);
+                if (verified != null) return verified;
+              }
+            }
+          } catch (_) {}
+        }
       }
     }
     return null;
@@ -1043,73 +1541,139 @@ class AudioStreamExtractor {
   static Future<AudioStreamResult?> _extractFromItunesSearch({
     required String title,
     required String artist,
+    String rawContext = '',
     int? targetDurationSeconds,
   }) async {
     final coreTokens = _getCoreTitleTokens(title);
+    final normCoreTitle = _stripParentheticalAndEntities(title)
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final isDistinctiveCoreTitle =
+        coreTokens.length >= 2 || (coreTokens.length == 1 && normCoreTitle.length >= 6);
     final artistTokens = artist
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
         .split(RegExp(r'\s+'))
         .where((t) => t.length >= 3 && !_coreTitleStopWords.contains(t))
         .toList();
-    final q = artist.isNotEmpty ? '$title $artist' : title;
-    final uri = Uri.parse(
-      'https://saavn.sumit.co/api/search/songs?query=${Uri.encodeComponent(q.trim())}&limit=10',
-    );
-    final res = await http.get(uri).timeout(const Duration(milliseconds: 3500));
-    if (res.statusCode != 200) return null;
+    final rawContextLower = (rawContext.isNotEmpty ? rawContext : '$title $artist').toLowerCase();
+    final wantsRemixOrKaraoke = RegExp(
+      r'\b(?:remix|karaoke|instrumental|nightcore|slowed|reverb|cover|lofi|lo-fi)\b',
+      caseSensitive: false,
+    ).hasMatch(rawContextLower);
+    final wantsCokeStudio = rawContextLower.contains('coke studio');
 
-    final data = jsonDecode(res.body);
-    if (data is! Map<String, dynamic>) return null;
-    final dataMap = data['data'] as Map<String, dynamic>? ?? {};
-    final results = (dataMap['results'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
-    if (results.isEmpty) return null;
+    final queries = <String>{
+      if (artist.isNotEmpty) '$title $artist' else title,
+      title,
+    }.where((q) => q.trim().isNotEmpty).toList();
 
-    for (final item in results) {
-      final durationSec = int.tryParse(item['duration']?.toString() ?? '0') ?? 0;
-      if (durationSec <= 35) continue;
-      if (targetDurationSeconds != null && targetDurationSeconds > 0 && durationSec > 0) {
-        if ((durationSec - targetDurationSeconds).abs() > 30) continue;
-      }
-      final downloadUrls = (item['downloadUrl'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
-      if (downloadUrls.isEmpty) continue;
-      final fullStreamUrl = downloadUrls.last['url']?.toString() ?? '';
-      if (fullStreamUrl.isEmpty) continue;
+    for (final q in queries) {
+      final uri = Uri.parse(
+        'https://saavn.sumit.co/api/search/songs?query=${Uri.encodeComponent(q.trim())}&limit=10',
+      );
+      final res = await _getWithRetry(
+        uri,
+        timeout: const Duration(milliseconds: 3500),
+        retries: 2,
+      );
+      if (res == null || res.statusCode != 200) continue;
 
-      final candTitle = (item['name']?.toString() ?? '').toLowerCase();
-      final artistsMap = item['artists'] as Map<String, dynamic>? ?? {};
-      final primaryList = (artistsMap['primary'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
-      final candArtist = primaryList.map((a) => a['name']?.toString() ?? '').join(' ').toLowerCase();
+      final data = jsonDecode(res.body);
+      if (data is! Map<String, dynamic>) continue;
+      final dataMap = data['data'] as Map<String, dynamic>? ?? {};
+      final results = (dataMap['results'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
+      if (results.isEmpty) continue;
 
-      if (coreTokens.isNotEmpty) {
-        if (_hasForeignSongTitleWords(candTitle, coreTokens, artistTokens)) {
+      Map<String, dynamic>? bestMatch;
+      String bestStreamUrl = '';
+      int bestScore = -999;
+
+      for (int i = 0; i < results.length; i++) {
+        final item = results[i];
+        final durationSec = int.tryParse(item['duration']?.toString() ?? '0') ?? 0;
+        if (durationSec <= 35) continue;
+        if (targetDurationSeconds != null && targetDurationSeconds > 0 && durationSec > 0) {
+          if ((durationSec - targetDurationSeconds).abs() > 35) continue;
+        }
+        final downloadUrls = (item['downloadUrl'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
+        if (downloadUrls.isEmpty) continue;
+        final fullStreamUrl = downloadUrls.last['url']?.toString() ?? '';
+        if (fullStreamUrl.isEmpty) continue;
+
+        final candTitleRaw = _decodeHtmlEntities(item['name']?.toString() ?? '').toLowerCase();
+        final candTitle = _stripParentheticalAndEntities(candTitleRaw).toLowerCase();
+        final artistsMap = item['artists'] as Map<String, dynamic>? ?? {};
+        final primaryList = (artistsMap['primary'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
+        final candArtist = _decodeHtmlEntities(
+          primaryList.map((a) => a['name']?.toString() ?? '').join(' '),
+        ).toLowerCase();
+        final combined = '$candTitleRaw $candArtist';
+
+        if (!wantsRemixOrKaraoke &&
+            RegExp(r'\b(?:karaoke|instrumental|nightcore|remix|cover|tribute|parody|zzang|cheesyfox)\b')
+                .hasMatch(combined)) {
           continue;
         }
-        int matched = 0;
-        for (final ct in coreTokens) {
-          if (_tokenMatchesText(ct, candTitle)) matched += 1;
+        if (wantsCokeStudio != combined.contains('coke studio')) {
+          continue;
         }
-        final minReq = coreTokens.length <= 2 ? coreTokens.length : (coreTokens.length * 0.6).ceil();
-        if (matched < minReq) continue;
-      }
-      if (artistTokens.isNotEmpty &&
-          !artistTokens.any((at) => _tokenMatchesText(at, '$candTitle $candArtist'))) {
-        continue;
+
+        if (coreTokens.isNotEmpty) {
+          if (_hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candArtist)) {
+            continue;
+          }
+          int matched = 0;
+          for (final ct in coreTokens) {
+            if (_tokenMatchesText(ct, candTitle)) matched += 1;
+          }
+          final minReq = coreTokens.length <= 2 ? coreTokens.length : (coreTokens.length * 0.6).ceil();
+          if (matched < minReq) continue;
+        }
+        final candNorm = candTitle.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+        final artistMatched = artistTokens.isEmpty || artistTokens.any((at) => _tokenMatchesText(at, combined));
+        final exactDistinctiveTitleMatch = isDistinctiveCoreTitle &&
+            candNorm == normCoreTitle &&
+            (targetDurationSeconds == null || targetDurationSeconds <= 0 || (durationSec - targetDurationSeconds).abs() <= 25);
+        if (!artistMatched && !exactDistinctiveTitleMatch) {
+          continue;
+        }
+
+        int score = 20 - (i * 2);
+        if (candNorm == normCoreTitle) score += 35;
+        for (final ct in coreTokens) {
+          if (_tokenMatchesText(ct, candTitle)) score += 20;
+        }
+        for (final at in artistTokens) {
+          if (_tokenMatchesText(at, combined)) score += 18;
+        }
+        if (targetDurationSeconds != null && targetDurationSeconds > 0 && durationSec > 0) {
+          final durDiff = (durationSec - targetDurationSeconds).abs();
+          if (durDiff <= 5) score += 45;
+          else if (durDiff <= 15) score += 25;
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = item;
+          bestStreamUrl = fullStreamUrl;
+        }
       }
 
-      int contentLen = 0;
-      try {
-        final head = await http.head(Uri.parse(fullStreamUrl)).timeout(const Duration(milliseconds: 2000));
-        contentLen = int.tryParse(head.headers['content-length'] ?? '0') ?? 0;
-      } catch (_) {}
-      return AudioStreamResult(
-        url: fullStreamUrl,
-        totalBytes: contentLen,
-        mimeType: 'audio/mp4',
-        bitrate: 320000,
-        headers: const {'User-Agent': 'Mozilla/5.0'},
-        isDirectDownloadable: true,
-      );
+      if (bestMatch != null && bestStreamUrl.isNotEmpty) {
+        final candidate = AudioStreamResult(
+          url: bestStreamUrl,
+          totalBytes: 0,
+          mimeType: 'audio/mp4',
+          bitrate: 320000,
+          headers: const {'User-Agent': 'Mozilla/5.0'},
+          isDirectDownloadable: true,
+        );
+        final verified = await _verifyStreamPlayable(candidate);
+        if (verified != null) return verified;
+      }
     }
     return null;
   }
@@ -1138,7 +1702,7 @@ class AudioStreamExtractor {
       'videoId': videoId,
     };
 
-    final res = await http.post(
+    final res = await _postWithRetry(
       uri,
       headers: const {
         'Content-Type': 'application/json',
@@ -1148,9 +1712,11 @@ class AudioStreamExtractor {
         'Accept': '*/*',
       },
       body: jsonEncode(payload),
-    ).timeout(const Duration(milliseconds: 3500));
+      timeout: const Duration(milliseconds: 2800),
+      retries: 1,
+    );
 
-    if (res.statusCode != 200) return null;
+    if (res == null || res.statusCode != 200) return null;
 
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final playStatus = (data['playabilityStatus'] as Map<String, dynamic>?)?['status'];
@@ -1189,13 +1755,15 @@ class AudioStreamExtractor {
       'videoId': videoId,
     };
 
-    final res = await http.post(
+    final res = await _postWithRetry(
       uri,
       headers: _iosAppHeaders,
       body: jsonEncode(payload),
-    ).timeout(const Duration(milliseconds: 3500));
+      timeout: const Duration(milliseconds: 2800),
+      retries: 1,
+    );
 
-    if (res.statusCode != 200) return null;
+    if (res == null || res.statusCode != 200) return null;
 
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final playStatus = (data['playabilityStatus'] as Map<String, dynamic>?)?['status'];
@@ -1230,13 +1798,15 @@ class AudioStreamExtractor {
       'videoId': videoId,
     };
 
-    final res = await http.post(
+    final res = await _postWithRetry(
       uri,
       headers: _mwebHeaders,
       body: jsonEncode(payload),
-    ).timeout(const Duration(milliseconds: 3500));
+      timeout: const Duration(milliseconds: 2800),
+      retries: 1,
+    );
 
-    if (res.statusCode != 200) return null;
+    if (res == null || res.statusCode != 200) return null;
 
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final playStatus = (data['playabilityStatus'] as Map<String, dynamic>?)?['status'];
@@ -1254,67 +1824,114 @@ class AudioStreamExtractor {
     );
   }
 
-  /// Extracts unthrottled audio stream via public Invidious / Piped instances
+  /// Extracts unthrottled audio stream via public Invidious / Piped instances concurrently
   static Future<AudioStreamResult?> _extractFromInvidious(String videoId) async {
-    for (final inst in _invidiousInstances.take(3)) {
+    Future<AudioStreamResult?> queryInstance(String inst) async {
       try {
-        final uri = Uri.parse('$inst/api/v1/videos/$videoId');
-        final res = await http.get(
+        final isPiped = inst.contains('piped');
+        final uri = Uri.parse(
+          isPiped ? '$inst/streams/$videoId' : '$inst/api/v1/videos/$videoId',
+        );
+        final res = await _getWithRetry(
           uri,
-          headers: {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-        ).timeout(const Duration(milliseconds: 2500));
+          headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+          timeout: const Duration(milliseconds: 2200),
+          retries: 1,
+        );
 
-        if (res.statusCode == 200) {
-          final data = jsonDecode(res.body);
-          final adaptive = (data['adaptiveFormats'] as List? ?? [])
+        if (res == null || res.statusCode != 200) return null;
+        final trimmed = res.body.trimLeft();
+        if (!trimmed.startsWith('{')) return null;
+
+        final dynamic decoded = jsonDecode(trimmed);
+        if (decoded is! Map<String, dynamic>) return null;
+
+        if (isPiped) {
+          final audioStreams = (decoded['audioStreams'] as List? ?? [])
               .whereType<Map<String, dynamic>>()
               .toList();
-
-          final audios = adaptive.where((f) {
-            final type = (f['type'] ?? '').toString().toLowerCase();
-            return type.contains('audio');
-          }).toList();
-
-          if (audios.isEmpty) continue;
-
-          audios.sort((a, b) {
-            final typeA = (a['type'] ?? '').toString().toLowerCase();
-            final typeB = (b['type'] ?? '').toString().toLowerCase();
-            final isMp4A = typeA.contains('mp4') || typeA.contains('m4a');
-            final isMp4B = typeB.contains('mp4') || typeB.contains('m4a');
-            if (isMp4A && !isMp4B) return -1;
-            if (!isMp4A && isMp4B) return 1;
-
-            final bitA = int.tryParse(a['bitrate']?.toString() ?? '0') ?? 0;
-            final bitB = int.tryParse(b['bitrate']?.toString() ?? '0') ?? 0;
+          if (audioStreams.isEmpty) return null;
+          audioStreams.sort((a, b) {
+            final mA = (a['mimeType'] ?? '').toString().toLowerCase();
+            final mB = (b['mimeType'] ?? '').toString().toLowerCase();
+            final mp4A = mA.contains('mp4') || mA.contains('m4a');
+            final mp4B = mB.contains('mp4') || mB.contains('m4a');
+            if (mp4A && !mp4B) return -1;
+            if (!mp4A && mp4B) return 1;
+            final bitA = (a['bitrate'] as num?)?.toInt() ?? 0;
+            final bitB = (b['bitrate'] as num?)?.toInt() ?? 0;
             return bitB.compareTo(bitA);
           });
-
-          for (final audio in audios) {
+          for (final audio in audioStreams) {
             final url = audio['url'] as String?;
             if (url != null && url.isNotEmpty) {
-              final clen = int.tryParse(audio['clen']?.toString() ?? '') ?? 0;
-              final bitrate = int.tryParse(audio['bitrate']?.toString() ?? '') ?? 128000;
-              final mime = (audio['type'] as String? ?? 'audio/mp4').split(';').first;
-
+              final clen = (audio['contentLength'] as num?)?.toInt() ?? 0;
+              final bitrate = (audio['bitrate'] as num?)?.toInt() ?? 128000;
+              final mime = (audio['mimeType'] as String? ?? 'audio/mp4').split(';').first;
               return AudioStreamResult(
                 url: url,
                 totalBytes: clen,
                 mimeType: mime,
                 bitrate: bitrate,
-                headers: const {
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                },
+                headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
                 isDirectDownloadable: true,
               );
             }
           }
+          return null;
         }
-      } catch (_) {
-        continue;
-      }
+
+        final adaptive = (decoded['adaptiveFormats'] as List? ?? [])
+            .whereType<Map<String, dynamic>>()
+            .toList();
+
+        final audios = adaptive.where((f) {
+          final type = (f['type'] ?? '').toString().toLowerCase();
+          return type.contains('audio');
+        }).toList();
+
+        if (audios.isEmpty) return null;
+
+        audios.sort((a, b) {
+          final typeA = (a['type'] ?? '').toString().toLowerCase();
+          final typeB = (b['type'] ?? '').toString().toLowerCase();
+          final isMp4A = typeA.contains('mp4') || typeA.contains('m4a');
+          final isMp4B = typeB.contains('mp4') || typeB.contains('m4a');
+          if (isMp4A && !isMp4B) return -1;
+          if (!isMp4A && isMp4B) return 1;
+
+          final bitA = int.tryParse(a['bitrate']?.toString() ?? '0') ?? 0;
+          final bitB = int.tryParse(b['bitrate']?.toString() ?? '0') ?? 0;
+          return bitB.compareTo(bitA);
+        });
+
+        for (final audio in audios) {
+          final url = audio['url'] as String?;
+          if (url != null && url.isNotEmpty) {
+            final clen = int.tryParse(audio['clen']?.toString() ?? '') ?? 0;
+            final bitrate = int.tryParse(audio['bitrate']?.toString() ?? '') ?? 128000;
+            final mime = (audio['type'] as String? ?? 'audio/mp4').split(';').first;
+
+            return AudioStreamResult(
+              url: url,
+              totalBytes: clen,
+              mimeType: mime,
+              bitrate: bitrate,
+              headers: const {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+              },
+              isDirectDownloadable: true,
+            );
+          }
+        }
+      } catch (_) {}
+      return null;
     }
-    return null;
+
+    return _firstNonNull(
+      _invidiousInstances.map(queryInstance).toList(),
+      const Duration(milliseconds: 2800),
+    );
   }
 
   /// Extracts audio stream via YouTube TV Embedded Player InnerTube endpoint.
@@ -1343,13 +1960,15 @@ class AudioStreamExtractor {
       },
     };
 
-    final res = await http.post(
+    final res = await _postWithRetry(
       uri,
       headers: _tvHeaders,
       body: jsonEncode(payload),
-    ).timeout(const Duration(milliseconds: 3000));
+      timeout: const Duration(milliseconds: 2800),
+      retries: 1,
+    );
 
-    if (res.statusCode != 200) return null;
+    if (res == null || res.statusCode != 200) return null;
 
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final playStatus = (data['playabilityStatus'] as Map<String, dynamic>?)?['status'];
@@ -1387,13 +2006,15 @@ class AudioStreamExtractor {
       'videoId': videoId,
     };
 
-    final res = await http.post(
+    final res = await _postWithRetry(
       uri,
       headers: _androidMusicHeaders,
       body: jsonEncode(payload),
-    ).timeout(const Duration(milliseconds: 3000));
+      timeout: const Duration(milliseconds: 2800),
+      retries: 1,
+    );
 
-    if (res.statusCode != 200) return null;
+    if (res == null || res.statusCode != 200) return null;
 
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final playStatus = (data['playabilityStatus'] as Map<String, dynamic>?)?['status'];
@@ -1429,13 +2050,15 @@ class AudioStreamExtractor {
       'videoId': videoId,
     };
 
-    final res = await http.post(
+    final res = await _postWithRetry(
       uri,
       headers: _androidAppHeaders,
       body: jsonEncode(payload),
-    ).timeout(const Duration(milliseconds: 3000));
+      timeout: const Duration(milliseconds: 2800),
+      retries: 1,
+    );
 
-    if (res.statusCode != 200) return null;
+    if (res == null || res.statusCode != 200) return null;
 
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final playStatus = (data['playabilityStatus'] as Map<String, dynamic>?)?['status'];

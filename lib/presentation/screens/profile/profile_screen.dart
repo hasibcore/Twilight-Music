@@ -5,6 +5,7 @@ import '../../../core/services/local_storage_service.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../providers/download_provider.dart';
+import '../../providers/player_provider.dart';
 import '../../widgets/app_logo.dart';
 import '../main_navigation_screen.dart';
 
@@ -42,10 +43,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _setAudioQuality(String val) {
     setState(() => _audioQuality = val);
     LocalStorageService.setString(_prefAudioQualityKey, val);
+    try {
+      final playerProv = context.read<PlayerProvider>();
+      final lower = val.toLowerCase();
+      if (lower.contains('low') || lower.contains('saver') || lower.contains('96')) {
+        playerProv.setAudioQuality('Low');
+      } else if (lower.contains('standard') || lower.contains('128') || lower.contains('160')) {
+        playerProv.setAudioQuality('Medium');
+      } else {
+        playerProv.setAudioQuality('High');
+      }
+    } catch (_) {}
   }
 
   void _setSleepTimer(int? mins) {
     setState(() => _sleepTimerMinutes = mins);
+    try {
+      final playerProv = context.read<PlayerProvider>();
+      if (mins == null) {
+        playerProv.cancelSleepTimer();
+      } else {
+        playerProv.setSleepTimer(Duration(minutes: mins));
+      }
+    } catch (_) {}
     if (mins != null) {
       LocalStorageService.setInt(_prefSleepTimerKey, mins);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -679,6 +699,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               DropdownMenuItem(
                                 value: 'High (256 kbps - Enhanced AAC)',
                                 child: Text('High (256 kbps - Enhanced AAC)'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Lossless Preview (320 kbps)',
+                                child: Text('Lossless Preview (320 kbps)'),
                               ),
                               DropdownMenuItem(
                                 value: 'Standard (160 kbps - AAC)',

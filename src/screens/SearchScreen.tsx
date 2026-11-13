@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Search as SearchIcon, X, Play, Pause, Loader2, History, Trash2, Download, Check } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Search as SearchIcon, X, Play, Pause, Loader2, History, Trash2, Download, Check, Plus } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { Song } from '../types';
 import { MusicApi, POPULAR_FEATURED_SONGS } from '../services/musicApi';
@@ -11,7 +11,7 @@ interface SearchScreenProps {
 
 const RECENT_SEARCHES_KEY = 'twilight_recent_searches';
 
-export const SearchScreen: React.FC<SearchScreenProps> = ({ initialQuery = '' }) => {
+export const SearchScreen: React.FC<SearchScreenProps> = ({ initialQuery = '', onOpenPlaylistModal }) => {
   const {
     currentSong,
     isPlaying,
@@ -25,6 +25,8 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ initialQuery = '' })
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<Song[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const searchRequestIdRef = useRef<number>(0);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
     try {
       const stored = localStorage.getItem(RECENT_SEARCHES_KEY);
@@ -100,8 +102,10 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ initialQuery = '' })
 
   const handleSearch = async (searchTerm: string, recordToRecent = true) => {
     const term = searchTerm.trim();
+    const reqId = ++searchRequestIdRef.current;
     if (!term) {
       setResults([]);
+      setIsSearching(false);
       return;
     }
 
@@ -112,11 +116,17 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ initialQuery = '' })
     setIsSearching(true);
     try {
       const songs = await MusicApi.searchSongs(term);
-      setResults(songs);
+      if (reqId === searchRequestIdRef.current) {
+        setResults(songs);
+      }
     } catch {
-      setResults(POPULAR_FEATURED_SONGS);
+      if (reqId === searchRequestIdRef.current) {
+        setResults(POPULAR_FEATURED_SONGS);
+      }
     } finally {
-      setIsSearching(false);
+      if (reqId === searchRequestIdRef.current) {
+        setIsSearching(false);
+      }
     }
   };
 
@@ -125,10 +135,19 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ initialQuery = '' })
       setQuery(initialQuery);
       handleSearch(initialQuery, true);
     }
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
   }, [initialQuery]);
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
     handleSearch(query, true);
   };
 
@@ -144,9 +163,20 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ initialQuery = '' })
             type="text"
             value={query}
             onChange={(e) => {
-              setQuery(e.target.value);
-              if (e.target.value.length > 2) {
-                handleSearch(e.target.value, false);
+              const nextVal = e.target.value;
+              setQuery(nextVal);
+              if (searchDebounceRef.current) {
+                clearTimeout(searchDebounceRef.current);
+                searchDebounceRef.current = null;
+              }
+              if (nextVal.trim().length > 2) {
+                searchDebounceRef.current = setTimeout(() => {
+                  handleSearch(nextVal, false);
+                }, 250);
+              } else if (!nextVal.trim()) {
+                searchRequestIdRef.current++;
+                setResults([]);
+                setIsSearching(false);
               }
             }}
             placeholder="Search songs, artists, channels or genres..."
@@ -157,8 +187,14 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ initialQuery = '' })
             <button
               type="button"
               onClick={() => {
+                if (searchDebounceRef.current) {
+                  clearTimeout(searchDebounceRef.current);
+                  searchDebounceRef.current = null;
+                }
+                searchRequestIdRef.current++;
                 setQuery('');
                 setResults([]);
+                setIsSearching(false);
               }}
               className="absolute right-3.5 p-1 rounded-full text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
             >
@@ -299,6 +335,18 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ initialQuery = '' })
                   <span className="text-xs text-slate-500 font-mono tabular-nums shrink-0">
                     {song.durationFormatted || '03:30'}
                   </span>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenPlaylistModal(song);
+                    }}
+                    className="p-2 rounded-xl border border-white/10 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 transition-colors shrink-0"
+                    title="Add to Playlist"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
 
                   <button
                     type="button"

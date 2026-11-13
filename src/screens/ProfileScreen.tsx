@@ -171,6 +171,7 @@ export const ProfileScreen: React.FC = () => {
               onChange={(e) => setAudioQuality(e.target.value)}
               className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white focus:outline-none focus:border-indigo-500 font-medium"
             >
+              <option value="Very High (320 kbps - Lossless)" className="bg-slate-900">Very High (320 kbps - Lossless)</option>
               <option value="High (256 kbps - Enhanced AAC)" className="bg-slate-900">High (256 kbps - Enhanced AAC)</option>
               <option value="Standard (160 kbps - AAC)" className="bg-slate-900">Standard (160 kbps - AAC)</option>
               <option value="Data Saver (96 kbps - OPUS)" className="bg-slate-900">Data Saver (96 kbps - OPUS)</option>

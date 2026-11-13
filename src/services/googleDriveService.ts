@@ -108,8 +108,8 @@ export class GoogleDriveService {
       if (onProgress) onProgress(25, 'Connecting to Twilight Music Releases folder...');
       const folderId = await this.getOrCreateTwilightFolder(accessToken);
 
-      if (onProgress) onProgress(45, 'Packaging live v2.4.0 release archive...');
-      // Fetch live dynamic v2.4.0 archive from Express backend first; fallback to GitHub release
+      if (onProgress) onProgress(45, 'Packaging live v3.0.0 release archive...');
+      // Fetch live dynamic v3.0.0 archive from Express backend first; fallback to GitHub release
       let blob: Blob;
       try {
         const archiveResponse = await fetch('/api/release/project-archive');
@@ -119,23 +119,23 @@ export class GoogleDriveService {
           throw new Error('Live archive endpoint unavailable');
         }
       } catch {
-        const fallbackRes = await fetch('https://github.com/hasibcore/Twilight1/releases/download/v2.3.3/Twilight-Music-v1.0.3-Full-Project.zip');
+        const fallbackRes = await fetch('https://github.com/hasibcore/Twilight-Music/releases/download/v3.0.0/Twilight-Music-v3.0.0-Full-Project.tar.gz');
         if (!fallbackRes.ok) {
           throw new Error('Could not retrieve release archive package.');
         }
         blob = await fallbackRes.blob();
       }
 
-      const fileName = `Twilight-Music-v2.4.0-Full-Project-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+      const fileName = `Twilight-Music-v3.0.0-Full-Project-${new Date().toISOString().slice(0, 10)}.tar.gz`;
 
-      if (onProgress) onProgress(65, 'Uploading v2.4.0 archive to Google Drive...');
+      if (onProgress) onProgress(65, 'Uploading v3.0.0 archive to Google Drive...');
 
       // Multipart upload
       const metadata = {
         name: fileName,
         mimeType: 'application/gzip',
         parents: folderId !== 'root' ? [folderId] : undefined,
-        description: 'Complete Twilight Music v2.4.0 production bug-fix & UI-synced release package.',
+        description: 'Complete Twilight Music v3.0.0 production bug-fix & UI-synced release package.',
       };
 
       const formData = new FormData();

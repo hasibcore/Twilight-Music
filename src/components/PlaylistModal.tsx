@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Plus, ListMusic, Check } from 'lucide-react';
 import { Song } from '../types';
 import { useMusic } from '../context/MusicContext';
@@ -14,6 +14,12 @@ export const PlaylistModal: React.FC<PlaylistModalProps> = ({ song, isOpen, onCl
   const [newTitle, setNewTitle] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [addedIds, setAddedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setAddedIds([]);
+    setShowCreate(false);
+    setNewTitle('');
+  }, [song?.id, isOpen]);
 
   if (!isOpen || !song) return null;
 

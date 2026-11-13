@@ -17,6 +17,7 @@ import {
   Download,
   Check,
   Plus,
+  RotateCcw,
 } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { LyricsModal } from './LyricsModal';
@@ -29,6 +30,7 @@ export const AudioPlayer: React.FC = () => {
     isPlaying,
     isLoading,
     isRefreshingStream,
+    playbackError,
     currentTime,
     duration,
     volume,
@@ -40,6 +42,7 @@ export const AudioPlayer: React.FC = () => {
     playSong,
     pauseSong,
     resumeSong,
+    retryCurrentSong,
     nextSong,
     prevSong,
     seekTo,
@@ -85,7 +88,8 @@ export const AudioPlayer: React.FC = () => {
         <div
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
-            const pos = (e.clientX - rect.left) / rect.width;
+            if (rect.width <= 0 || duration <= 0) return;
+            const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
             seekTo(pos * duration);
           }}
           className="absolute top-0 left-0 right-0 h-1 bg-white/10 cursor-pointer group hover:h-2 transition-all"
@@ -127,8 +131,16 @@ export const AudioPlayer: React.FC = () => {
             <h4 className="text-xs sm:text-sm font-bold text-white truncate hover:underline leading-snug">
               {currentSong.title}
             </h4>
-            <p className="text-[11px] sm:text-xs text-slate-400 truncate leading-snug">
-              {isRefreshingStream ? 'Refreshing stream...' : currentSong.artist}
+            <p
+              className={`text-[11px] sm:text-xs truncate leading-snug ${
+                playbackError ? 'text-rose-400 font-medium' : 'text-slate-400'
+              }`}
+            >
+              {playbackError
+                ? playbackError
+                : isRefreshingStream
+                ? 'Refreshing stream...'
+                : currentSong.artist}
             </p>
           </div>
 
@@ -190,12 +202,24 @@ export const AudioPlayer: React.FC = () => {
             </button>
 
             <button
-              onClick={() => (isPlaying ? pauseSong() : resumeSong())}
-              disabled={isLoading}
-              className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white text-slate-950 flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg shadow-white/10"
+              onClick={() =>
+                playbackError
+                  ? retryCurrentSong()
+                  : isLoading || isPlaying
+                  ? pauseSong()
+                  : resumeSong()
+              }
+              title={playbackError ? 'Retry Playback' : isLoading ? 'Cancel Loading' : isPlaying ? 'Pause' : 'Play'}
+              className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg ${
+                playbackError && !isLoading
+                  ? 'bg-rose-500 text-white shadow-rose-500/30'
+                  : 'bg-white text-slate-950 shadow-white/10'
+              }`}
             >
               {isLoading ? (
                 <div className="w-4 h-4 sm:w-5 sm:h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+              ) : playbackError ? (
+                <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
               ) : isPlaying ? (
                 <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-slate-950" />
               ) : (
@@ -265,7 +289,8 @@ export const AudioPlayer: React.FC = () => {
 
           <button
             onClick={() => setIsExpanded(true)}
-            className="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-white/5 hidden sm:inline-flex md:hidden"
+            title="Expand Full Player"
+            className="p-1.5 rounded-full text-slate-400 hover:text-white hover:bg-white/5 inline-flex"
           >
             <ChevronDown className="w-5 h-5 rotate-180" />
           </button>
@@ -344,7 +369,17 @@ export const AudioPlayer: React.FC = () => {
             <div className="w-full flex items-center justify-between mb-6">
               <div className="min-w-0 pr-4">
                 <h2 className="text-xl sm:text-2xl font-black text-white truncate">{currentSong.title}</h2>
-                <p className="text-sm font-medium text-indigo-400 truncate mt-0.5">{currentSong.artist}</p>
+                <p
+                  className={`text-sm font-medium truncate mt-0.5 ${
+                    playbackError ? 'text-rose-400' : 'text-indigo-400'
+                  }`}
+                >
+                  {playbackError
+                    ? playbackError
+                    : isRefreshingStream
+                    ? 'Refreshing stream...'
+                    : currentSong.artist}
+                </p>
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
@@ -394,7 +429,8 @@ export const AudioPlayer: React.FC = () => {
               <div
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
-                  const pos = (e.clientX - rect.left) / rect.width;
+                  if (rect.width <= 0 || duration <= 0) return;
+                  const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
                   seekTo(pos * duration);
                 }}
                 className="h-2 bg-white/10 rounded-full cursor-pointer relative overflow-hidden group hover:h-3 transition-all"
@@ -429,12 +465,24 @@ export const AudioPlayer: React.FC = () => {
               </button>
 
               <button
-                onClick={() => (isPlaying ? pauseSong() : resumeSong())}
-                disabled={isLoading}
-                className="w-16 h-16 rounded-full bg-white text-slate-950 flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl shadow-white/20"
+                onClick={() =>
+                  playbackError
+                    ? retryCurrentSong()
+                    : isLoading || isPlaying
+                    ? pauseSong()
+                    : resumeSong()
+                }
+                title={playbackError ? 'Retry Playback' : isLoading ? 'Cancel Loading' : isPlaying ? 'Pause' : 'Play'}
+                className={`w-16 h-16 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-xl ${
+                  playbackError && !isLoading
+                    ? 'bg-rose-500 text-white shadow-rose-500/30'
+                    : 'bg-white text-slate-950 shadow-white/20'
+                }`}
               >
                 {isLoading ? (
                   <div className="w-7 h-7 border-3 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                ) : playbackError ? (
+                  <RotateCcw className="w-7 h-7" />
                 ) : isPlaying ? (
                   <Pause className="w-7 h-7 fill-slate-950" />
                 ) : (

@@ -103,9 +103,10 @@ class PlaylistDetailScreen extends StatelessWidget {
                       onPressed: currentPl.songs.isEmpty
                           ? null
                           : () {
-                              context.read<PlayerProvider>().playSong(
+                              context.read<PlayerProvider>().selectAndPlaySong(
                                     currentPl.songs.first,
                                     newQueue: currentPl.songs,
+                                    queueIndex: 0,
                                   );
                             },
                     ),
@@ -125,9 +126,10 @@ class PlaylistDetailScreen extends StatelessWidget {
                           ? null
                           : () {
                               final shuffled = List<Song>.from(currentPl.songs)..shuffle();
-                              context.read<PlayerProvider>().playSong(
+                              context.read<PlayerProvider>().selectAndPlaySong(
                                     shuffled.first,
                                     newQueue: shuffled,
+                                    queueIndex: 0,
                                   );
                             },
                     ),

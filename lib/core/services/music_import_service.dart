@@ -330,7 +330,7 @@ class MusicImportService {
       }
 
       if (videoId != null && videoId.isNotEmpty) {
-        final video = await _yt.videos.get(videoId);
+        final video = await _yt.videos.get(videoId).timeout(const Duration(seconds: 6));
         final dur = video.duration ?? const Duration(minutes: 3);
         results.add(Song(
           id: video.id.value,
@@ -382,35 +382,37 @@ class MusicImportService {
       );
     }
 
-    // Live InnerTube search fallback
-    try {
-      final webId = await _searchVideoIdFallback('${song.title} ${song.artist}');
-      if (webId != null && webId.isNotEmpty) {
-        return song.copyWith(
-          id: webId,
-          thumbnailUrl: verifiedThumbFor(webId, song.thumbnailUrl),
-        );
+    // Race InnerTube and YoutubeExplode search concurrently
+    final webIdFuture = _searchVideoIdFallback('${song.title} ${song.artist}');
+    final ytSearchFuture = () async {
+      try {
+        final query = '${song.title} ${song.artist} official audio';
+        final searchResults = await _yt.search.search(query).timeout(const Duration(seconds: 4));
+        if (searchResults.isNotEmpty) {
+          final matched = searchResults.first;
+          final dur = matched.duration ?? Duration(seconds: song.durationSeconds);
+          return song.copyWith(
+            id: matched.id.value,
+            thumbnailUrl: verifiedThumbFor(matched.id.value, song.thumbnailUrl),
+            durationSeconds: dur.inSeconds,
+            durationFormatted: Formatters.formatDuration(dur),
+          );
+        }
+      } catch (e) {
+        AppLogger.error('Error resolving stream for ${song.title}: $e');
       }
-    } catch (_) {}
+      return null;
+    }();
 
-    try {
-      final query = '${song.title} ${song.artist} official audio';
-      final searchResults = await _yt.search.search(query).timeout(const Duration(seconds: 4));
-      if (searchResults.isNotEmpty) {
-        final matched = searchResults.first;
-        final dur = matched.duration ?? Duration(seconds: song.durationSeconds);
-        return song.copyWith(
-          id: matched.id.value,
-          thumbnailUrl: verifiedThumbFor(matched.id.value, song.thumbnailUrl),
-          durationSeconds: dur.inSeconds,
-          durationFormatted: Formatters.formatDuration(dur),
-        );
-      }
-    } catch (e) {
-      AppLogger.error('Error resolving stream for ${song.title}: $e');
+    final webId = await webIdFuture;
+    if (webId != null && webId.isNotEmpty) {
+      return song.copyWith(
+        id: webId,
+        thumbnailUrl: verifiedThumbFor(webId, song.thumbnailUrl),
+      );
     }
 
-    return null;
+    return await ytSearchFuture;
   }
 
   Future<String?> _searchVideoIdFallback(String query) async {

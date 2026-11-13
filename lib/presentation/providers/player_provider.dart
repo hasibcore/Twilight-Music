@@ -125,10 +125,32 @@ class PlayerProvider extends ChangeNotifier {
           _isPlaying = state.playing;
         }
 
-        // Set loading=true during buffering/loading states
+        // Set loading=true during buffering/loading states and arm stall recovery if stuck
         if (state.processingState == ProcessingState.buffering ||
             state.processingState == ProcessingState.loading) {
           _isLoading = true;
+          if (!_isResolvingSong && !_intentionalPause && (_loadingWatchdog == null || !_loadingWatchdog!.isActive)) {
+            final stalledReqId = _playRequestId;
+            _loadingWatchdog = Timer(const Duration(seconds: 12), () {
+              if (_isLoading && stalledReqId == _playRequestId && !_intentionalPause && _currentSong != null) {
+                AppLogger.networkDisconnect(
+                  'playerProvider:buffering',
+                  'Buffering stalled for 12s on "${_currentSong!.title}"',
+                  category: 'stall',
+                  songId: _currentSong!.id,
+                  attempt: _autoRecoveryAttempts + 1,
+                );
+                if (!_isAutoRecovering && _autoRecoveryAttempts < _maxRecoveryAttempts) {
+                  unawaited(_autoRecoverPlayback(_currentPosition));
+                } else {
+                  _isLoading = false;
+                  _isPlaying = false;
+                  _errorMessage = 'Connection timed out. Tap to retry.';
+                  notifyListeners();
+                }
+              }
+            });
+          }
         } else if (state.processingState == ProcessingState.ready ||
             state.processingState == ProcessingState.completed) {
           // Song is buffered and ready — clear all resolving/loading flags
@@ -152,15 +174,24 @@ class PlayerProvider extends ChangeNotifier {
             onTrackEnded();
           } else {
             // Premature stream completion (unexpected network drop)
-            AppLogger.warning('Interrupted stream at ${_currentPosition.inSeconds}s of ${_totalDuration.inSeconds}s. Attempting auto-recovery...');
+            AppLogger.networkDisconnect(
+              'playerProvider:completed',
+              'Premature stream completion at ${_currentPosition.inSeconds}s/${_totalDuration.inSeconds}s',
+              category: 'premature_eof_disconnect',
+              songId: _currentSong?.id,
+              attempt: _autoRecoveryAttempts + 1,
+            );
             final pos = _currentPosition;
-            if (_currentSong != null && pos.inSeconds > 0 && !_isAutoRecovering && !_intentionalPause) {
+            if (_currentSong != null &&
+                !_isAutoRecovering &&
+                !_intentionalPause &&
+                _autoRecoveryAttempts < _maxRecoveryAttempts) {
               _autoRecoverPlayback(pos);
             } else {
               _isLoading = false;
               _isPlaying = false;
               _loadingWatchdog?.cancel();
-              _errorMessage = 'Playback paused. Tap to resume.';
+              _errorMessage = 'Playback paused. Tap to retry.';
             }
           }
         }
@@ -178,6 +209,9 @@ class PlayerProvider extends ChangeNotifier {
           notifyListeners();
           return;
         }
+        if (!_isAutoRecovering && pos.inSeconds >= 2 && _autoRecoveryAttempts > 0) {
+          _autoRecoveryAttempts = 0;
+        }
         // Throttle position updates to ~300ms to prevent excessive UI rebuilds
         final now = DateTime.now();
         if (now.difference(_lastPositionNotify).inMilliseconds >= 300) {
@@ -193,24 +227,34 @@ class PlayerProvider extends ChangeNotifier {
         }
       });
 
-      // Hard player-level error (codec, network drop mid-stream)
-      // Attempt auto-recovery before falling back to manual resume
+      // Hard player-level error (codec, network drop mid-stream or startup drop)
+      // Attempt bounded auto-recovery before falling back to manual retry
       _playbackEventSub = _audioPlayer!.playbackEventStream.listen(
         (_) {},
         onError: (Object e, StackTrace st) {
-          AppLogger.error('AudioPlayer stream error: $e');
+          AppLogger.networkDisconnect(
+            'playerProvider:playbackEvent',
+            'AudioPlayer stream error during playback',
+            severity: StreamLogSeverity.error,
+            category: 'player_error',
+            songId: _currentSong?.id,
+            attempt: _autoRecoveryAttempts + 1,
+            error: e,
+          );
           _loadingWatchdog?.cancel();
           _resumeStallWatchdog?.cancel();
           _errorSkipTimer?.cancel();
           _errorSkipTimer = null;
           if (_intentionalPause) return;
           final pos = _currentPosition;
-          if (_currentSong != null && pos.inSeconds > 2 && !_isAutoRecovering) {
+          if (_currentSong != null &&
+              !_isAutoRecovering &&
+              _autoRecoveryAttempts < _maxRecoveryAttempts) {
             _autoRecoverPlayback(pos);
           } else {
             _isLoading = false;
             _isPlaying = false;
-            _errorMessage = 'Playback interrupted. Tap to resume.';
+            _errorMessage = 'Playback interrupted. Tap to retry.';
             if (_currentSong != null) {
               AudioStreamExtractor.invalidateCache(_currentSong!.id);
             }
@@ -529,19 +573,21 @@ class PlayerProvider extends ChangeNotifier {
       _pendingPlayCompleter = completer;
       _playDebounceTimer = Timer(effectiveDebounce, () async {
         _playDebounceTimer = null;
-        if (currentRequestId != _playRequestId || _intentionalPause) {
+        try {
+          if (currentRequestId != _playRequestId || _intentionalPause) {
+            return;
+          }
+          await _executeDebouncedStreamLoad(
+            song,
+            currentRequestId: currentRequestId,
+            newQueue: effectiveNewQueue,
+            queueIndex: queueIndex,
+            initialPosition: initialPosition,
+            forceRefreshStream: forceRefreshStream,
+          );
+        } finally {
           if (!completer.isCompleted) completer.complete();
-          return;
         }
-        await _executeDebouncedStreamLoad(
-          song,
-          currentRequestId: currentRequestId,
-          newQueue: effectiveNewQueue,
-          queueIndex: queueIndex,
-          initialPosition: initialPosition,
-          forceRefreshStream: forceRefreshStream,
-        );
-        if (!completer.isCompleted) completer.complete();
       });
 
       if (_audioPlayer != null && !_isTest) {
@@ -701,9 +747,22 @@ class PlayerProvider extends ChangeNotifier {
       // Start loading watchdog (25s safety net to clear spinner on slow networks)
       _loadingWatchdog = Timer(const Duration(seconds: 25), () {
         if (_isLoading && currentRequestId == _playRequestId) {
+          AppLogger.networkDisconnect(
+            'playerProvider:loadingWatchdog',
+            'Stream loading exceeded 25s watchdog on "${targetSong.title}"',
+            category: 'stall',
+            songId: targetSong.id,
+          );
           _isLoading = false;
           _isResolvingSong = false;
+          _isRefreshingStream = false;
           _isPlaying = false;
+          if (_pendingPlayCompleter != null && !_pendingPlayCompleter!.isCompleted) {
+            _pendingPlayCompleter!.complete();
+          }
+          if (_audioPlayer != null) {
+            unawaited(_audioPlayer!.stop().catchError((_) {}));
+          }
           // Show actionable error so user knows they can retry
           _errorMessage = 'Connection timed out. Tap to retry.';
           notifyListeners();
@@ -721,14 +780,22 @@ class PlayerProvider extends ChangeNotifier {
         if (currentRequestId != _playRequestId || _intentionalPause) {
           return;
         }
-        await _audioPlayer!.setAudioSource(source);
+        await _audioPlayer!.setAudioSource(source).timeout(const Duration(seconds: 15));
         if (currentRequestId != _playRequestId || _intentionalPause) {
-          await _audioPlayer!.stop();
+          try {
+            await _audioPlayer!.stop();
+          } catch (_) {}
           return;
         }
       } catch (primaryErr) {
         if (currentRequestId != _playRequestId || _intentionalPause) return;
-        AppLogger.warning('Primary audio source failed for "${targetSong.title}": $primaryErr. Trying resilient stream fallback...');
+        AppLogger.networkDisconnect(
+          'playerProvider:primarySource',
+          'Primary audio source failed for "${targetSong.title}", trying fallback',
+          category: 'upstream_retry',
+          songId: targetSong.id,
+          error: primaryErr,
+        );
 
         final fallbackResult = await AudioStreamExtractor.extractAudioStream(
           targetSong.id,
@@ -747,32 +814,46 @@ class PlayerProvider extends ChangeNotifier {
           );
           if (currentRequestId != _playRequestId || _intentionalPause) return;
 
-          final fallbackSource = AudioSource.uri(
-            Uri.parse(fallbackResult.url),
-            headers: fallbackResult.headers,
-            tag: MediaItem(
-              id: targetSong.id,
-              album: 'Twilight Music',
-              title: targetSong.title,
-              artist: targetSong.artist,
-              artUri: fallbackArtUri,
-              duration: Duration(
-                seconds: targetSong.durationSeconds > 0 ? targetSong.durationSeconds : 210,
-              ),
+          final fallbackTag = MediaItem(
+            id: targetSong.id,
+            album: 'Twilight Music',
+            title: targetSong.title,
+            artist: targetSong.artist,
+            artUri: fallbackArtUri,
+            duration: Duration(
+              seconds: targetSong.durationSeconds > 0 ? targetSong.durationSeconds : 210,
             ),
           );
-          await _audioPlayer!.setAudioSource(fallbackSource);
+          final bool isFallbackHls = fallbackResult.url.contains('.m3u8') ||
+              fallbackResult.mimeType.toLowerCase().contains('mpegurl');
+          final fallbackSource = isFallbackHls
+              ? HlsAudioSource(
+                  Uri.parse(fallbackResult.url),
+                  headers: fallbackResult.headers,
+                  tag: fallbackTag,
+                )
+              : AudioSource.uri(
+                  Uri.parse(fallbackResult.url),
+                  headers: fallbackResult.headers,
+                  tag: fallbackTag,
+                );
+          await _audioPlayer!.setAudioSource(fallbackSource).timeout(const Duration(seconds: 15));
           if (currentRequestId != _playRequestId || _intentionalPause) {
-            await _audioPlayer!.stop();
+            try {
+              await _audioPlayer!.stop();
+            } catch (_) {}
             return;
           }
         } else {
+          if (currentRequestId != _playRequestId || _intentionalPause) return;
           rethrow;
         }
       }
 
       if (currentRequestId != _playRequestId || _intentionalPause) {
-        await _audioPlayer?.stop();
+        try {
+          await _audioPlayer?.stop();
+        } catch (_) {}
         return;
       }
 
@@ -784,38 +865,71 @@ class PlayerProvider extends ChangeNotifier {
       _streamResolvedAt = DateTime.now();
 
       if (initialPosition != null && initialPosition > Duration.zero) {
-        await _audioPlayer!.seek(initialPosition);
+        try {
+          await _audioPlayer!.seek(initialPosition);
+        } catch (seekErr) {
+          AppLogger.networkDisconnect(
+            'playerProvider:initialSeek',
+            'Initial seek interrupted safely',
+            songId: targetSong.id,
+            error: seekErr,
+          );
+        }
       }
 
       if (currentRequestId != _playRequestId || _intentionalPause) {
-        await _audioPlayer?.stop();
+        try {
+          await _audioPlayer?.stop();
+        } catch (_) {}
         return;
       }
 
       if (_playbackSpeed != 1.0) {
-        await _audioPlayer!.setSpeed(_playbackSpeed);
+        try {
+          await _audioPlayer!.setSpeed(_playbackSpeed);
+        } catch (_) {}
       }
 
       if (currentRequestId != _playRequestId || _intentionalPause) {
-        await _audioPlayer?.stop();
+        try {
+          await _audioPlayer?.stop();
+        } catch (_) {}
         return;
       }
 
-      await _audioPlayer!.play();
-
-      if (currentRequestId != _playRequestId || _intentionalPause) {
-        await _audioPlayer?.pause();
-        return;
-      }
-
+      // In just_audio, play() resolves when playback stops/completes rather than on start.
+      // Clear resolving/loading state and start native playback asynchronously so controls & state updates unlock immediately.
       _loadingWatchdog?.cancel();
       _isResolvingSong = false;
       _isRefreshingStream = false;
       _isPlaying = !_intentionalPause;
       _isLoading = false;
       notifyListeners();
+
+      unawaited(
+        _audioPlayer!.play().catchError((Object playErr) {
+          if (currentRequestId != _playRequestId || _intentionalPause) return;
+          AppLogger.networkDisconnect(
+            'playerProvider:nativePlay',
+            'Native play() failed for "${targetSong.title}"',
+            severity: StreamLogSeverity.error,
+            category: 'player_error',
+            songId: targetSong.id,
+            error: playErr,
+          );
+          final pos = _currentPosition;
+          if (!_isAutoRecovering && _autoRecoveryAttempts < _maxRecoveryAttempts) {
+            unawaited(_autoRecoverPlayback(pos));
+          } else {
+            _isLoading = false;
+            _isPlaying = false;
+            _errorMessage = 'Could not play "${targetSong.title}". Tap to retry.';
+            notifyListeners();
+          }
+        }),
+      );
     } catch (e) {
-      if (currentRequestId != _playRequestId) return;
+      if (currentRequestId != _playRequestId || _intentionalPause) return;
       AppLogger.error('Playback error for "${song.title}": $e');
       _errorMessage = 'Could not play "${song.title}". Tap to retry.';
       _isLoading = false;
@@ -879,7 +993,14 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> _autoRecoverPlayback(Duration resumePos) async {
     if (_isAutoRecovering || _currentSong == null || _intentionalPause) return;
     if (_autoRecoveryAttempts >= _maxRecoveryAttempts) {
-      AppLogger.warning('Max auto-recovery attempts ($_maxRecoveryAttempts) reached for "${_currentSong!.title}". Halting.');
+      AppLogger.networkDisconnect(
+        'playerProvider:autoRecover',
+        'Max auto-recovery attempts ($_maxRecoveryAttempts) reached for "${_currentSong!.title}"',
+        severity: StreamLogSeverity.error,
+        category: 'retry_exhausted',
+        songId: _currentSong!.id,
+        attempt: _autoRecoveryAttempts,
+      );
       _isLoading = false;
       _isPlaying = false;
       _errorMessage = 'Connection lost. Tap to retry.';
@@ -890,7 +1011,14 @@ class PlayerProvider extends ChangeNotifier {
     _isAutoRecovering = true;
     try {
       final backoffSeconds = 1 << (_autoRecoveryAttempts - 1); // 1s, 2s, 4s
-      AppLogger.info('Auto-recovering playback for "${_currentSong!.title}" at ${resumePos.inSeconds}s (attempt $_autoRecoveryAttempts/$_maxRecoveryAttempts after ${backoffSeconds}s)...');
+      AppLogger.streamEvent(
+        StreamLogSeverity.info,
+        'recovery',
+        'playerProvider:autoRecover',
+        'Auto-recovering "${_currentSong!.title}" at ${resumePos.inSeconds}s after ${backoffSeconds}s backoff',
+        songId: _currentSong!.id,
+        attempt: _autoRecoveryAttempts,
+      );
       if (!_isTest) {
         await Future.delayed(Duration(seconds: backoffSeconds));
       }
@@ -901,9 +1029,17 @@ class PlayerProvider extends ChangeNotifier {
         _currentSong!,
         queueIndex: _currentIndex,
         initialPosition: resumePos > const Duration(seconds: 1) ? resumePos : null,
+        forceRefreshStream: true,
       );
     } catch (e) {
-      AppLogger.error('Auto-recovery failed: $e');
+      AppLogger.networkDisconnect(
+        'playerProvider:autoRecover',
+        'Auto-recovery attempt failed',
+        severity: StreamLogSeverity.error,
+        songId: _currentSong?.id,
+        attempt: _autoRecoveryAttempts,
+        error: e,
+      );
       _errorMessage = 'Playback paused. Tap to resume.';
     } finally {
       _isAutoRecovering = false;
@@ -912,10 +1048,7 @@ class PlayerProvider extends ChangeNotifier {
 
   void togglePlayPause() {
     if (_currentSong == null) return;
-    if (_isResolvingSong) {
-      return;
-    }
-    if (_isPlaying) {
+    if (_isPlaying || _isLoading || _isResolvingSong || isDebouncePending) {
       pause();
     } else {
       play();
@@ -941,9 +1074,9 @@ class PlayerProvider extends ChangeNotifier {
     _pausedAt = null;
     _streamPrewarmedWhilePaused = false;
 
-    // Proactive stream refresh if paused >= 3 minutes or stream URL expired
-    if (!_isPlayingOfflineFile && (pauseExpired || streamExpired || playerIdle)) {
-      AppLogger.info('Proactive stream refresh on resume at ${_currentPosition.inSeconds}s (pauseExpired: $pauseExpired, streamExpired: $streamExpired, prewarmed: $wasPrewarmed)');
+    // Reload cleanly if player engine is idle (including offline tracks paused mid-load), or proactively refresh expired online streams
+    if (playerIdle || (!_isPlayingOfflineFile && (pauseExpired || streamExpired))) {
+      AppLogger.info('Proactive stream refresh on resume at ${_currentPosition.inSeconds}s (pauseExpired: $pauseExpired, streamExpired: $streamExpired, prewarmed: $wasPrewarmed, playerIdle: $playerIdle)');
       _isPlaying = true;
       _isLoading = true;
       _isRefreshingStream = true;
@@ -951,7 +1084,7 @@ class PlayerProvider extends ChangeNotifier {
       unawaited(
         _refreshStreamAndResume(
           _currentPosition,
-          forceNewExtraction: !wasPrewarmed,
+          forceNewExtraction: !wasPrewarmed && !_isPlayingOfflineFile,
         ),
       );
       return;
@@ -1057,7 +1190,10 @@ class PlayerProvider extends ChangeNotifier {
     _loadingWatchdog?.cancel();
     _resumeStallWatchdog?.cancel();
     _proactivePauseRefreshTimer?.cancel();
-    _audioPlayer?.stop();
+    final stopFuture = _audioPlayer?.stop();
+    if (stopFuture != null) {
+      unawaited(stopFuture.catchError((_) {}));
+    }
     notifyListeners();
   }
 
@@ -1068,7 +1204,19 @@ class PlayerProvider extends ChangeNotifier {
             ? _totalDuration
             : position);
     _currentPosition = clamped;
-    _audioPlayer?.seek(clamped);
+    final seekFuture = _audioPlayer?.seek(clamped);
+    if (seekFuture != null) {
+      unawaited(
+        seekFuture.catchError((Object e) {
+          AppLogger.networkDisconnect(
+            'playerProvider:seek',
+            'Seek interrupted safely',
+            songId: _currentSong?.id,
+            error: e,
+          );
+        }),
+      );
+    }
     notifyListeners();
   }
 
@@ -1105,12 +1253,20 @@ class PlayerProvider extends ChangeNotifier {
       _currentIndex = 0;
       await playSong(_queue[0], queueIndex: 0);
     } else if (_isAutoplay && _queue.isNotEmpty) {
-      // Smart Radio / Autoplay mode: automatically fetch similar tracks to keep playback endless
+      // Smart Radio / Autoplay mode: automatically fetch similar tracks with concurrency & cancellation guard
+      final autoplayReqId = ++_playRequestId;
+      _intentionalPause = false;
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      final seedSong = _currentSong;
       try {
-        final query = _currentSong != null
-            ? '${_currentSong!.title} ${_currentSong!.artist} music'
+        final query = seedSong != null
+            ? '${seedSong.title} ${seedSong.artist} music'
             : 'popular music hits';
         final searchResults = await _yt.search.search(query).timeout(const Duration(seconds: 4));
+        if (autoplayReqId != _playRequestId || _intentionalPause) return;
         if (searchResults.isNotEmpty) {
           final newTracks = searchResults
               .where((v) => !_queue.any((q) => q.id == v.id.value))
@@ -1129,7 +1285,7 @@ class PlayerProvider extends ChangeNotifier {
 
           if (newTracks.isNotEmpty) {
             _queue.addAll(newTracks.take(5));
-            _currentIndex++;
+            _currentIndex = (_currentIndex + 1).clamp(0, _queue.length - 1);
             await playSong(_queue[_currentIndex], queueIndex: _currentIndex);
             return;
           }
@@ -1138,19 +1294,45 @@ class PlayerProvider extends ChangeNotifier {
         AppLogger.info('Autoplay related tracks fallback: $e');
       }
 
+      if (autoplayReqId != _playRequestId || _intentionalPause) return;
+
       try {
-        final suggestions = await MusicImportService().getViralHitsChart();
-        final newTracks =
-            suggestions.where((s) => !_queue.any((q) => q.id == s.id)).toList();
+        final query = seedSong != null
+            ? '${seedSong.title} ${seedSong.artist}'
+            : 'trending music hits';
+        final remoteResults = await musicRepository.searchAll(query).timeout(const Duration(seconds: 5));
+        if (autoplayReqId != _playRequestId || _intentionalPause) return;
+        final newTracks = remoteResults.songs
+            .where((s) => !_queue.any((q) => q.id == s.id || q.isSameTrack(s)))
+            .toList();
         if (newTracks.isNotEmpty) {
           _queue.addAll(newTracks.take(5));
-          _currentIndex++;
+          _currentIndex = (_currentIndex + 1).clamp(0, _queue.length - 1);
+          await playSong(_queue[_currentIndex], queueIndex: _currentIndex);
+          return;
+        }
+      } catch (e) {
+        AppLogger.info('Autoplay repository search fallback: $e');
+      }
+
+      if (autoplayReqId != _playRequestId || _intentionalPause) return;
+
+      try {
+        final suggestions = await MusicImportService().getViralHitsChart().timeout(const Duration(seconds: 5));
+        if (autoplayReqId != _playRequestId || _intentionalPause) return;
+        final newTracks = suggestions
+            .where((s) => !_queue.any((q) => q.id == s.id || q.isSameTrack(s)))
+            .toList();
+        if (newTracks.isNotEmpty) {
+          _queue.addAll(newTracks.take(5));
+          _currentIndex = (_currentIndex + 1).clamp(0, _queue.length - 1);
           await playSong(_queue[_currentIndex], queueIndex: _currentIndex);
           return;
         }
       } catch (e) {
         AppLogger.info('Autoplay dynamic extension fallback: $e');
       }
+      if (autoplayReqId != _playRequestId || _intentionalPause || _queue.isEmpty) return;
       _currentIndex = 0;
       await playSong(_queue[0], queueIndex: 0);
     } else {
@@ -1180,7 +1362,10 @@ class PlayerProvider extends ChangeNotifier {
 
   void setPlaybackSpeed(double speed) {
     _playbackSpeed = speed;
-    _audioPlayer?.setSpeed(speed);
+    final speedFuture = _audioPlayer?.setSpeed(speed);
+    if (speedFuture != null) {
+      unawaited(speedFuture.catchError((_) {}));
+    }
     notifyListeners();
   }
 

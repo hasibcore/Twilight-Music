@@ -279,6 +279,56 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </div>
       </section>
 
+      {/* On Heavy Repeat (Frequent Tracks) */}
+      {frequentTracks.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Flame className="w-4 h-4 text-amber-400" />
+              <h3 className="text-lg font-bold text-white tracking-tight">On Heavy Repeat</h3>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {frequentTracks.slice(0, 6).map((song) => {
+              const isCurrent = currentSong?.id === song.id;
+              return (
+                <div
+                  key={`freq_${song.id}`}
+                  onClick={() => selectAndPlaySong(song, frequentTracks)}
+                  className={`group flex items-center gap-3 p-2.5 rounded-2xl border cursor-pointer transition-all ${
+                    isCurrent
+                      ? 'bg-indigo-600/20 border-indigo-500/40'
+                      : 'bg-slate-900/60 hover:bg-slate-800/80 border-white/5 hover:border-indigo-500/30'
+                  }`}
+                >
+                  <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-slate-800 shrink-0">
+                    <img src={song.thumbnailUrl} alt={song.title} className="w-full h-full object-cover" />
+                    <div
+                      className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${
+                        isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      }`}
+                    >
+                      {isCurrent && isPlaying ? (
+                        <Pause className="w-4 h-4 text-white fill-white" />
+                      ) : (
+                        <Play className="w-4 h-4 text-white fill-white translate-x-0.5" />
+                      )}
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h4 className={`text-xs font-bold truncate ${isCurrent ? 'text-indigo-300' : 'text-white'}`}>
+                      {song.title}
+                    </h4>
+                    <p className="text-[11px] text-slate-400 truncate">{song.artist}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {/* Featured Artists Row */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
@@ -317,7 +367,92 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </div>
       </section>
 
+      {/* Trending Global Hits */}
+      {trendingSongs.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-indigo-400" />
+              <h3 className="text-lg font-bold text-white tracking-tight">Trending Global Hits</h3>
+            </div>
+          </div>
 
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
+            {trendingSongs.slice(0, 6).map((song) => {
+              const isCurrent = currentSong?.id === song.id;
+              const isDown = isDownloaded(song.id);
+              const isDownLoading = isDownloading(song.id);
+              return (
+                <div
+                  key={`trend_${song.id}`}
+                  onClick={() => selectAndPlaySong(song, trendingSongs)}
+                  className={`group rounded-2xl p-2.5 transition-all cursor-pointer flex flex-col justify-between border ${
+                    isCurrent
+                      ? 'bg-indigo-600/20 border-indigo-500/50 shadow-lg shadow-indigo-500/10'
+                      : 'bg-slate-900/60 hover:bg-slate-800/80 border-white/5 hover:border-indigo-500/30'
+                  }`}
+                >
+                  <div className="relative aspect-square rounded-xl overflow-hidden mb-2 bg-slate-800">
+                    <img
+                      src={song.thumbnailUrl}
+                      alt={song.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        downloadSong(song);
+                      }}
+                      disabled={isDownLoading}
+                      className={`absolute top-1.5 right-1.5 z-10 p-1.5 rounded-xl backdrop-blur-md border transition-all ${
+                        isDown
+                          ? 'bg-emerald-500/30 border-emerald-400/50 text-emerald-300'
+                          : isDownLoading
+                          ? 'bg-indigo-500/30 border-indigo-400/50 text-indigo-200'
+                          : 'bg-black/60 hover:bg-black/80 border-white/15 text-white'
+                      }`}
+                    >
+                      {isDownLoading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : isDown ? (
+                        <Check className="w-3.5 h-3.5" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    <div
+                      className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${
+                        isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      }`}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg">
+                        {isCurrent && isLoading ? (
+                          <Loader2 className="w-5 h-5 text-white animate-spin" />
+                        ) : isCurrent && isPlaying ? (
+                          <Pause className="w-5 h-5 fill-white" />
+                        ) : (
+                          <Play className="w-5 h-5 fill-white translate-x-0.5" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <h4
+                      className={`text-xs font-bold truncate ${
+                        isCurrent ? 'text-indigo-300' : 'text-white group-hover:text-indigo-400'
+                      }`}
+                    >
+                      {song.title}
+                    </h4>
+                    <p className="text-[11px] text-slate-400 truncate">{song.artist}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </div>
   );
 };

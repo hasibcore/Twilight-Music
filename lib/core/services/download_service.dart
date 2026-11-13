@@ -184,13 +184,21 @@ class DownloadService {
 
       // 1. Check if already cached in verified progressive cache
       final tempDir = await getTemporaryDirectory();
+      final v31CacheM4a = File('${tempDir.path}/twilight_v31_cache_$cleanId.m4a');
+      final v31CacheWebm = File('${tempDir.path}/twilight_v31_cache_$cleanId.webm');
+      final v31DoneM4a = File('${tempDir.path}/twilight_v31_cache_$cleanId.m4a.done');
+      final v31DoneWebm = File('${tempDir.path}/twilight_v31_cache_$cleanId.webm.done');
       final cacheM4a = File('${tempDir.path}/twilight_cache_$cleanId.m4a');
       final cacheWebm = File('${tempDir.path}/twilight_cache_$cleanId.webm');
       final doneM4a = File('${tempDir.path}/twilight_cache_$cleanId.m4a.done');
       final doneWebm = File('${tempDir.path}/twilight_cache_$cleanId.webm.done');
 
       File? sourceCached;
-      if (cacheM4a.existsSync() && doneM4a.existsSync() && cacheM4a.lengthSync() > 100000) {
+      if (v31CacheM4a.existsSync() && v31DoneM4a.existsSync() && v31CacheM4a.lengthSync() > 100000) {
+        sourceCached = v31CacheM4a;
+      } else if (v31CacheWebm.existsSync() && v31DoneWebm.existsSync() && v31CacheWebm.lengthSync() > 100000) {
+        sourceCached = v31CacheWebm;
+      } else if (cacheM4a.existsSync() && doneM4a.existsSync() && cacheM4a.lengthSync() > 100000) {
         sourceCached = cacheM4a;
       } else if (cacheWebm.existsSync() && doneWebm.existsSync() && cacheWebm.lengthSync() > 100000) {
         sourceCached = cacheWebm;

@@ -116,92 +116,102 @@ class YouTubeRemoteDatasource {
       }
     }
 
-    // 2. Direct search across all of YouTube using YoutubeExplode (A to Z YouTube access)
-    try {
-      final searchList = await _yt.search.search(cleanQuery).timeout(const Duration(seconds: 4));
-      final List<SongModel> songs = [];
-      final List<ArtistModel> artists = [];
-      final Set<String> seenArtists = {};
-      final Set<String> seenVideoIds = {};
+    // 2 & 3. Race YoutubeExplode and InnerTube web search concurrently so flaky/blocked endpoints never stall 4s+5s sequentially
+    final ytSearchFuture = () async {
+      try {
+        final searchList = await _yt.search.search(cleanQuery).timeout(const Duration(milliseconds: 3500));
+        final List<SongModel> songs = [];
+        final List<ArtistModel> artists = [];
+        final Set<String> seenArtists = {};
+        final Set<String> seenVideoIds = {};
 
-      for (final video in searchList) {
-        try {
-          if (video.id.value.isEmpty || seenVideoIds.contains(video.id.value)) {
-            continue;
-          }
-          seenVideoIds.add(video.id.value);
-
-          final durationSecs = video.duration?.inSeconds ?? 0;
-          final thumb = 'https://i.ytimg.com/vi/${video.id.value}/hqdefault.jpg';
-
-          int views = 0;
+        for (final video in searchList) {
           try {
-            views = video.engagement.viewCount;
-          } catch (_) {}
+            if (video.id.value.isEmpty || seenVideoIds.contains(video.id.value)) {
+              continue;
+            }
+            seenVideoIds.add(video.id.value);
 
-          DateTime? uploadDate;
-          try {
-            uploadDate = video.uploadDate;
-          } catch (_) {}
+            final durationSecs = video.duration?.inSeconds ?? 0;
+            final thumb = 'https://i.ytimg.com/vi/${video.id.value}/hqdefault.jpg';
 
-          final song = SongModel(
-            id: video.id.value,
-            title: video.title,
-            artist: video.author,
-            channelId: video.channelId.value,
-            thumbnailUrl: thumb,
-            durationSeconds: durationSecs,
-            durationFormatted: Formatters.formatDuration(video.duration ?? Duration.zero),
-            viewCount: views,
-            publishedAt: uploadDate,
-          );
-          songs.add(song);
+            int views = 0;
+            try {
+              views = video.engagement.viewCount;
+            } catch (_) {}
 
-          if (video.author.isNotEmpty && !seenArtists.contains(video.author)) {
-            seenArtists.add(video.author);
-            artists.add(ArtistModel(
-              id: video.channelId.value,
-              name: video.author,
+            DateTime? uploadDate;
+            try {
+              uploadDate = video.uploadDate;
+            } catch (_) {}
+
+            final song = SongModel(
+              id: video.id.value,
+              title: video.title,
+              artist: video.author,
+              channelId: video.channelId.value,
               thumbnailUrl: thumb,
-            ));
-          }
-        } catch (_) {}
-      }
+              durationSeconds: durationSecs,
+              durationFormatted: Formatters.formatDuration(video.duration ?? Duration.zero),
+              viewCount: views,
+              publishedAt: uploadDate,
+            );
+            songs.add(song);
 
-      if (songs.isNotEmpty) {
-        final result = SearchResultModel(
-          songs: songs,
-          videos: songs,
-          artists: artists,
-          playlists: [
-            PlaylistModel(
-              id: 'pl_${cleanQuery.hashCode}',
-              title: '$cleanQuery Collection',
-              description: 'YouTube music results for $cleanQuery',
-              thumbnailUrl: songs.first.thumbnailUrl,
-              updatedAt: DateTime.now(),
-            ),
-          ],
-        );
-        _setCache(cacheKey, result);
-        return result;
+            if (video.author.isNotEmpty && !seenArtists.contains(video.author)) {
+              seenArtists.add(video.author);
+              artists.add(ArtistModel(
+                id: video.channelId.value,
+                name: video.author,
+                thumbnailUrl: thumb,
+              ));
+            }
+          } catch (_) {}
+        }
+
+        if (songs.isNotEmpty) {
+          return SearchResultModel(
+            songs: songs,
+            videos: songs,
+            artists: artists,
+            playlists: [
+              PlaylistModel(
+                id: 'pl_${cleanQuery.hashCode}',
+                title: '$cleanQuery Collection',
+                description: 'YouTube music results for $cleanQuery',
+                thumbnailUrl: songs.first.thumbnailUrl,
+                updatedAt: DateTime.now(),
+              ),
+            ],
+          );
+        }
+      } catch (e) {
+        AppLogger.error('YouTubeExplode live search error: $e');
       }
-    } catch (e) {
-      AppLogger.error('YouTubeExplode live search error: $e');
+      return null;
+    }();
+
+    final webSearchFuture = _searchWebFallback(cleanQuery);
+
+    final ytRes = await ytSearchFuture;
+    if (ytRes != null && ytRes.songs.isNotEmpty) {
+      _setCache(cacheKey, ytRes);
+      return ytRes;
     }
 
-    // 3. Fallback: Direct YouTube Web/InnerTube endpoint for 100% search uptime
-    try {
-      final webResults = await _searchWebFallback(cleanQuery);
-      if (webResults.songs.isNotEmpty) {
-        _setCache(cacheKey, webResults);
-        return webResults;
-      }
-    } catch (e) {
-      AppLogger.error('Web search fallback error: $e');
+    final webRes = await webSearchFuture;
+    if (webRes.songs.isNotEmpty) {
+      _setCache(cacheKey, webRes);
+      return webRes;
     }
 
-    // 4. If no results or offline, return clean empty result
+    // 4. Fallback: Direct JioSaavn catalog search if both YouTube search endpoints are blocked/unreachable
+    final saavnRes = await _searchJioSaavnFallback(cleanQuery);
+    if (saavnRes.songs.isNotEmpty) {
+      _setCache(cacheKey, saavnRes);
+      return saavnRes;
+    }
+
     return _getEmptySearchResult();
   }
 
@@ -217,7 +227,7 @@ class YouTubeRemoteDatasource {
         final url = Uri.parse(
           '${ApiEndpoints.videos}?part=snippet,contentDetails,statistics&chart=mostPopular&videoCategoryId=10&maxResults=25&regionCode=$regionCode&key=$apiKey',
         );
-        final response = await client.get(url);
+        final response = await client.get(url).timeout(const Duration(seconds: 4));
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body) as Map<String, dynamic>;
           final items = data['items'] as List<dynamic>? ?? [];
@@ -230,55 +240,66 @@ class YouTubeRemoteDatasource {
       }
     }
 
-    // Live trending music via YouTube search
-    try {
-      final searchList = await _yt.search.search('trending music songs').timeout(const Duration(seconds: 4));
-      final List<SongModel> songs = [];
-      for (final video in searchList.take(20)) {
-        try {
-          final thumb = 'https://i.ytimg.com/vi/${video.id.value}/hqdefault.jpg';
-
-          int views = 0;
+    // Race YoutubeExplode and InnerTube web search concurrently for fast startup
+    final ytFuture = () async {
+      try {
+        final searchList = await _yt.search.search('trending music songs').timeout(const Duration(milliseconds: 3200));
+        final List<SongModel> songs = [];
+        for (final video in searchList.take(25)) {
           try {
-            views = video.engagement.viewCount;
+            final durSecs = video.duration?.inSeconds ?? 0;
+            if (durSecs > 2700) continue; // Skip full-album / >45m DJ compilations from trending singles
+            final thumb = 'https://i.ytimg.com/vi/${video.id.value}/hqdefault.jpg';
+
+            int views = 0;
+            try {
+              views = video.engagement.viewCount;
+            } catch (_) {}
+
+            DateTime? uploadDate;
+            try {
+              uploadDate = video.uploadDate;
+            } catch (_) {}
+
+            songs.add(SongModel(
+              id: video.id.value,
+              title: video.title,
+              artist: video.author,
+              channelId: video.channelId.value,
+              thumbnailUrl: thumb,
+              durationSeconds: durSecs,
+              durationFormatted: Formatters.formatDuration(video.duration ?? Duration.zero),
+              viewCount: views,
+              publishedAt: uploadDate,
+            ));
           } catch (_) {}
-
-          DateTime? uploadDate;
-          try {
-            uploadDate = video.uploadDate;
-          } catch (_) {}
-
-          songs.add(SongModel(
-            id: video.id.value,
-            title: video.title,
-            artist: video.author,
-            channelId: video.channelId.value,
-            thumbnailUrl: thumb,
-            durationSeconds: video.duration?.inSeconds ?? 0,
-            durationFormatted: Formatters.formatDuration(video.duration ?? Duration.zero),
-            viewCount: views,
-            publishedAt: uploadDate,
-          ));
-        } catch (_) {}
-      }
-
-      if (songs.isNotEmpty) {
-        _setCache(cacheKey, songs);
+        }
         return songs;
+      } catch (e) {
+        AppLogger.error('YouTubeExplode trending error: $e');
+        return <SongModel>[];
       }
-    } catch (e) {
-      AppLogger.error('YouTubeExplode trending error: $e');
+    }();
+
+    final webFuture = _searchWebFallback('trending music songs');
+
+    final ytSongs = await ytFuture;
+    if (ytSongs.isNotEmpty) {
+      _setCache(cacheKey, ytSongs);
+      return ytSongs;
     }
 
-    // Fallback: InnerTube web search for trending music
-    try {
-      final webResults = await _searchWebFallback('trending music songs');
-      if (webResults.songs.isNotEmpty) {
-        _setCache(cacheKey, webResults.songs);
-        return webResults.songs;
-      }
-    } catch (e) {
-      AppLogger.error('Trending web search fallback error: $e');
+    final webResults = await webFuture;
+    final webFiltered = webResults.songs.where((s) => s.durationSeconds <= 2700).toList();
+    if (webFiltered.isNotEmpty) {
+      _setCache(cacheKey, webFiltered);
+      return webFiltered;
+    }
+
+    final saavnRes = await _searchJioSaavnFallback('trending hits');
+    if (saavnRes.songs.isNotEmpty) {
+      _setCache(cacheKey, saavnRes.songs);
+      return saavnRes.songs;
     }
 
     return [];
@@ -440,6 +461,71 @@ class YouTubeRemoteDatasource {
       }
     } catch (e) {
       AppLogger.error('InnerTube search fallback error: $e');
+    }
+    return _getEmptySearchResult();
+  }
+
+  Future<SearchResultModel> _searchJioSaavnFallback(String query) async {
+    try {
+      final uri = Uri.parse(
+        'https://saavn.sumit.co/api/search/songs?query=${Uri.encodeComponent(query.trim())}&limit=15',
+      );
+      final res = await client.get(uri).timeout(const Duration(milliseconds: 3800));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map<String, dynamic>) {
+          final items = ((data['data'] as Map<String, dynamic>?)?['results'] as List? ?? [])
+              .whereType<Map<String, dynamic>>()
+              .toList();
+          final songs = <SongModel>[];
+          final artists = <ArtistModel>[];
+          final seenArtists = <String>{};
+          for (final item in items) {
+            final id = item['id']?.toString() ?? '';
+            final title = item['name']?.toString() ?? '';
+            final durSec = int.tryParse(item['duration']?.toString() ?? '0') ?? 0;
+            if (id.isEmpty || title.isEmpty || durSec <= 35) continue;
+            final primaryList =
+                ((item['artists'] as Map<String, dynamic>?)?['primary'] as List? ?? [])
+                    .whereType<Map<String, dynamic>>()
+                    .toList();
+            final artistName = primaryList.isNotEmpty
+                ? primaryList.map((a) => a['name']?.toString() ?? '').where((s) => s.isNotEmpty).join(', ')
+                : (item['label']?.toString() ?? 'Artist');
+            final images = (item['image'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
+            final thumb = images.isNotEmpty ? (images.last['url']?.toString() ?? '') : '';
+            songs.add(SongModel(
+              id: 'js_$id',
+              title: title,
+              artist: artistName,
+              channelId: 'js_$id',
+              thumbnailUrl: thumb,
+              durationSeconds: durSec,
+              durationFormatted: Formatters.formatDuration(Duration(seconds: durSec)),
+              viewCount: int.tryParse(item['playCount']?.toString() ?? '250000') ?? 250000,
+              publishedAt: null,
+            ));
+            if (artistName.isNotEmpty && !seenArtists.contains(artistName)) {
+              seenArtists.add(artistName);
+              artists.add(ArtistModel(
+                id: 'js_art_$id',
+                name: artistName,
+                thumbnailUrl: thumb,
+              ));
+            }
+          }
+          if (songs.isNotEmpty) {
+            return SearchResultModel(
+              songs: songs,
+              videos: songs,
+              artists: artists,
+              playlists: const [],
+            );
+          }
+        }
+      }
+    } catch (e) {
+      AppLogger.error('JioSaavn fallback search error: $e');
     }
     return _getEmptySearchResult();
   }

@@ -259,7 +259,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         icon: const Icon(Icons.play_arrow_rounded, size: 18),
                         label: const Text('Play All', style: TextStyle(fontSize: 12)),
                         onPressed: () {
-                          context.read<PlayerProvider>().playSong(_genreSongs.first, newQueue: _genreSongs);
+                          context.read<PlayerProvider>().selectAndPlaySong(
+                                _genreSongs.first,
+                                newQueue: _genreSongs,
+                                queueIndex: 0,
+                              );
                         },
                       ),
                     const SizedBox(width: 8),

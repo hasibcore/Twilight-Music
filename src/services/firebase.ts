@@ -11,12 +11,19 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore,
+  setLogLevel,
   doc,
   setDoc,
   getDoc,
+  Firestore,
 } from 'firebase/firestore';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 import { Song, Playlist } from '../types';
+
+// Silence noisy @firebase/firestore offline/WebChannel console warnings when operating in local/offline mode
+try {
+  setLogLevel('silent');
+} catch {}
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfigJson) : getApp();
 
@@ -40,7 +47,18 @@ auth.onAuthStateChanged((user) => {
   }
 });
 
-export const db = getFirestore(app, (firebaseConfigJson as Record<string, any>).firestoreDatabaseId || '(default)');
+const configuredDatabaseId = (firebaseConfigJson as Record<string, any>).firestoreDatabaseId;
+let firestoreInstance: Firestore | null = null;
+
+function getActiveFirestore(): Firestore | null {
+  if (!configuredDatabaseId) {
+    return null;
+  }
+  if (!firestoreInstance) {
+    firestoreInstance = getFirestore(app, configuredDatabaseId);
+  }
+  return firestoreInstance;
+}
 
 export interface CloudUserData {
   favorites?: Song[];
@@ -49,38 +67,61 @@ export interface CloudUserData {
   updatedAt?: number;
 }
 
+const LOCAL_CLOUD_SYNC_PREFIX = 'twilight_cloud_profile_v1_';
+
 export class CloudSyncService {
   static async saveUserData(
     uid: string,
     data: { favorites?: Song[]; playlists?: Playlist[]; history?: Song[] }
   ): Promise<void> {
     if (!uid) return;
+    const cleanPayload = JSON.parse(
+      JSON.stringify({
+        ...data,
+        updatedAt: Date.now(),
+      })
+    );
+
     try {
-      const userRef = doc(db, 'users', uid);
-      await setDoc(
-        userRef,
-        {
-          ...data,
-          updatedAt: Date.now(),
-        },
-        { merge: true }
-      );
-    } catch (err) {
-      console.warn('Could not sync user data to cloud:', err);
+      localStorage.setItem(`${LOCAL_CLOUD_SYNC_PREFIX}${uid}`, JSON.stringify(cleanPayload));
+    } catch {}
+
+    const activeDb = getActiveFirestore();
+    if (!activeDb || !auth.currentUser || auth.currentUser.uid !== uid) {
+      return;
+    }
+
+    try {
+      const userRef = doc(activeDb, 'users', uid);
+      await setDoc(userRef, cleanPayload, { merge: true });
+    } catch {
+      // Operate seamlessly in local/offline mode
     }
   }
 
   static async loadUserData(uid: string): Promise<CloudUserData | null> {
     if (!uid) return null;
-    try {
-      const userRef = doc(db, 'users', uid);
-      const snap = await getDoc(userRef);
-      if (snap.exists()) {
-        return snap.data() as CloudUserData;
+
+    const activeDb = getActiveFirestore();
+    if (activeDb && auth.currentUser && auth.currentUser.uid === uid) {
+      try {
+        const userRef = doc(activeDb, 'users', uid);
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+          return snap.data() as CloudUserData;
+        }
+      } catch {
+        // Fallback to local profile snapshot
       }
-    } catch (err) {
-      console.warn('Could not load user data from cloud:', err);
     }
+
+    try {
+      const cached = localStorage.getItem(`${LOCAL_CLOUD_SYNC_PREFIX}${uid}`);
+      if (cached) {
+        return JSON.parse(cached) as CloudUserData;
+      }
+    } catch {}
+
     return null;
   }
 }
@@ -93,3 +134,4 @@ export {
   onAuthStateChanged,
 };
 export type { FirebaseUser };
+

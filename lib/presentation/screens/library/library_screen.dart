@@ -228,7 +228,11 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                 onPressed: () {
                   final downloadedSongs = downloadProv.downloadedSongs;
                   if (downloadedSongs.isNotEmpty) {
-                    context.read<PlayerProvider>().playSong(downloadedSongs.first, newQueue: downloadedSongs);
+                    context.read<PlayerProvider>().selectAndPlaySong(
+                          downloadedSongs.first,
+                          newQueue: downloadedSongs,
+                          queueIndex: 0,
+                        );
                   }
                 },
               ),
@@ -349,7 +353,10 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                       color: AppColors.surface(context),
                       onSelected: (val) {
                         if (val == 'play') {
-                          context.read<PlayerProvider>().playSong(item.song, newQueue: downloadProv.downloadedSongs);
+                          context.read<PlayerProvider>().selectAndPlaySong(
+                                item.song,
+                                newQueue: downloadProv.downloadedSongs,
+                              );
                         } else if (val == 'redownload') {
                           downloadProv.retryDownload(item.song);
                         } else if (val == 'delete') {
@@ -398,7 +405,10 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                 ),
                 onTap: () {
                   if (isHealthy) {
-                    context.read<PlayerProvider>().playSong(item.song, newQueue: downloadProv.downloadedSongs);
+                    context.read<PlayerProvider>().selectAndPlaySong(
+                          item.song,
+                          newQueue: downloadProv.downloadedSongs,
+                        );
                   } else if (!isDownloading) {
                     downloadProv.retryDownload(item.song);
                     ScaffoldMessenger.of(context).showSnackBar(

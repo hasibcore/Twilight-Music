@@ -1,4 +1,5 @@
 import { Song, Artist } from '../types';
+import { StreamLogger } from './streamLogger';
 
 export const POPULAR_FEATURED_SONGS: Song[] = [
   {
@@ -191,6 +192,137 @@ export function isShortPreviewUrl(url?: string | null): boolean {
 }
 
 const clientDirectStreamCache = new Map<string, string>();
+const backendPlayableStatusCache = new Map<string, { playable: boolean; checkedAt: number }>();
+const inFlightClientDirectResolutions = new Map<string, Promise<string | null>>();
+const clientSearchCache = new Map<string, { songs: Song[]; cachedAt: number }>();
+const inFlightClientSearches = new Map<string, Promise<Song[]>>();
+let clientTrendingCache: { songs: Song[]; cachedAt: number } | null = null;
+let inFlightClientTrending: Promise<Song[]> | null = null;
+const clientDynamicMixCache = new Map<string, { songs: Song[]; cachedAt: number }>();
+const inFlightClientDynamicMix = new Map<string, Promise<Song[]>>();
+const saavnDirectJsonCache = new Map<string, { items: any[]; cachedAt: number }>();
+const inFlightSaavnJsonRequests = new Map<string, Promise<any[] | null>>();
+let saavnDirectCooldownUntil = 0;
+
+const CLIENT_SEARCH_CACHE_TTL_MS = 2 * 60 * 1000;
+const CLIENT_TRENDING_CACHE_TTL_MS = 3 * 60 * 1000;
+const SAAVN_COOLDOWN_MS = 45 * 1000;
+const CLIENT_RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+function createClientTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return { signal: AbortSignal.timeout(timeoutMs), cancel: () => {} };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException('signal timed out', 'TimeoutError')), timeoutMs);
+  return {
+    signal: controller.signal,
+    cancel: () => clearTimeout(timer),
+  };
+}
+
+async function clientFetchWithRetry(
+  url: string,
+  init: RequestInit = {},
+  options: { retries?: number; timeoutMs?: number; baseDelayMs?: number } = {}
+): Promise<Response> {
+  const retries = options.retries ?? 1;
+  const timeoutMs = options.timeoutMs ?? 8500;
+  const baseDelayMs = options.baseDelayMs ?? 240;
+  const endpointLabel = url.split('?')[0];
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const { signal, cancel } = createClientTimeoutSignal(timeoutMs);
+    try {
+      const res = await fetch(url, {
+        ...init,
+        signal,
+      });
+      cancel();
+      if (!CLIENT_RETRYABLE_STATUSES.has(res.status) || attempt === retries) {
+        if (CLIENT_RETRYABLE_STATUSES.has(res.status) && attempt === retries) {
+          StreamLogger.logDisconnect('musicApi', `Exhausted retries for ${endpointLabel}`, {
+            statusCode: res.status,
+            attempt: attempt + 1,
+            maxAttempts: retries + 1,
+          });
+        }
+        return res;
+      }
+      const delayMs = Math.min(2000, baseDelayMs * Math.pow(2, attempt) + Math.floor(Math.random() * 100));
+      StreamLogger.logRetry('musicApi', `Retrying ${endpointLabel} after HTTP ${res.status}`, {
+        statusCode: res.status,
+        attempt: attempt + 1,
+        maxAttempts: retries + 1,
+        detail: `delay=${delayMs}ms`,
+      });
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    } catch (err: any) {
+      cancel();
+      lastErr = err;
+      if (attempt === retries) {
+        StreamLogger.logDisconnect('musicApi', `Network request failed for ${endpointLabel}`, {
+          attempt: attempt + 1,
+          maxAttempts: retries + 1,
+          detail: err?.message || String(err),
+        });
+        throw err;
+      }
+      const delayMs = Math.min(2000, baseDelayMs * Math.pow(2, attempt) + Math.floor(Math.random() * 100));
+      StreamLogger.logRetry('musicApi', `Retrying ${endpointLabel} after connection error`, {
+        attempt: attempt + 1,
+        maxAttempts: retries + 1,
+        detail: `${err?.message || String(err)} (delay=${delayMs}ms)`,
+      });
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('Client fetch failed after retries');
+}
+
+async function fetchSaavnDirectItemsCoalesced(
+  saavnUrl: string,
+  timeoutMs = 8500
+): Promise<{ items: any[]; networkFailed: boolean }> {
+  const cached = saavnDirectJsonCache.get(saavnUrl);
+  if (cached && Date.now() - cached.cachedAt < CLIENT_SEARCH_CACHE_TTL_MS) {
+    return { items: cached.items, networkFailed: false };
+  }
+  if (Date.now() < saavnDirectCooldownUntil) {
+    return { items: [], networkFailed: true };
+  }
+
+  const existing = inFlightSaavnJsonRequests.get(saavnUrl);
+  if (existing) {
+    const items = await existing;
+    return { items: items ?? [], networkFailed: items === null };
+  }
+
+  let sawNetworkFailure = false;
+  const pending = (async (): Promise<any[] | null> => {
+    try {
+      const res = await clientFetchWithRetry(saavnUrl, {}, { retries: 1, timeoutMs });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const items: any[] = Array.isArray(data?.data?.results) ? data.data.results : [];
+      saavnDirectJsonCache.set(saavnUrl, { items, cachedAt: Date.now() });
+      return items;
+    } catch {
+      sawNetworkFailure = true;
+      saavnDirectCooldownUntil = Date.now() + SAAVN_COOLDOWN_MS;
+      return null;
+    }
+  })().finally(() => {
+    if (inFlightSaavnJsonRequests.get(saavnUrl) === pending) {
+      inFlightSaavnJsonRequests.delete(saavnUrl);
+    }
+  });
+
+  inFlightSaavnJsonRequests.set(saavnUrl, pending);
+  const items = await pending;
+  return { items: items ?? [], networkFailed: sawNetworkFailure || items === null };
+}
 
 export const FEATURED_ARTISTS: Artist[] = [
   { id: 'art_edsheeran', name: 'Ed Sheeran', thumbnailUrl: 'https://i.ytimg.com/vi/JGwWNGJdvx8/hqdefault.jpg', subscribers: '54M' },
@@ -266,14 +398,14 @@ export class MusicApi {
     // 2. Query CORS-enabled full-length 320kbps AAC catalog (saavn.sumit.co — returns full 3m–8m songs, never 30s previews)
     for (const term of searchTerms) {
       if (!term) continue;
+      if (Date.now() < saavnDirectCooldownUntil) break;
       try {
         const saavnUrl = `https://saavn.sumit.co/api/search/songs?query=${encodeURIComponent(
           term
         )}&limit=20`;
-        const res = await fetch(saavnUrl, { signal: AbortSignal.timeout(4500) });
-        if (!res.ok) continue;
-        const data = await res.json();
-        const items: any[] = Array.isArray(data?.data?.results) ? data.data.results : [];
+        const { items, networkFailed } = await fetchSaavnDirectItemsCoalesced(saavnUrl, 8500);
+        if (networkFailed) break;
+        if (items.length === 0) continue;
 
         const wantsRemixOrKaraoke = /\b(?:remix|karaoke|instrumental|nightcore|slowed|reverb|cover|lofi|lo-fi)\b/i.test(
           term
@@ -323,6 +455,7 @@ export class MusicApi {
             audioUrl: fullStreamUrl,
           });
         }
+        if (results.length >= 6) break;
       } catch {
         // continue
       }
@@ -336,14 +469,14 @@ export class MusicApi {
     rawArtist?: string
   ): { coreTitle: string; primaryArtist: string } {
     const metadataRegex =
-      /^(?:coke\s+studio.*|season\s*\d+|episode\s*\d+|ep\s*\.?\s*\d+|official.*|lyric(?:al)?.*|full\s+(?:song|video|audio|extended).*|audio\s+song.*|video\s+song.*|rabindra\s+sangeet.*|tagore\s+song.*|bangla\s+(?:gaan|song|music).*|\d+(?:st|nd|rd|th)\s+anniversary.*|anniversary\s+concert.*|concert.*|hd|4k|hq|remaster.*|live.*|unplugged.*|t-series.*|sony\s+music.*|zee\s+music.*|svf.*|sangeet\s+bangla.*|soundtek.*|laser\s+vision.*|bhavna\s+records.*)$/i;
+      /^(?:coke\s+studio.*|season\s*\d+|episode\s*\d+|ep\s*\.?\s*\d+|official.*|lyric(?:al)?.*|full\s+(?:song|video|audio|extended).*|audio\s+song.*|video\s+song.*|rabindra\s+sangeet.*|tagore\s+song.*|bangla\s+(?:gaan|song|music|natok).*|\d+(?:st|nd|rd|th)\s+anniversary.*|anniversary\s+concert.*|concert.*|hd|4k|hq|remaster.*|live.*|unplugged.*|t-series.*|sony\s+music.*|zee\s+music.*|svf.*|sangeet\s+bangla.*|soundtek.*|laser\s+vision.*|bhavna\s+records.*)$/i;
     const cleanText = (s: string) =>
-      (s || '')
+      decodeHtmlEntities(s || '')
         .replace(/#\S+/g, ' ')
         .replace(/\(\s*[^\x00-\x7F]+\s*\)/g, ' ')
         .replace(/\[\s*[^\x00-\x7F]+\s*\]/g, ' ')
         .replace(
-          /\([^)]*(?:official|video|audio|lyric|lyrics|visualizer|hd|4k|hq|remaster|live|mv|full\s+song|full\s+extended|coke\s+studio|season\s*\d+|mix|vibes|concert|anniversary)[^)]*\)/gi,
+          /\([^)]*(?:official|video|audio|lyric|lyrics|visualizer|hd|4k|hq|remaster|live|mv|full\s+song|full\s+extended|coke\s+studio|season\s*\d+|mix|vibes|concert|anniversary|from\s+|feat\.?\s+|ft\.?\s+|original\s+motion|soundtrack|ost|film|movie|natok|drama|telefilm)[^)]*\)/gi,
           ' '
         )
         .replace(/\[[^\]]*\]/g, ' ')
@@ -362,7 +495,7 @@ export class MusicApi {
     const isGenericChannel = !cleanedChannel || metadataRegex.test(cleanedChannel);
     const compactChannel = cleanedChannel.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-    const rawSegments = String(rawTitle || '')
+    const rawSegments = decodeHtmlEntities(String(rawTitle || ''))
       .split(/(?:\s*\|\|\s*|\s*[|•·]\s*|\s+\/\/\s+)/)
       .map(cleanText)
       .filter(Boolean);
@@ -440,8 +573,14 @@ export class MusicApi {
       ? extractedArtist || cleanedChannel
       : cleanedChannel || extractedArtist;
 
+    const finalCoreTitle = (coreTitle.trim() || cleanText(rawTitle))
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/\[[^\]]*\]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
     return {
-      coreTitle: coreTitle.trim() || cleanText(rawTitle),
+      coreTitle: finalCoreTitle || coreTitle.trim() || cleanText(rawTitle),
       primaryArtist: primaryArtist.trim(),
     };
   }
@@ -525,7 +664,40 @@ export class MusicApi {
     return null;
   }
 
-  static async resolveClientDirectStreamUrl(song: Song): Promise<string | null> {
+  static invalidateClientDirectStreamCache(songId?: string): void {
+    if (songId) {
+      const cleanId = songId.trim();
+      clientDirectStreamCache.delete(cleanId);
+      backendPlayableStatusCache.delete(cleanId);
+    } else {
+      clientDirectStreamCache.clear();
+      backendPlayableStatusCache.clear();
+    }
+  }
+
+  static async checkProxyStreamPlayable(
+    song: Song,
+    forceRefresh = false
+  ): Promise<{ playable: boolean; url: string | null }> {
+    const cleanId = (song.id || '').trim();
+    if (!forceRefresh && cleanId) {
+      const known = backendPlayableStatusCache.get(cleanId);
+      if (known && !known.playable && Date.now() - known.checkedAt < 60000) {
+        return { playable: false, url: null };
+      }
+    }
+    const directUrl = await MusicApi.resolveClientDirectStreamUrl(song, forceRefresh);
+    if (directUrl) {
+      return { playable: true, url: directUrl };
+    }
+    const updatedStatus = cleanId ? backendPlayableStatusCache.get(cleanId) : undefined;
+    return { playable: Boolean(updatedStatus?.playable), url: null };
+  }
+
+  static async resolveClientDirectStreamUrl(
+    song: Song,
+    forceRefresh = false
+  ): Promise<string | null> {
     if (!song) return null;
 
     // 1. Check verified full-length studio masters by ID or Title+Artist+Duration FIRST (0ms, exact match)
@@ -537,6 +709,7 @@ export class MusicApi {
     }
 
     if (
+      !forceRefresh &&
       song.audioUrl &&
       !isShortPreviewUrl(song.audioUrl) &&
       (song.audioUrl.startsWith('https://') || song.audioUrl.startsWith('/audio/'))
@@ -544,42 +717,70 @@ export class MusicApi {
       return song.audioUrl;
     }
 
-    const cachedUrl = clientDirectStreamCache.get(cleanId);
+    if (forceRefresh && cleanId) {
+      clientDirectStreamCache.delete(cleanId);
+    }
+
+    const cachedUrl = !forceRefresh ? clientDirectStreamCache.get(cleanId) : undefined;
     if (cachedUrl && !isShortPreviewUrl(cachedUrl)) {
       return cachedUrl;
     }
 
-    // 2. Resolve the exact track & version stream from backend multi-source resolver
-    if (cleanId) {
-      try {
-        const params = new URLSearchParams({
-          ...(song.title ? { title: song.title } : {}),
-          ...(song.artist ? { artist: song.artist } : {}),
-          ...(song.durationSeconds ? { duration: String(song.durationSeconds) } : {}),
-        });
-        const res = await fetch(
-          `/api/stream/${encodeURIComponent(cleanId)}/resolve?${params.toString()}`,
-          { signal: AbortSignal.timeout(6500) }
-        );
-        const contentType = res.headers.get('content-type') || '';
-        if (res.ok && contentType.includes('application/json')) {
-          const data = await res.json();
-          const resolvedUrl = String(data?.directCdnUrl || '');
-          if (
-            resolvedUrl &&
-            !isShortPreviewUrl(resolvedUrl) &&
-            (resolvedUrl.startsWith('https://') ||
-              resolvedUrl.startsWith('/api/stream/') ||
-              resolvedUrl.startsWith('/audio/'))
-          ) {
-            clientDirectStreamCache.set(cleanId, resolvedUrl);
-            return resolvedUrl;
-          }
-        }
-      } catch {
-        // Backend unreachable in standalone mode; continue to direct client full-length resolution
+    if (!forceRefresh && cleanId) {
+      const existingPending = inFlightClientDirectResolutions.get(cleanId);
+      if (existingPending) {
+        return existingPending;
       }
     }
+
+    const executeResolve = async (): Promise<string | null> => {
+      // 2. Resolve the exact track & version stream from backend multi-source resolver
+      let backendRespondedOk = false;
+      if (cleanId) {
+        try {
+          const params = new URLSearchParams({
+            ...(song.title ? { title: song.title } : {}),
+            ...(song.artist ? { artist: song.artist } : {}),
+            ...(song.durationSeconds ? { duration: String(song.durationSeconds) } : {}),
+            ...(forceRefresh ? { refresh: '1', t: String(Date.now()) } : {}),
+          });
+          const res = await clientFetchWithRetry(
+            `/api/stream/${encodeURIComponent(cleanId)}/resolve?${params.toString()}`,
+            {},
+            { retries: 1, timeoutMs: 9500, baseDelayMs: 220 }
+          );
+          const contentType = res.headers.get('content-type') || '';
+          if (res.ok && contentType.includes('application/json')) {
+            backendRespondedOk = true;
+            const data = await res.json();
+            const resolvedUrl = String(data?.directCdnUrl || '');
+            const isPlayable = Boolean(data?.playable ?? resolvedUrl);
+            backendPlayableStatusCache.set(cleanId, { playable: isPlayable, checkedAt: Date.now() });
+            if (
+              resolvedUrl &&
+              !isShortPreviewUrl(resolvedUrl) &&
+              (resolvedUrl.startsWith('https://') ||
+                resolvedUrl.startsWith('/api/stream/') ||
+                resolvedUrl.startsWith('/audio/'))
+            ) {
+              clientDirectStreamCache.set(cleanId, resolvedUrl);
+              return resolvedUrl;
+            }
+          }
+        } catch (err: any) {
+          StreamLogger.logDisconnect('resolveClientDirectStreamUrl', 'Backend resolver unreachable, falling back to direct CDN search', {
+            songId: cleanId,
+            songTitle: song.title,
+            detail: err?.message || String(err),
+          });
+        }
+      }
+
+      // If the backend already ran full multi-source resolution and confirmed no external CDN audio master exists,
+      // immediately hand off to YT IFrame / HTML5 playback instead of blocking another 5-9s on redundant searches.
+      if (backendRespondedOk && !forceRefresh) {
+        return null;
+      }
 
     // 3. Direct client-side full-length 320kbps AAC resolution via saavn.sumit.co (CORS-enabled)
     const { coreTitle, primaryArtist } = MusicApi.extractCoreSongTitleAndArtist(
@@ -591,8 +792,8 @@ export class MusicApi {
     );
     const stopWords = new Set([
       'the', 'and', 'for', 'with', 'from', 'feat', 'ft', 'of', 'in', 'on', 'to', 'at', 'by',
-      'official', 'music', 'video', 'audio', 'song', 'full', 'lyric', 'lyrics', 'coke', 'studio', 'bangla', 'season',
-      'anniversary', 'concert', 'live', 'version',
+      'official', 'music', 'video', 'audio', 'song', 'songs', 'full', 'lyric', 'lyrics', 'coke', 'studio', 'bangla', 'season',
+      'anniversary', 'concert', 'live', 'version', 'album', 'movie', 'film', 'ost', 'soundtrack', 'title', 'theme', 'natok', 'drama',
     ]);
     const normalizePhonetic = (s: string) =>
       s
@@ -618,6 +819,13 @@ export class MusicApi {
       .filter((t) => t.length >= 2);
     const coreTokens = rawTokens.filter((t) => !stopWords.has(t));
     const effectiveTokens = coreTokens.length > 0 ? coreTokens : rawTokens;
+    const normCoreTitle = coreTitle
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const isDistinctiveCoreTitle =
+      effectiveTokens.length >= 2 || (effectiveTokens.length === 1 && normCoreTitle.length >= 6);
     const artistTokens = primaryArtist
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, ' ')
@@ -634,48 +842,64 @@ export class MusicApi {
     );
 
     for (const q of queries) {
+      if (Date.now() < saavnDirectCooldownUntil) break;
       try {
         const saavnUrl = `https://saavn.sumit.co/api/search/songs?query=${encodeURIComponent(
           q
         )}&limit=10`;
-        const res = await fetch(saavnUrl, { signal: AbortSignal.timeout(4000) });
-        if (!res.ok) continue;
-        const data = await res.json();
-        const items: any[] = Array.isArray(data?.data?.results) ? data.data.results : [];
-        const match = items.find((i) => {
+        const { items, networkFailed } = await fetchSaavnDirectItemsCoalesced(saavnUrl, 8500);
+        if (networkFailed) break;
+        if (items.length === 0) continue;
+        let bestMatch: any = null;
+        let bestScore = -999;
+
+        for (let idx = 0; idx < items.length; idx++) {
+          const i = items[idx];
           const downloadUrls: any[] = Array.isArray(i?.downloadUrl) ? i.downloadUrl : [];
           const dlUrl = downloadUrls.length > 0 ? String(downloadUrls[downloadUrls.length - 1]?.url || '') : '';
           const durSec = Number(i?.duration || 0);
-          if (!dlUrl || durSec <= 35 || isShortPreviewUrl(dlUrl)) return false;
+          if (!dlUrl || durSec <= 45 || isShortPreviewUrl(dlUrl)) continue;
 
-          const candTitle = decodeHtmlEntities(String(i?.name || '')).toLowerCase();
+          const candTitleRaw = decodeHtmlEntities(String(i?.name || '')).toLowerCase();
+          const candTitle = candTitleRaw
+            .replace(/\([^)]*\)/g, ' ')
+            .replace(/\[[^\]]*\]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
           const candArtists = Array.isArray(i?.artists?.primary)
-            ? i.artists.primary.map((a: any) => a?.name).filter(Boolean).join(' ').toLowerCase()
+            ? i.artists.primary
+                .map((a: any) => decodeHtmlEntities(String(a?.name || '')))
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase()
             : '';
+          const candArtistTokens = candArtists
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .split(/\s+/)
+            .filter((w: string) => w.length >= 3);
 
           // Reject karaoke, nightcore, covers, or remixes unless explicitly requested
           if (
             !wantsRemixOrKaraoke &&
             /\b(?:karaoke|instrumental|nightcore|remix|cover|tribute|parody|zzang|cheesyfox)\b/i.test(
-              `${candTitle} ${candArtists}`
+              `${candTitleRaw} ${candArtists}`
             )
           ) {
-            return false;
+            continue;
           }
 
           if (effectiveTokens.length > 0) {
             const candWords = candTitle
-              .replace(/\([^)]*\)/g, ' ')
-              .replace(/\[[^\]]*\]/g, ' ')
               .replace(/[^a-z0-9\s]/g, ' ')
               .split(/\s+/)
               .filter((w) => w.length >= 3 && !stopWords.has(w) && !/^\d+$/.test(w));
             const hasForeignWord = candWords.some(
               (cw) =>
                 !effectiveTokens.some((ct) => tokenMatches(ct, cw) || tokenMatches(cw, ct)) &&
-                !artistTokens.some((at) => tokenMatches(at, cw) || tokenMatches(cw, at))
+                !artistTokens.some((at) => tokenMatches(at, cw) || tokenMatches(cw, at)) &&
+                !candArtistTokens.some((cat: string) => tokenMatches(cat, cw) || tokenMatches(cw, cat))
             );
-            if (hasForeignWord) return false;
+            if (hasForeignWord) continue;
 
             let matched = 0;
             for (const ct of effectiveTokens) {
@@ -685,18 +909,38 @@ export class MusicApi {
               effectiveTokens.length <= 2
                 ? effectiveTokens.length
                 : Math.ceil(effectiveTokens.length * 0.6);
-            if (matched < minReq) return false;
+            if (matched < minReq) continue;
           }
-          if (
-            artistTokens.length > 0 &&
-            !artistTokens.some((at) => tokenMatches(at, `${candTitle} ${candArtists}`))
-          ) {
-            return false;
+          const candNorm = candTitle.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+          const artistMatched =
+            artistTokens.length === 0 ||
+            artistTokens.some((at) => tokenMatches(at, `${candTitleRaw} ${candArtists}`));
+          const exactDistinctive =
+            isDistinctiveCoreTitle &&
+            candNorm === normCoreTitle &&
+            (!song.durationSeconds || Math.abs(durSec - song.durationSeconds) <= 25);
+
+          if (!artistMatched && !exactDistinctive) {
+            continue;
           }
-          return true;
-        });
-        if (match) {
-          const downloadUrls: any[] = Array.isArray(match.downloadUrl) ? match.downloadUrl : [];
+
+          let score = 20 - idx;
+          if (candNorm === normCoreTitle) score += 35;
+          if (artistMatched) score += 20;
+          if (song.durationSeconds && song.durationSeconds > 0 && durSec > 0) {
+            const durDiff = Math.abs(durSec - song.durationSeconds);
+            if (durDiff <= 5) score += 45;
+            else if (durDiff <= 18) score += 25;
+            else if (durDiff > 35) score -= 20;
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = i;
+          }
+        }
+
+        if (bestMatch) {
+          const downloadUrls: any[] = Array.isArray(bestMatch.downloadUrl) ? bestMatch.downloadUrl : [];
           const streamUrl = String(downloadUrls[downloadUrls.length - 1]?.url || '');
           if (streamUrl) {
             if (cleanId) clientDirectStreamCache.set(cleanId, streamUrl);
@@ -708,56 +952,120 @@ export class MusicApi {
       }
     }
 
-    return null;
+      return null;
+    };
+
+    if (!cleanId || forceRefresh) {
+      return executeResolve();
+    }
+
+    const pending = executeResolve().finally(() => {
+      if (inFlightClientDirectResolutions.get(cleanId) === pending) {
+        inFlightClientDirectResolutions.delete(cleanId);
+      }
+    });
+    inFlightClientDirectResolutions.set(cleanId, pending);
+    return pending;
   }
 
   static async searchSongs(query: string): Promise<Song[]> {
     if (!query.trim()) return [];
     const normalizedQuery = normalizePhoneticSearchQuery(query);
+    const cacheKey = normalizedQuery.toLowerCase();
 
-    try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(normalizedQuery)}`, {
-        signal: AbortSignal.timeout(6500),
-      });
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (Array.isArray(data.songs) && data.songs.length > 0) {
-          const seen = new Set<string>();
-          return (data.songs as Song[]).filter((s) => {
-            if (!s?.id || seen.has(s.id)) return false;
-            seen.add(s.id);
-            return true;
-          });
+    const cached = clientSearchCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < CLIENT_SEARCH_CACHE_TTL_MS && cached.songs.length > 0) {
+      return cached.songs;
+    }
+
+    const existing = inFlightClientSearches.get(cacheKey);
+    if (existing) {
+      return existing;
+    }
+
+    const pending = (async (): Promise<Song[]> => {
+      try {
+        const res = await clientFetchWithRetry(
+          `/api/search?q=${encodeURIComponent(normalizedQuery)}`,
+          {},
+          { retries: 1, timeoutMs: 9000 }
+        );
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (Array.isArray(data.songs) && data.songs.length > 0) {
+            const seen = new Set<string>();
+            const deduped = (data.songs as Song[]).filter((s) => {
+              if (!s?.id || seen.has(s.id)) return false;
+              seen.add(s.id);
+              return true;
+            });
+            if (deduped.length > 0) {
+              clientSearchCache.set(cacheKey, { songs: deduped, cachedAt: Date.now() });
+              return deduped;
+            }
+          }
         }
+      } catch {
+        // Backend proxy unreachable or redirected in standalone PWA mode -> use direct client-side full-length search
       }
-    } catch {
-      // Backend proxy unreachable or redirected in standalone PWA mode -> use direct client-side full-length search
-    }
 
-    // Direct client-side full-length search (CORS-enabled 320kbps AAC + Curated Bengali/Global full catalog)
-    const directResults = await MusicApi.searchSongsClientDirect(query);
-    if (directResults.length > 0) {
-      return directResults;
-    }
+      // Direct client-side full-length search (CORS-enabled 320kbps AAC + Curated Bengali/Global full catalog)
+      const directResults = await MusicApi.searchSongsClientDirect(query);
+      if (directResults.length > 0) {
+        clientSearchCache.set(cacheKey, { songs: directResults, cachedAt: Date.now() });
+        return directResults;
+      }
 
-    return CURATED_BENGALI_AND_GLOBAL_SONGS;
+      return CURATED_BENGALI_AND_GLOBAL_SONGS;
+    })().finally(() => {
+      if (inFlightClientSearches.get(cacheKey) === pending) {
+        inFlightClientSearches.delete(cacheKey);
+      }
+    });
+
+    inFlightClientSearches.set(cacheKey, pending);
+    return pending;
   }
 
   static async getTrendingSongs(): Promise<Song[]> {
-    try {
-      const res = await fetch('/api/trending', { signal: AbortSignal.timeout(3000) });
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (Array.isArray(data.songs) && data.songs.length > 0) {
-          return data.songs;
-        }
-      }
-    } catch {
-      // fallback
+    if (
+      clientTrendingCache &&
+      Date.now() - clientTrendingCache.cachedAt < CLIENT_TRENDING_CACHE_TTL_MS &&
+      clientTrendingCache.songs.length > 0
+    ) {
+      return clientTrendingCache.songs;
     }
-    return POPULAR_FEATURED_SONGS;
+    if (inFlightClientTrending) {
+      return inFlightClientTrending;
+    }
+
+    const pending = (async (): Promise<Song[]> => {
+      try {
+        const res = await clientFetchWithRetry('/api/trending', {}, { retries: 1, timeoutMs: 8500 });
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (Array.isArray(data.songs) && data.songs.length > 0) {
+            clientTrendingCache = { songs: data.songs, cachedAt: Date.now() };
+            return data.songs;
+          }
+        }
+      } catch {
+        // fallback
+      }
+      const direct = await MusicApi.searchSongsClientDirect('Trending Global Hits');
+      const finalSongs = direct.length > 0 ? direct : CURATED_BENGALI_AND_GLOBAL_SONGS;
+      clientTrendingCache = { songs: finalSongs, cachedAt: Date.now() };
+      return finalSongs;
+    })().finally(() => {
+      if (inFlightClientTrending === pending) {
+        inFlightClientTrending = null;
+      }
+    });
+
+    inFlightClientTrending = pending;
+    return pending;
   }
 
   static async getDynamicMix(params: {
@@ -766,25 +1074,59 @@ export class MusicApi {
     historyIds: string[];
     vibe: string;
   }): Promise<Song[]> {
-    try {
-      const res = await fetch('/api/recommendations/dynamic', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
-        signal: AbortSignal.timeout(3000),
-      });
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (Array.isArray(data.songs) && data.songs.length > 0) {
-          return data.songs;
-        }
-      }
-    } catch {
-      // fallback
+    const cacheKey = `${(params.vibe || '').trim().toLowerCase()}|${(params.artists || [])
+      .slice(0, 2)
+      .join(',')
+      .toLowerCase()}`;
+    const cached = clientDynamicMixCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < CLIENT_SEARCH_CACHE_TTL_MS && cached.songs.length > 0) {
+      return cached.songs;
+    }
+    const existing = inFlightClientDynamicMix.get(cacheKey);
+    if (existing) {
+      return existing;
     }
 
-    return [...POPULAR_FEATURED_SONGS];
+    const pending = (async (): Promise<Song[]> => {
+      try {
+        const res = await clientFetchWithRetry(
+          '/api/recommendations/dynamic',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params),
+          },
+          { retries: 1, timeoutMs: 8500 }
+        );
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (Array.isArray(data.songs) && data.songs.length > 0) {
+            clientDynamicMixCache.set(cacheKey, { songs: data.songs, cachedAt: Date.now() });
+            return data.songs;
+          }
+        }
+      } catch {
+        // fallback
+      }
+
+      const fallbackQuery = params.vibe || params.artists?.[0] || '';
+      if (fallbackQuery) {
+        const direct = await MusicApi.searchSongsClientDirect(fallbackQuery);
+        if (direct.length > 0) {
+          clientDynamicMixCache.set(cacheKey, { songs: direct, cachedAt: Date.now() });
+          return direct;
+        }
+      }
+      return [...CURATED_BENGALI_AND_GLOBAL_SONGS];
+    })().finally(() => {
+      if (inFlightClientDynamicMix.get(cacheKey) === pending) {
+        inFlightClientDynamicMix.delete(cacheKey);
+      }
+    });
+
+    inFlightClientDynamicMix.set(cacheKey, pending);
+    return pending;
   }
 
   static getAudioStreamUrl(songId: string): string {

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:melody_tube/core/services/audio_stream_extractor.dart';
 import 'package:melody_tube/core/services/local_storage_service.dart';
 import 'package:melody_tube/core/services/lyrics_service.dart';
 import 'package:melody_tube/domain/entities/playlist.dart';
@@ -209,4 +210,20 @@ void main() {
       );
     });
   });
+
+  group('AudioStreamExtractor Cache Lifecycle', () {
+    test('Caches known direct master under v35_* key and properly invalidates it via invalidateCache', () async {
+      final stream = await AudioStreamExtractor.extractAudioStream(
+        'kJQP7kiw5Fk',
+        title: 'Despacito',
+        artist: 'Luis Fonsi',
+      );
+      expect(stream, isNotNull);
+      expect(AudioStreamExtractor.getCacheAge('kJQP7kiw5Fk'), isNotNull);
+
+      AudioStreamExtractor.invalidateCache('kJQP7kiw5Fk');
+      expect(AudioStreamExtractor.getCacheAge('kJQP7kiw5Fk'), isNull);
+    });
+  });
 }
+
