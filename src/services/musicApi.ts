@@ -159,12 +159,12 @@ export const CURATED_BENGALI_AND_GLOBAL_SONGS: Song[] = [
 // Pre-verified FULL-LENGTH (3m–8m+) 320kbps AAC CDN & studio master streams (ZERO 30-second previews, ZERO remixes/karaoke)
 export const VERIFIED_DIRECT_STREAMS: Record<string, string> = {
   Qh_sxMN9UH8: '/audio/Qh_sxMN9UH8.m4a',
-  '8pgvTBikV9U': 'https://aac.saavncdn.com/744/89e8ba380132d45e474dd3b49779f20a_320.mp4',
+  '8pgvTBikV9U': '/api/stream/8pgvTBikV9U?title=Obak%20Bhalobasha%20Coke%20Studio%20Bangla&artist=Warfaze&duration=409',
   PGgcOK7MgoM: '/audio/PGgcOK7MgoM.mp3',
   NQp3cbSkqbo: '/audio/NQp3cbSkqbo.m4a',
-  '8iuZrJumCLo': 'https://aac.saavncdn.com/296/ab693f16b6e4708e6fe9763c3fe20329_320.mp4',
-  rEGYM2DarbQ: 'https://aac.saavncdn.com/649/d43613a52a0b2f0331a84e2ff9bb65ba_320.mp4',
-  fJ9rUzIMcZQ: 'https://aac.saavncdn.com/806/442b9d1e36a4bcef050a32de50a82316_320.mp4',
+  '8iuZrJumCLo': '/api/stream/8iuZrJumCLo?title=Amar%20Hiyar%20Majhe&artist=Iman%20Chakraborty&duration=327',
+  rEGYM2DarbQ: '/api/stream/rEGYM2DarbQ?title=Amar%20Hiyar%20Majhe&artist=Jayati%20Chakraborty&duration=317',
+  fJ9rUzIMcZQ: '/api/stream/fJ9rUzIMcZQ?title=Bohemian%20Rhapsody&artist=Queen&duration=355',
   kJQP7kiw5Fk: '/audio/kJQP7kiw5Fk.m4a',
   JGwWNGJdvx8: '/audio/JGwWNGJdvx8.m4a',
   '4NRXx6U8ABQ': '/audio/4NRXx6U8ABQ.m4a',
@@ -625,7 +625,7 @@ export class MusicApi {
       !titleLower.includes('valobasha') &&
       (dur === 0 || Math.abs(dur - 243) <= 22)
     ) {
-      return 'https://aac.saavncdn.com/000/8a81a552431793831c58e09f3d7fde01_320.mp4';
+      return '/api/stream/JirEG9LIJTU?title=Bondho%20Janala&artist=Shironamhin&duration=243';
     }
 
     if (
@@ -719,15 +719,19 @@ export class MusicApi {
     const knownMaster = MusicApi.resolveKnownFullLengthMaster(song);
     const cleanId = (song.id || '').trim();
     if (knownMaster) {
-      if (cleanId) clientDirectStreamCache.set(cleanId, knownMaster);
-      return knownMaster;
+      const resolvedMaster =
+        forceRefresh && knownMaster.startsWith('/api/stream/')
+          ? `${knownMaster}${knownMaster.includes('?') ? '&' : '?'}refresh=1&t=${Date.now()}`
+          : knownMaster;
+      if (cleanId) clientDirectStreamCache.set(cleanId, resolvedMaster);
+      return resolvedMaster;
     }
 
     if (
       !forceRefresh &&
       song.audioUrl &&
       !isShortPreviewUrl(song.audioUrl) &&
-      (song.audioUrl.startsWith('https://') || song.audioUrl.startsWith('/audio/'))
+      (song.audioUrl.startsWith('/audio/') || song.audioUrl.startsWith('/api/stream/'))
     ) {
       return song.audioUrl;
     }

@@ -624,6 +624,14 @@ async function resolveCanonicalSongMeta(
   };
 }
 
+const knownDirectCdnMap: Record<string, string> = {
+  '8pgvTBikV9U': 'https://aac.saavncdn.com/744/89e8ba380132d45e474dd3b49779f20a_320.mp4',
+  '8iuZrJumCLo': 'https://aac.saavncdn.com/296/ab693f16b6e4708e6fe9763c3fe20329_320.mp4',
+  rEGYM2DarbQ: 'https://aac.saavncdn.com/649/d43613a52a0b2f0331a84e2ff9bb65ba_320.mp4',
+  fJ9rUzIMcZQ: 'https://aac.saavncdn.com/806/442b9d1e36a4bcef050a32de50a82316_320.mp4',
+  JirEG9LIJTU: 'https://aac.saavncdn.com/000/8a81a552431793831c58e09f3d7fde01_320.mp4',
+};
+
 async function resolveExactTrackStreamUrl(
   videoId: string,
   rawTitle?: string,
@@ -715,13 +723,6 @@ async function resolveExactTrackStreamUrl(
     }
   }
 
-  const knownDirectCdnMap: Record<string, string> = {
-    '8pgvTBikV9U': 'https://aac.saavncdn.com/744/89e8ba380132d45e474dd3b49779f20a_320.mp4',
-    '8iuZrJumCLo': 'https://aac.saavncdn.com/296/ab693f16b6e4708e6fe9763c3fe20329_320.mp4',
-    rEGYM2DarbQ: 'https://aac.saavncdn.com/649/d43613a52a0b2f0331a84e2ff9bb65ba_320.mp4',
-    fJ9rUzIMcZQ: 'https://aac.saavncdn.com/806/442b9d1e36a4bcef050a32de50a82316_320.mp4',
-    JirEG9LIJTU: 'https://aac.saavncdn.com/000/8a81a552431793831c58e09f3d7fde01_320.mp4',
-  };
   if (cleanId && knownDirectCdnMap[cleanId]) {
     const resolved: ResolvedStreamEntry = {
       url: knownDirectCdnMap[cleanId],
@@ -1859,6 +1860,7 @@ async function searchSaavnFallback(
         (images.length > 0 ? String(images[images.length - 1]?.url || '') : '') ||
         'https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg';
 
+      knownDirectCdnMap[trackId] = fullStreamUrl;
       songMetaCache.set(trackId, { title, artist, durationSeconds: durSec });
       songs.push({
         id: trackId,
@@ -1869,7 +1871,6 @@ async function searchSaavnFallback(
         durationSeconds: durSec,
         durationFormatted: `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`,
         viewCount: Number(item?.playCount || 250000),
-        audioUrl: fullStreamUrl,
       });
     }
     return songs;
@@ -2053,13 +2054,13 @@ app.get('/api/search', async (req: Request, res: Response) => {
     const wantsMix = /\b(?:mix|jukebox|playlist|mashup|nonstop|non-stop|hour|album)\b/i.test(query);
     pending = withSoftDeadline(
       Promise.all([
-        searchYouTube(query, { retries: 0, timeoutMs: 2600, skipSaavnFallback: !wantsMix }),
-        wantsMix ? Promise.resolve([]) : searchSaavnFallback(query, { retries: 0, timeoutMs: 2600 }),
+        searchYouTube(query, { retries: 0, timeoutMs: 1800, skipSaavnFallback: !wantsMix }),
+        wantsMix ? Promise.resolve([]) : searchSaavnFallback(query, { retries: 0, timeoutMs: 1800 }),
       ]).then(([ytSongs, saavnSongs]) => {
         const merged = mergeSingleAndCatalogTracks(ytSongs, saavnSongs, wantsMix, 24);
         return merged.length > 0 ? merged : getStaticFallbackMatches(query);
       }),
-      3200,
+      2200,
       getStaticFallbackMatches(query)
     )
       .then((songs) => {
@@ -2095,10 +2096,10 @@ app.get('/api/trending', async (_req: Request, res: Response) => {
       Promise.all([
         searchYouTube('Top Global Music Hits Official Audio', {
           retries: 0,
-          timeoutMs: 2600,
+          timeoutMs: 1800,
           skipSaavnFallback: true,
         }),
-        searchSaavnFallback('Trending Hits', { retries: 0, timeoutMs: 2600 }),
+        searchSaavnFallback('Trending Hits', { retries: 0, timeoutMs: 1800 }),
       ]).then(([ytTrending, saavnTrending]) => {
         const singleYt = ytTrending.filter(
           (s) =>
@@ -2116,7 +2117,7 @@ app.get('/api/trending', async (_req: Request, res: Response) => {
         }
         return songs.length > 0 ? songs : FALLBACK_POPULAR;
       }),
-      3200,
+      2200,
       FALLBACK_POPULAR
     )
       .then((songs) => {
@@ -2359,8 +2360,9 @@ app.get('/api/stream/:videoId/resolve', async (req: Request, res: Response) => {
   });
   const freshStreamUrl = `/api/stream/${encodeURIComponent(videoId)}?${params.toString()}`;
   const isGooglevideo = Boolean(resolved?.url && resolved.url.includes('googlevideo.com'));
+  const isLocalStudioAudio = Boolean(resolved?.url && resolved.url.startsWith('/audio/'));
   const isDirectHttpOrAudio = Boolean(
-    resolved?.url && !isGooglevideo && (resolved.url.startsWith('https://') || resolved.url.startsWith('/audio/'))
+    resolved?.url && !isGooglevideo && (resolved.url.startsWith('https://') || isLocalStudioAudio)
   );
 
   res.json({
@@ -2368,9 +2370,9 @@ app.get('/api/stream/:videoId/resolve', async (req: Request, res: Response) => {
     videoId,
     playable: Boolean(isDirectHttpOrAudio || isGooglevideo || (resolved?.buffer && resolved.buffer.length > 0)),
     streamUrl: freshStreamUrl,
-    directCdnUrl: isDirectHttpOrAudio
+    directCdnUrl: isLocalStudioAudio
       ? resolved!.url
-      : isGooglevideo || (resolved?.buffer && resolved.buffer.length > 0)
+      : isDirectHttpOrAudio || isGooglevideo || (resolved?.buffer && resolved.buffer.length > 0)
       ? freshStreamUrl
       : null,
     resolvedAt: now,

@@ -573,23 +573,45 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   clearTimeout(ytBufferingWatchdogRef.current);
                   ytBufferingWatchdogRef.current = null;
                 }
-                if (document.hidden && !intentionalPauseRef.current) {
-                  // If mobile browser auto-paused hidden iframe in background, try resuming or hand off to HTML5 <audio>
+                if (!intentionalPauseRef.current) {
+                  // If browser/iframe autoplay policy auto-paused the YT player without user clicking Pause,
+                  // attempt immediate playVideo() or hand off to HTML5 <audio> stream without flipping UI to paused
                   try {
+                    const pauseReqId = playRequestIdRef.current;
                     const pos = Number(ev.target.getCurrentTime?.() || stateRef.current.currentTime || 0);
                     ev.target.playVideo();
-                    setTimeout(() => {
+                    setTimeout(async () => {
                       if (
-                        activeEngineRef.current === 'yt' &&
-                        document.hidden &&
-                        !intentionalPauseRef.current &&
-                        ev.target.getPlayerState?.() !== 1 &&
-                        html5FallbackFnRef.current
+                        pauseReqId !== playRequestIdRef.current ||
+                        activeEngineRef.current !== 'yt' ||
+                        intentionalPauseRef.current
                       ) {
-                        html5FallbackFnRef.current(pos);
+                        return;
                       }
-                    }, 450);
-                  } catch {}
+                      const curState = ev.target.getPlayerState?.();
+                      if (curState === 1 || curState === 3) return;
+                      const activeSong = stateRef.current.currentSong;
+                      const availability = activeSong
+                        ? await MusicApi.checkProxyStreamPlayable(activeSong).catch(() => ({ playable: false, url: null }))
+                        : { playable: false, url: null };
+                      if (
+                        pauseReqId !== playRequestIdRef.current ||
+                        activeEngineRef.current !== 'yt' ||
+                        intentionalPauseRef.current
+                      ) {
+                        return;
+                      }
+                      if (availability.playable && html5FallbackFnRef.current) {
+                        html5FallbackFnRef.current(pos);
+                      } else {
+                        setIsLoading(false);
+                        setIsPlaying(false);
+                      }
+                    }, 350);
+                  } catch {
+                    setIsLoading(false);
+                    setIsPlaying(false);
+                  }
                   return;
                 }
                 setIsLoading(false);
@@ -941,6 +963,9 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     audio.onpause = () => {
       if (isPrimingAudioRef.current || activeEngineRef.current !== 'html5') return;
+      if (!intentionalPauseRef.current && !audio.ended && stateRef.current.isLoading) {
+        return;
+      }
       setIsPlaying(false);
     };
 
@@ -1806,6 +1831,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } catch {}
       }
 
+      let directResolvedUrl: string | null = null;
+
       const startHtml5StreamPlayback = async (
         startOffsetSeconds: number = 0,
         skipYtFallback: boolean = false
@@ -1820,6 +1847,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
         if (
           !loadedFromOfflineStorage &&
+          !directResolvedUrl &&
           resolvedAudioUrl.startsWith('/api/stream/') &&
           !abortController.signal.aborted
         ) {
@@ -2070,13 +2098,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const hasLocalExactFile = Boolean(
         normalizedSong.audioUrl && normalizedSong.audioUrl.startsWith('/audio/')
       );
-      const wantsLiveOrConcertVideo =
-        /\b(?:concert|live|anniversary|unplugged)\b/i.test(
-          `${normalizedSong.title} ${normalizedSong.artist}`
-        );
 
       // Resolve exact full-length direct stream URL (Studio Master -> 320kbps AAC CDN -> SoundCloud)
-      let directResolvedUrl: string | null = null;
       if (!loadedFromOfflineStorage && !abortController.signal.aborted) {
         directResolvedUrl = await MusicApi.resolveClientDirectStreamUrl(normalizedSong);
         if (directResolvedUrl && !abortController.signal.aborted) {
@@ -2092,13 +2115,11 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return;
       }
 
-      // Use YouTube IFrame Player API when either:
-      // 1) The track is a live/concert/unplugged video upload, OR
-      // 2) No external CDN/SoundCloud audio master was found for this specific YouTube video ID
+      // Use YouTube IFrame Player API only when no playable backend/CDN audio stream was resolved for this YouTube video ID
       if (
         !loadedFromOfflineStorage &&
         isStandardYouTubeId &&
-        (wantsLiveOrConcertVideo || !directResolvedUrl) &&
+        !directResolvedUrl &&
         !hasLocalExactFile &&
         !document.hidden &&
         ytReadyRef.current &&
