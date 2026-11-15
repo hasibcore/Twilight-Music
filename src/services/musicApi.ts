@@ -503,6 +503,10 @@ export class MusicApi {
         .trim();
 
     const cleanedChannel = cleanText(rawArtist || '')
+      .replace(
+        /\b(?:sony\s+music(?:\s+india|\s+south|\s+east)?|sony\s+india|zeee?\s+music(?:\s+company|\s+bangla)?|t-series(?:\s+bangla|\s+regional)?|saregama(?:\s+bengali|\s+music|\s+india)?|maddock\s+films|anupam\s+movie\s+songs|dhruba\s+music(?:\s+station)?|red\s+flag\s+gamer|eagle\s+music|cd\s+choice|coke\s+studio(?:\s+bangla|\s+india|\s+pakistan)?|svf(?:\s+music)?|sangeet\s+bangla|soundtek|laser\s+vision|gaanchill(?:\s+music)?|bhavna\s+records|yrf|tips\s+official|speed\s+records|times\s+music|agniveena|g-series|g\s+series|satv(?:\s+music)?)\b/gi,
+        ' '
+      )
       .replace(/(?:theband|official|vevo|topic|music|records|channel|band)$/i, ' ')
       .replace(/\b(?:official|vevo|topic|music|records|channel|various\s+artists)\b/gi, ' ')
       .replace(/\s+/g, ' ')
@@ -559,8 +563,12 @@ export class MusicApi {
           coreTitle = left;
           extractedArtist = right;
         } else if (/\s+[-–—]\s+/.test(primarySeg)) {
-          coreTitle = metadataRegex.test(right) ? left : right;
-          extractedArtist = metadataRegex.test(right) ? '' : left;
+          if (metadataRegex.test(right) || rawSegments.length >= 3) {
+            coreTitle = left;
+          } else {
+            coreTitle = right;
+            extractedArtist = left;
+          }
         }
       }
     }

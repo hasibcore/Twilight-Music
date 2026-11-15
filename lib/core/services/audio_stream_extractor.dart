@@ -537,6 +537,13 @@ class AudioStreamExtractor {
   /// Extracts the core song title and specific artist from pipe/hyphen-delimited YouTube titles
   static Map<String, String> extractCoreTitleAndArtist(String rawTitle, String? rawArtist) {
     final cleanedChannelArtist = cleanTrackText(rawArtist ?? '')
+        .replaceAll(
+          RegExp(
+            r'\b(?:sony\s+music(?:\s+india|\s+south|\s+east)?|sony\s+india|zeee?\s+music(?:\s+company|\s+bangla)?|t-series(?:\s+bangla|\s+regional)?|saregama(?:\s+bengali|\s+music|\s+india)?|maddock\s+films|anupam\s+movie\s+songs|dhruba\s+music(?:\s+station)?|red\s+flag\s+gamer|eagle\s+music|cd\s+choice|coke\s+studio(?:\s+bangla|\s+india|\s+pakistan)?|svf(?:\s+music)?|sangeet\s+bangla|soundtek|laser\s+vision|gaanchill(?:\s+music)?|bhavna\s+records|yrf|tips\s+official|speed\s+records|times\s+music|agniveena|g-series|g\s+series|satv(?:\s+music)?)\b',
+            caseSensitive: false,
+          ),
+          ' ',
+        )
         .replaceAll(RegExp(r'(?:theband|official|vevo|topic|music|records|channel|band)$', caseSensitive: false), ' ')
         .replaceAll(RegExp(r'\b(?:official|vevo|topic|music|records|channel|various\s+artists)\b', caseSensitive: false), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
@@ -598,7 +605,7 @@ class AudioStreamExtractor {
           coreTitle = left;
           extractedArtist = right;
         } else if (RegExp(r'\s+[-–—]\s+').hasMatch(primarySeg)) {
-          if (_metadataSegmentRegex.hasMatch(right)) {
+          if (_metadataSegmentRegex.hasMatch(right) || rawSegments.length >= 3) {
             coreTitle = left;
           } else {
             coreTitle = right;
@@ -1206,8 +1213,13 @@ class AudioStreamExtractor {
           }
         }
 
+        final isObakTrack = normCoreTitle.contains('obak') &&
+            (normCoreTitle.contains('bhalobasha') || normCoreTitle.contains('valobasha'));
         final candIsCokeStudio = combined.contains('coke studio');
-        if (wantsCokeStudio != candIsCokeStudio) {
+        if (isObakTrack && wantsCokeStudio != candIsCokeStudio) {
+          continue;
+        }
+        if (!wantsCokeStudio && candIsCokeStudio) {
           continue;
         }
 
@@ -1423,24 +1435,39 @@ class AudioStreamExtractor {
         if (candDurSec <= 45) continue;
 
         String candSongSegment = candTitle;
-        if (candTitle.contains('-')) {
+        if (candTitle.contains('-') || candTitle.contains('–') || candTitle.contains('—')) {
           final hParts = candTitle.split(RegExp(r'\s*[-–—]\s*')).map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
-          if (hParts.length == 2) {
-            final matchLeft = coreTokens.where((ct) => _tokenMatchesText(ct, hParts[0])).length;
-            final matchRight = coreTokens.where((ct) => _tokenMatchesText(ct, hParts[1])).length;
-            if (matchRight > matchLeft) {
-              candSongSegment = hParts[1];
-            } else if (matchLeft > matchRight) {
-              candSongSegment = hParts[0];
+          if (hParts.length >= 2) {
+            String bestPart = hParts.first;
+            int bestCount = -1;
+            for (final part in hParts) {
+              final mCount = coreTokens.where((ct) => _tokenMatchesText(ct, part)).length;
+              if (mCount > bestCount) {
+                bestCount = mCount;
+                bestPart = part;
+              }
+            }
+            if (bestCount > 0) {
+              candSongSegment = bestPart;
             }
           }
         }
 
+        final isBilingualPrefixMatch = coreTokens.length >= 2 &&
+            RegExp(r'[^\x00-\x7F]').hasMatch(rawContext) &&
+            candTitle
+                .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+                .replaceAll(RegExp(r'\s+'), ' ')
+                .trim()
+                .startsWith(normCoreTitle);
+
         if (coreTokens.isNotEmpty) {
           final hasForeignFull = _hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candUser);
-          final hasForeignSeg = _hasForeignSongTitleWords(candSongSegment, coreTokens, artistTokens, candUser);
+          final hasForeignSeg = isBilingualPrefixMatch
+              ? false
+              : _hasForeignSongTitleWords(candSongSegment, coreTokens, artistTokens, candUser);
           final isMedleyOrOtherAlbumTrack = candTitle.contains('valobashar magh') ||
-              (hasForeignFull && artistTokens.isNotEmpty && artistTokens.any((at) => _tokenMatchesText(at, candTitle)));
+              (hasForeignFull && hasForeignSeg && artistTokens.isNotEmpty && artistTokens.any((at) => _tokenMatchesText(at, candTitle)));
           if (isMedleyOrOtherAlbumTrack || (hasForeignFull && hasForeignSeg)) {
             continue;
           }
@@ -1457,13 +1484,19 @@ class AudioStreamExtractor {
         final durationExactMatch =
             targetDurationSeconds != null && targetDurationSeconds > 0 && (candDurSec - targetDurationSeconds).abs() <= 8;
         final exactDistinctiveMatch = isDistinctiveCoreTitle &&
-            candSegNorm == normCoreTitle &&
-            (targetDurationSeconds == null || targetDurationSeconds <= 0 || (candDurSec - targetDurationSeconds).abs() <= 28);
+            (candSegNorm == normCoreTitle || isBilingualPrefixMatch) &&
+            (targetDurationSeconds == null || targetDurationSeconds <= 0 || (candDurSec - targetDurationSeconds).abs() <= 32);
 
         if (!artistMatched && !durationExactMatch && !exactDistinctiveMatch) {
           continue;
         }
-        if (wantsCokeStudio != combined.contains('coke studio')) {
+        final isObakSc = normCoreTitle.contains('obak') &&
+            (normCoreTitle.contains('bhalobasha') || normCoreTitle.contains('valobasha'));
+        final candIsCokeStudioSc = combined.contains('coke studio');
+        if (isObakSc && wantsCokeStudio != candIsCokeStudioSc) {
+          continue;
+        }
+        if (!wantsCokeStudio && candIsCokeStudioSc) {
           continue;
         }
         if (wantsLiveOrConcert &&

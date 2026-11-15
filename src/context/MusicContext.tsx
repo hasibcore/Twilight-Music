@@ -589,7 +589,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         return;
                       }
                       const curState = ev.target.getPlayerState?.();
-                      if (curState === 1 || curState === 3) return;
+                      if (curState === 1 || curState === 3 || curState === -1 || curState === 5) return;
                       const activeSong = stateRef.current.currentSong;
                       const availability = activeSong
                         ? await MusicApi.checkProxyStreamPlayable(activeSong).catch(() => ({ playable: false, url: null }))
@@ -607,7 +607,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         setIsLoading(false);
                         setIsPlaying(false);
                       }
-                    }, 350);
+                    }, 1200);
                   } catch {
                     setIsLoading(false);
                     setIsPlaying(false);
@@ -1505,6 +1505,14 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const buildStreamUrl = (song: Song, extraQuery?: string): string => {
     if (song.audioUrl && !isShortPreviewUrl(song.audioUrl)) {
       if (!extraQuery) return song.audioUrl;
+      if (song.audioUrl.startsWith('/api/stream/') && song.audioUrl.includes('?')) {
+        const cleaned = song.audioUrl
+          .replace(/([?&])(?:refresh=[^&]*|t=[^&]*)/g, '$1')
+          .replace(/[?&]+$/g, '')
+          .replace(/\?&/g, '?')
+          .replace(/&&+/g, '&');
+        return `${cleaned}${cleaned.includes('?') ? '&' : '?'}${extraQuery}`;
+      }
       const base = song.audioUrl.split('?')[0];
       return `${base}?${extraQuery}`;
     }
@@ -1742,6 +1750,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCurrentSong(normalizedSong);
     setCurrentTime(0);
     setDuration(normalizedSong.durationSeconds || 210);
+    setIsPlaying(true);
     setIsLoading(true);
 
     const activeQueue = (newQueue && newQueue.length > 0 ? newQueue : stateRef.current.queue).map(
@@ -2021,6 +2030,27 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               return;
             }
             if (err && err.name === 'AbortError') {
+              setTimeout(() => {
+                if (
+                  audioRef.current &&
+                  reqId === playRequestIdRef.current &&
+                  !abortController.signal.aborted &&
+                  !intentionalPauseRef.current &&
+                  activeEngineRef.current === 'html5'
+                ) {
+                  audioRef.current
+                    .play()
+                    .then(() => {
+                      if (reqId === playRequestIdRef.current && !intentionalPauseRef.current) {
+                        audioUnlockedRef.current = true;
+                        setPlaybackError(null);
+                        setIsPlaying(true);
+                        setIsLoading(false);
+                      }
+                    })
+                    .catch(() => {});
+                }
+              }, 120);
               return;
             }
             if (html5LoadWatchdogRef.current) {

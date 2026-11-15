@@ -84,6 +84,7 @@ class PlayerProvider extends ChangeNotifier {
   bool _streamPrewarmedWhilePaused = false;
   DateTime? _pausedAt;
   DateTime? _streamResolvedAt;
+  DateTime? _playStartedAt;
   int _streamRefreshCount = 0;
 
   String? _errorMessage;
@@ -121,8 +122,13 @@ class PlayerProvider extends ChangeNotifier {
           return;
         }
 
+        final bool withinPlayStartGrace = _playStartedAt != null &&
+            DateTime.now().difference(_playStartedAt!) < const Duration(milliseconds: 1500);
+
         if (!_isResolvingSong && !_intentionalPause) {
-          _isPlaying = state.playing;
+          if (state.playing || !withinPlayStartGrace) {
+            _isPlaying = state.playing;
+          }
         }
 
         // Set loading=true during buffering/loading states and arm stall recovery if stuck
@@ -158,7 +164,7 @@ class PlayerProvider extends ChangeNotifier {
             _isResolvingSong = false;
             _loadingWatchdog?.cancel();
             _resumeStallWatchdog?.cancel();
-            if (!_intentionalPause) {
+            if (!_intentionalPause && (state.playing || !withinPlayStartGrace)) {
               _isPlaying = state.playing;
             }
           }
@@ -925,6 +931,7 @@ class PlayerProvider extends ChangeNotifier {
       _isRefreshingStream = false;
       _isPlaying = !_intentionalPause;
       _isLoading = false;
+      _playStartedAt = DateTime.now();
       notifyListeners();
 
       unawaited(
@@ -1096,9 +1103,7 @@ class PlayerProvider extends ChangeNotifier {
     final bool playerNotReady = !_isTest &&
         (_audioPlayer == null ||
             _audioPlayer!.processingState == ProcessingState.idle ||
-            _audioPlayer!.processingState == ProcessingState.completed ||
-            (!_isPlayingOfflineFile &&
-                _audioPlayer!.processingState != ProcessingState.ready));
+            _audioPlayer!.processingState == ProcessingState.completed);
 
     final bool wasPrewarmed = _streamPrewarmedWhilePaused;
     _pausedAt = null;
