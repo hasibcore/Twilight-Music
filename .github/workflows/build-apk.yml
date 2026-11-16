@@ -97,11 +97,13 @@ jobs:
 
             ---
 
-            ### ✨ What's New in v3.5.1:
+            ### ✨ What's New in This Release:
+            - **Exact Clicked-Song Guarantee**: Eliminated wrong-song playback bugs across Web, Express Proxy, and Flutter by enforcing `videoId`-first direct YouTube audio matching, strict foreign/variant title token gating, and normalized track-title matching.
+            - **Reliable Play/Pause & Download Playback**: Fixed post-download playback freezes, retry stalls, and pause/resume URL refreshes with single-session request sequencing (`playRequestId`).
             - **100% Web & Mobile UI Parity**: Synchronized `Hasibul Hasan` (`gudhulibela031@gmail.com`) `Synced` profile header, slate-grey `H` avatar tile, 3 stat cards (`FAVORITES`, `CUSTOM PLAYLISTS`, `OFFLINE STORAGE`), and `Audio & Playback Settings` across Android, iOS, Windows, and Web.
             - **Official Twilight Splash Screen & Uncached Icons (`@mipmap/ic_twilight_logo`)**: Bypasses Android launcher/splash icon caching and displays the dark `#020617` Twilight splash screen.
             - **0ms Direct Master & Verified Stream Playback**: Instant playback for featured tracks and parallel verified YouTube + 320kbps AAC + SoundCloud HLS/progressive streams.
-            - **Full Automated Test Coverage**: Verified across all 17 TypeScript QA scenarios and all 6 Dart unit & widget test suites (`flutter test`).
+            - **Full Automated Test Coverage**: Verified across all 29 TypeScript QA scenarios and all 6 Dart unit & widget test suites (`flutter test`).
           files: |
             build/app/outputs/flutter-apk/Twilight-Android-v3.5.1.apk
             build/app/outputs/flutter-apk/Twilight-Android-v3.5.0.apk

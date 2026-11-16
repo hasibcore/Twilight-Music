@@ -1253,7 +1253,6 @@ class AudioStreamExtractor {
           }
         }
 
-        final isObak = normCoreTitle.contains('obak') && normCoreTitle.contains('bhalobasha');
         if (targetDurationSeconds != null && targetDurationSeconds > 0 && candDurSec > 0) {
           final durDiff = (candDurSec - targetDurationSeconds).abs();
           final maxAllowedDurDiff = isObak
