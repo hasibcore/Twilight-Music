@@ -1013,6 +1013,47 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(musicContextTsx, /width:200px;height:200px;opacity:0\.001/);
     assert.match(musicContextTsx, /if \(Boolean\(directResolvedUrl\) && pState !== 3\)/);
   });
+
+  it('Scenario 28: Verify play/pause/resume synchronization and post-download playback resilience across Web and Flutter', () => {
+    const musicContextTsx = fs.readFileSync(
+      path.join(rootDir, 'src/context/MusicContext.tsx'),
+      'utf8'
+    );
+    const libraryScreenTsx = fs.readFileSync(
+      path.join(rootDir, 'src/screens/LibraryScreen.tsx'),
+      'utf8'
+    );
+    const playerProvDart = fs.readFileSync(
+      path.join(rootDir, 'lib/presentation/providers/player_provider.dart'),
+      'utf8'
+    );
+    const downloadServiceDart = fs.readFileSync(
+      path.join(rootDir, 'lib/core/services/download_service.dart'),
+      'utf8'
+    );
+
+    // 1. Web: sync loading/refreshing refs guard audio.onpause; resumeSong resets EOF position, switches to offline blobs, and retries AbortError
+    assert.match(musicContextTsx, /isLoadingSyncRef\.current/);
+    assert.match(musicContextTsx, /isRefreshingSyncRef\.current/);
+    assert.match(musicContextTsx, /const resumePos = isAudioEnded \? 0 : savedPosition;/);
+    assert.match(musicContextTsx, /startPosition\?: number/);
+    assert.match(musicContextTsx, /async function inferAudioMimeType/);
+    assert.match(musicContextTsx, /const isComplete = expectedLen <= 0 \|\| blob\.size >= expectedLen \* 0\.9;/);
+    assert.match(musicContextTsx, /if \(b && \(await isHealthyAudioBlob\(b\)\)\)/);
+    assert.doesNotMatch(musicContextTsx, /if \(b && b\.size > 1000\)/);
+    assert.match(musicContextTsx, /const alreadyPlayingOffline =/);
+
+    // 2. Web LibraryScreen: explicit Play buttons in Downloads force immediate offline playback rather than toggling pause
+    assert.match(libraryScreenTsx, /playSong\(queueToUse\[0\], queueToUse, \{ immediate: true, forceRestart: true \}\)/);
+
+    // 3. Flutter PlayerProvider: refresh _playStartedAt on play() and reset completed/near-end tracks to Duration.zero
+    assert.match(playerProvDart, /final bool isCompletedOrAtEnd =/);
+    assert.match(playerProvDart, /final Duration resumeTarget = isCompletedOrAtEnd \? Duration\.zero : _currentPosition;/);
+
+    // 4. Flutter DownloadService: skip mismatched .webm temp cache copy into .m4a and reject truncated 200 OK streams
+    assert.doesNotMatch(downloadServiceDart, /sourceCached = v31CacheWebm;/);
+    assert.match(downloadServiceDart, /Download stream truncated at \$downloadedBytes\/\$totalBytes bytes/);
+  });
 });
 
 

@@ -469,7 +469,7 @@ export const LibraryScreen: React.FC = () => {
                       const playable = downloads.filter((d) => d.offlineStatus !== 'missing');
                       const queueToUse = playable.length > 0 ? playable : downloads;
                       if (queueToUse.length > 0) {
-                        selectAndPlaySong(queueToUse[0], queueToUse);
+                        playSong(queueToUse[0], queueToUse, { immediate: true, forceRestart: true });
                       }
                     }}
                     className="px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs flex items-center gap-2 self-start sm:self-auto shadow-lg shadow-emerald-500/25"
@@ -535,7 +535,11 @@ export const LibraryScreen: React.FC = () => {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  selectAndPlaySong(song, downloads.filter((d) => d.offlineStatus !== 'missing'));
+                                  playSong(
+                                    song,
+                                    downloads.filter((d) => d.offlineStatus !== 'missing'),
+                                    { immediate: true, forceRestart: true }
+                                  );
                                 }}
                                 className="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-1 transition-colors"
                                 title="Play offline inside app"

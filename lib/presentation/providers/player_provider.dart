@@ -1105,20 +1105,28 @@ class PlayerProvider extends ChangeNotifier {
             _audioPlayer!.processingState == ProcessingState.idle ||
             _audioPlayer!.processingState == ProcessingState.completed);
 
+    final bool isCompletedOrAtEnd = _audioPlayer?.processingState == ProcessingState.completed ||
+        (_totalDuration > Duration.zero && _currentPosition >= _totalDuration - const Duration(seconds: 2));
+    final Duration resumeTarget = isCompletedOrAtEnd ? Duration.zero : _currentPosition;
+    if (isCompletedOrAtEnd) {
+      _currentPosition = Duration.zero;
+    }
+
     final bool wasPrewarmed = _streamPrewarmedWhilePaused;
     _pausedAt = null;
     _streamPrewarmedWhilePaused = false;
 
     // Reload cleanly if player engine is idle/completed/unready, or proactively refresh expired online streams
     if (playerNotReady || (!_isPlayingOfflineFile && (pauseExpired || streamExpired))) {
-      AppLogger.info('Proactive stream refresh on resume at ${_currentPosition.inSeconds}s (pauseExpired: $pauseExpired, streamExpired: $streamExpired, prewarmed: $wasPrewarmed, playerNotReady: $playerNotReady)');
+      AppLogger.info('Proactive stream refresh on resume at ${resumeTarget.inSeconds}s (pauseExpired: $pauseExpired, streamExpired: $streamExpired, prewarmed: $wasPrewarmed, playerNotReady: $playerNotReady)');
       _isPlaying = true;
       _isLoading = true;
       _isRefreshingStream = true;
+      _playStartedAt = DateTime.now();
       notifyListeners();
       unawaited(
         _refreshStreamAndResume(
-          _currentPosition,
+          resumeTarget,
           forceNewExtraction: !wasPrewarmed && !_isPlayingOfflineFile,
         ),
       );
@@ -1126,6 +1134,7 @@ class PlayerProvider extends ChangeNotifier {
     }
 
     _isPlaying = true;
+    _playStartedAt = DateTime.now();
     notifyListeners();
 
     if (_isTest) return;

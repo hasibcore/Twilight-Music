@@ -237,12 +237,8 @@ class DownloadService {
       File? sourceCached;
       if (v31CacheM4a.existsSync() && v31DoneM4a.existsSync() && v31CacheM4a.lengthSync() > 100000 && isValidBinaryAudioFile(v31CacheM4a)) {
         sourceCached = v31CacheM4a;
-      } else if (v31CacheWebm.existsSync() && v31DoneWebm.existsSync() && v31CacheWebm.lengthSync() > 100000 && isValidBinaryAudioFile(v31CacheWebm)) {
-        sourceCached = v31CacheWebm;
       } else if (cacheM4a.existsSync() && doneM4a.existsSync() && cacheM4a.lengthSync() > 100000 && isValidBinaryAudioFile(cacheM4a)) {
         sourceCached = cacheM4a;
-      } else if (cacheWebm.existsSync() && doneWebm.existsSync() && cacheWebm.lengthSync() > 100000 && isValidBinaryAudioFile(cacheWebm)) {
-        sourceCached = cacheWebm;
       }
 
       if (sourceCached != null) {
@@ -518,11 +514,27 @@ class DownloadService {
                   onProgress(progress.clamp(0.08, 0.98));
                 }
 
-                // If server returned 200 OK (entire file in one stream) or EOF reached
-                if (streamedRes.statusCode == 200 || bytesInThisChunk == 0) {
-                  chunkSuccess = true;
-                  downloadedBytes = totalBytes;
-                  break;
+                // Only mark complete if 200 OK delivered the full payload (>= 95% of expected total)
+                if (streamedRes.statusCode == 200) {
+                  if (downloadedBytes >= (totalBytes * 0.95).round()) {
+                    chunkSuccess = true;
+                    downloadedBytes = totalBytes;
+                    break;
+                  }
+                  retries++;
+                  if (retries >= 3) {
+                    throw Exception('Download stream truncated at $downloadedBytes/$totalBytes bytes');
+                  }
+                  await Future.delayed(const Duration(milliseconds: 250));
+                  continue;
+                }
+                if (bytesInThisChunk == 0) {
+                  retries++;
+                  if (retries >= 3) {
+                    throw Exception('Download chunk returned 0 bytes at $downloadedBytes/$totalBytes');
+                  }
+                  await Future.delayed(const Duration(milliseconds: 250));
+                  continue;
                 }
                 chunkSuccess = true;
               } else if (streamedRes.statusCode == 416) {
