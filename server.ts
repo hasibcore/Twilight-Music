@@ -347,12 +347,12 @@ function hasForeignSongTitleWords(
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter((w) => w.length >= 3);
+    .filter((w) => w.length >= 2);
 
   const candWords = baseCand
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
-    .filter((w) => w.length >= 3 && !/^\d+$/.test(w));
+    .filter((w) => w.length >= 2 && !/^\d+$/.test(w));
 
   for (const w of candWords) {
     if (CORE_TITLE_STOP_WORDS.has(w)) continue;
@@ -366,7 +366,7 @@ function hasForeignSongTitleWords(
       (et) => tokenMatchesText(et, w) || tokenMatchesText(w, et)
     );
     if (matchesExtra) continue;
-    // Found an unrelated song title word (e.g., "valobashar" or "magh" in "Valobashar Magh Shironamhin -Bondho janala")
+    // Found an unrelated song title word (e.g., "valobashar" or "magh" or short foreign syllable like "na"/"re")
     return true;
   }
   return false;
@@ -443,8 +443,18 @@ export function extractCoreTrackAndArtist(
     return segCompact !== compactChannel;
   });
 
-  const primarySeg =
-    nonArtistLatinSegments[0] || latinSegments[0] || candidateSegments[0] || '';
+  // If the leading segment is non-Latin script (e.g., Bengali/Hindi title "আমি তোমাকে | Artist Name"),
+  // do NOT promote a lone trailing Latin artist/channel segment into coreTitle.
+  const firstSegment = candidateSegments[0] || '';
+  const firstSegHasLatin = /[a-zA-Z]/.test(firstSegment);
+  const useNonLatinFirstSegment =
+    Boolean(firstSegment) &&
+    !firstSegHasLatin &&
+    (nonArtistLatinSegments.length === 0 || (latinSegments.length === 1 && candidateSegments.length >= 2));
+
+  const primarySeg = useNonLatinFirstSegment
+    ? firstSegment
+    : nonArtistLatinSegments[0] || latinSegments[0] || candidateSegments[0] || '';
 
   let coreTitle = primarySeg;
   let extractedArtist = '';
@@ -704,7 +714,7 @@ async function resolveExactTrackStreamUrl(
   );
   const rawContextLower = `${meta.rawTitle} ${meta.rawArtist}`.toLowerCase();
   const wantsCokeStudio = rawContextLower.includes('coke studio') || cleanId === '8pgvTBikV9U';
-  const wantsLofiOrRemix = /\b(?:lofi|lo-fi|remix|mashup|slowed|reverb|cover|unplugged)\b/.test(
+  const wantsLofiOrRemix = /\b(?:lofi|lo-fi|remix|mashup|slowed|reverb|cover|unplugged|acoustic|piano|guitar|fingerstyle|instrumental|karaoke|tribute|parody|bgm)\b/.test(
     rawContextLower
   );
 
@@ -750,7 +760,9 @@ async function resolveExactTrackStreamUrl(
   }
 
   const wantsLiveOrConcert =
-    /\b(?:concert|live|anniversary|unplugged|acoustic|reprise|cover)\b/i.test(rawContextLower);
+    /\b(?:concert|live|anniversary|unplugged|acoustic|reprise|cover|mashup|piano|guitar|fingerstyle|slowed|reverb|karaoke|instrumental|tribute)\b/i.test(
+      rawContextLower
+    );
 
   const matchKnownTitleMaster = (): { url: string; mimeType: string } | null => {
     if (wantsLiveOrConcert) return null;
@@ -869,7 +881,8 @@ async function resolveExactTrackStreamUrl(
   // Tier 1: Exact-Track 320kbps AAC Direct CDN Resolver (JioSaavn Official API)
   // Enforces strict title, artist, version (Coke Studio vs Album, Live/Concert vs Studio), and duration gates
   const resolveTier1JioSaavn = async (): Promise<ResolvedStreamEntry | null> => {
-    if (!title) return null;
+    if (!title || coreTokens.length === 0) return null;
+    if (normCoreTitle && combinedArtistText && normCoreTitle === combinedArtistText) return null;
     const queries = Array.from(
       new Set(
         [
@@ -928,43 +941,42 @@ async function resolveExactTrackStreamUrl(
 
           // 1. STRICT CORE-TITLE MATCH GATE:
           let artistMatched = false;
-          if (coreTokens.length > 0) {
-            if (hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candSub)) {
-              continue;
+          if (hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candSub)) {
+            continue;
+          }
+          let matchedCoreCount = 0;
+          for (const ct of coreTokens) {
+            if (tokenMatchesText(ct, candTitle)) {
+              matchedCoreCount += 1;
             }
-            let matchedCoreCount = 0;
-            for (const ct of coreTokens) {
-              if (tokenMatchesText(ct, candTitle)) {
-                matchedCoreCount += 1;
-              }
-            }
-            const minRequired =
-              coreTokens.length === 1
-                ? 1
-                : coreTokens.length === 2
-                ? 2
-                : Math.max(2, Math.ceil(coreTokens.length * 0.6));
-            artistMatched =
-              artistTokens.length > 0 && artistTokens.some((at) => tokenMatchesText(at, combined));
-            const hasDistinctiveTokenAndArtist =
-              matchedCoreCount >= 1 &&
-              artistMatched &&
-              coreTokens.some((ct) => ct.length >= 7 && tokenMatchesText(ct, candTitle));
+          }
+          const minRequired =
+            coreTokens.length <= 3
+              ? coreTokens.length
+              : Math.max(2, Math.ceil(coreTokens.length * 0.75));
+          artistMatched =
+            artistTokens.length > 0 && artistTokens.some((at) => tokenMatchesText(at, combined));
+          const hasDistinctiveTokenAndArtist =
+            coreTokens.length >= 2 &&
+            matchedCoreCount >= minRequired - 1 &&
+            artistMatched &&
+            coreTokens.some((ct) => ct.length >= 7 && tokenMatchesText(ct, candTitle));
 
-            if (matchedCoreCount < minRequired && !hasDistinctiveTokenAndArtist) {
-              continue;
-            }
+          if (matchedCoreCount < minRequired && !hasDistinctiveTokenAndArtist) {
+            continue;
+          }
 
-            const maxExactTitleDurDiff = isObak ? 18 : 20;
-            const exactDistinctiveTitleMatch =
-              isDistinctiveCoreTitle &&
-              (candNormFull === normCoreTitle || candNormBase === normCoreTitle) &&
-              (effectiveDuration === 0 ||
-                (candDurSec > 0 && Math.abs(candDurSec - effectiveDuration) <= maxExactTitleDurDiff));
+          const maxExactTitleDurDiff = isObak ? 18 : 20;
+          const exactDistinctiveTitleMatch =
+            isDistinctiveCoreTitle &&
+            coreTokens.length >= 2 &&
+            (candNormFull === normCoreTitle || candNormBase === normCoreTitle) &&
+            effectiveDuration > 0 &&
+            candDurSec > 0 &&
+            Math.abs(candDurSec - effectiveDuration) <= maxExactTitleDurDiff;
 
-            if (artistTokens.length > 0 && !artistMatched && !exactDistinctiveTitleMatch) {
-              continue;
-            }
+          if (artistTokens.length > 0 && !artistMatched && !exactDistinctiveTitleMatch) {
+            continue;
           }
 
           // 3. STRICT VERSION GATE (Coke Studio vs Original Studio Album, Live/Concert vs Studio):
@@ -977,9 +989,14 @@ async function resolveExactTrackStreamUrl(
           }
 
           const candIsLiveOrConcert =
-            /\b(?:concert|live|anniversary|unplugged|acoustic|reprise)\b/i.test(combined);
-          if (wantsLiveOrConcert && !candIsLiveOrConcert) {
-            if (effectiveDuration > 0 && candDurSec > 0 && Math.abs(candDurSec - effectiveDuration) > 18) {
+            /\b(?:concert|live|anniversary|unplugged|acoustic|reprise|cover|mashup|piano|guitar|fingerstyle)\b/i.test(
+              combined
+            );
+          if (wantsLiveOrConcert !== candIsLiveOrConcert) {
+            if (
+              !wantsLiveOrConcert ||
+              (effectiveDuration > 0 && candDurSec > 0 && Math.abs(candDurSec - effectiveDuration) > 18)
+            ) {
               continue;
             }
           }
@@ -1080,7 +1097,10 @@ async function resolveExactTrackStreamUrl(
   const getSoundCloudCandidates = () => {
     if (scCandidatesCachePromise) return scCandidatesCachePromise;
     scCandidatesCachePromise = (async () => {
-      if (!title) return { scClientId: '', candidates: [] };
+      if (!title || coreTokens.length === 0) return { scClientId: '', candidates: [] };
+      if (normCoreTitle && combinedArtistText && normCoreTitle === combinedArtistText) {
+        return { scClientId: '', candidates: [] };
+      }
       try {
         let scClientId = await getSoundCloudClientId();
         const scQueries = Array.from(
@@ -1166,46 +1186,49 @@ async function resolveExactTrackStreamUrl(
                 .trim()
                 .startsWith(normCoreTitle);
 
-            if (coreTokens.length > 0) {
-              const hasForeignFull = hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candUser);
-              const hasForeignSeg = isBilingualPrefixMatch
-                ? false
-                : hasForeignSongTitleWords(candSongSegment, coreTokens, artistTokens, candUser);
-              const isMedleyOrOtherAlbumTrack =
-                candTitle.includes('valobashar magh') ||
-                (hasForeignFull &&
-                  hasForeignSeg &&
-                  artistTokens.length > 0 &&
-                  artistTokens.some((at) => tokenMatchesText(at, candTitle)));
-              if (isMedleyOrOtherAlbumTrack || (hasForeignFull && hasForeignSeg)) continue;
-              let matchedCoreCount = 0;
-              for (const ct of coreTokens) {
-                if (tokenMatchesText(ct, candTitle)) matchedCoreCount += 1;
-              }
-              const minRequired = coreTokens.length <= 2 ? coreTokens.length : Math.ceil(coreTokens.length * 0.6);
-              if (matchedCoreCount < minRequired) continue;
+            const hasForeignFull = hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candUser);
+            const hasForeignSeg = isBilingualPrefixMatch
+              ? false
+              : hasForeignSongTitleWords(candSongSegment, coreTokens, artistTokens, candUser);
+            const isMedleyOrOtherAlbumTrack =
+              candTitle.includes('valobashar magh') ||
+              (hasForeignFull &&
+                hasForeignSeg &&
+                artistTokens.length > 0 &&
+                artistTokens.some((at) => tokenMatchesText(at, candTitle)));
+            if (isMedleyOrOtherAlbumTrack || (hasForeignFull && hasForeignSeg)) continue;
+            let matchedCoreCount = 0;
+            for (const ct of coreTokens) {
+              if (tokenMatchesText(ct, candTitle)) matchedCoreCount += 1;
             }
+            const minRequired =
+              coreTokens.length <= 3 ? coreTokens.length : Math.ceil(coreTokens.length * 0.75);
+            if (matchedCoreCount < minRequired) continue;
 
             const artistMatched =
               artistTokens.length === 0 || artistTokens.some((at) => tokenMatchesText(at, combined));
-            const durationExactMatch =
-              effectiveDuration > 0 && candDurSec > 0 && Math.abs(candDurSec - effectiveDuration) <= 8;
             const candSegNorm = candSongSegment.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
             const exactDistinctiveTitleMatch =
               isDistinctiveCoreTitle &&
+              coreTokens.length >= 2 &&
               (candSegNorm === normCoreTitle || isBilingualPrefixMatch) &&
-              (effectiveDuration === 0 || (candDurSec > 0 && Math.abs(candDurSec - effectiveDuration) <= 32));
+              effectiveDuration > 0 &&
+              candDurSec > 0 &&
+              Math.abs(candDurSec - effectiveDuration) <= 25;
 
-            if (!artistMatched && !durationExactMatch && !exactDistinctiveTitleMatch) continue;
+            if (!artistMatched && !exactDistinctiveTitleMatch) continue;
 
             if (effectiveDuration > 0 && candDurSec > 0) {
               const durDiff = Math.abs(candDurSec - effectiveDuration);
-              const maxScDiff = isObak || rawContextLower.includes('extended') ? 35 : artistMatched ? 90 : 35;
+              const maxScDiff = isObak || rawContextLower.includes('extended') ? 35 : artistMatched ? 45 : 25;
               if (durDiff > maxScDiff) continue;
             }
 
-            const candIsCoverOrRemix = /\b(?:cover|remix|karaoke|instrumental|nightcore|slowed)\b/.test(candTitleRaw);
-            if (!wantsLofiOrRemix && candIsCoverOrRemix) continue;
+            const candIsCoverOrRemix =
+              /\b(?:cover|remix|karaoke|instrumental|nightcore|slowed|reverb|lofi|lo-fi|mashup|piano|guitar|fingerstyle|tribute|parody|bgm|concert|live|unplugged|acoustic)\b/.test(
+                candTitleRaw
+              );
+            if (!wantsLofiOrRemix && !wantsLiveOrConcert && candIsCoverOrRemix) continue;
 
             const candIsCokeStudio = combined.includes('coke studio');
             if (isObak && wantsCokeStudio !== candIsCokeStudio) continue;
@@ -1438,7 +1461,8 @@ async function resolveExactTrackStreamUrl(
 
   // Tier 4: Full-Length 320kbps AAC Fallback via saavn.sumit.co (scored best match, strictly rejects <=45s previews)
   const resolveTier4SaavnSumit = async (): Promise<ResolvedStreamEntry | null> => {
-    if (!title) return null;
+    if (!title || coreTokens.length === 0) return null;
+    if (normCoreTitle && combinedArtistText && normCoreTitle === combinedArtistText) return null;
     try {
       const isDistinctiveCoreTitle =
         coreTokens.length >= 2 || (coreTokens.length === 1 && normCoreTitle.length >= 6);
@@ -1470,34 +1494,46 @@ async function resolveExactTrackStreamUrl(
               .join(' ')
               .toLowerCase()
           : '';
+        const combinedCand = `${candTitleRaw} ${candArtist}`;
         if (
           !wantsLofiOrRemix &&
-          /\b(?:karaoke|instrumental|nightcore|remix|cover|tribute|parody|zzang|cheesyfox)\b/i.test(
-            `${candTitleRaw} ${candArtist}`
+          !wantsLiveOrConcert &&
+          /\b(?:karaoke|instrumental|nightcore|remix|cover|tribute|parody|zzang|cheesyfox|mashup|piano|guitar|fingerstyle|slowed|reverb|bgm|concert|live|unplugged|acoustic)\b/i.test(
+            combinedCand
           )
         ) {
           continue;
         }
-        if (coreTokens.length > 0) {
-          if (hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candArtist)) {
-            continue;
-          }
-          let matched = 0;
-          for (const ct of coreTokens) {
-            if (tokenMatchesText(ct, candTitle)) matched += 1;
-          }
-          const minReq =
-            coreTokens.length <= 2 ? coreTokens.length : Math.ceil(coreTokens.length * 0.6);
-          if (matched < minReq) continue;
+        const candIsCokeStudio = combinedCand.includes('coke studio');
+        if (wantsCokeStudio !== candIsCokeStudio) {
+          continue;
         }
+        if (effectiveDuration > 0 && durSec > 0) {
+          const durDiff = Math.abs(durSec - effectiveDuration);
+          const maxTier4Diff = isObak ? 25 : wantsCokeStudio && candIsCokeStudio ? 65 : 32;
+          if (durDiff > maxTier4Diff) continue;
+        }
+        if (hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candArtist)) {
+          continue;
+        }
+        let matched = 0;
+        for (const ct of coreTokens) {
+          if (tokenMatchesText(ct, candTitle)) matched += 1;
+        }
+        const minReq =
+          coreTokens.length <= 3 ? coreTokens.length : Math.ceil(coreTokens.length * 0.75);
+        if (matched < minReq) continue;
         const candNorm = candTitle.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
         const artistMatched =
           artistTokens.length === 0 ||
-          artistTokens.some((at) => tokenMatchesText(at, `${candTitleRaw} ${candArtist}`));
+          artistTokens.some((at) => tokenMatchesText(at, combinedCand));
         const exactDistinctive =
           isDistinctiveCoreTitle &&
+          coreTokens.length >= 2 &&
           candNorm === normCoreTitle &&
-          (effectiveDuration === 0 || Math.abs(durSec - effectiveDuration) <= 25);
+          effectiveDuration > 0 &&
+          durSec > 0 &&
+          Math.abs(durSec - effectiveDuration) <= 20;
         if (!artistMatched && !exactDistinctive) {
           continue;
         }
@@ -1535,8 +1571,14 @@ async function resolveExactTrackStreamUrl(
     return null;
   };
 
-    // Race all fast external tiers concurrently with priority settlement (Tier 1 JioSaavn > Tier 2a SC Prog > Tier 4 Saavn Sumit > Tier 3 ytdl)
-    // Returns fast CDN hits immediately without blocking on slow ytdl timeouts.
+    // Race all fast external tiers concurrently with priority settlement.
+    // For non-curated standard 11-char YouTube IDs, exact Tier 3 YouTube audio (t3Val) takes priority
+    // over text-search guesses (t1/t2/t4) when ytdl probes cleanly, preventing wrong-song substitution.
+    const isStdYtId =
+      cleanId.length === 11 &&
+      !cleanId.startsWith('custom_') &&
+      !cleanId.startsWith('js_') &&
+      !cleanId.startsWith('sp_');
     const t1Promise = resolveTier1JioSaavn();
     const t2ProgPromise = resolveTier2SoundCloudProg();
     const t3Promise = resolveTier3Ytdl();
@@ -1547,6 +1589,7 @@ async function resolveExactTrackStreamUrl(
       let resolved = false;
       let t1Done = false;
       let t2Done = false;
+      let t3Done = false;
       let t1Val: ResolvedStreamEntry | null = null;
       let t2Val: ResolvedStreamEntry | null = null;
       let t4Val: ResolvedStreamEntry | null = null;
@@ -1563,29 +1606,34 @@ async function resolveExactTrackStreamUrl(
         resolve(val);
       };
 
-      const pickPriorityWinner = () => t1Val || t2Val || t4Val || t3Val;
+      const pickPriorityWinner = () =>
+        isStdYtId ? t3Val || t1Val || t2Val || t4Val : t1Val || t2Val || t4Val || t3Val;
 
       const onAnySettled = () => {
         settledCount++;
         if (resolved) return;
-        if (t1Done && t1Val) {
+        if (isStdYtId && t3Done && t3Val) {
+          finish(t3Val);
+          return;
+        }
+        if (!isStdYtId && t1Done && t1Val) {
           finish(t1Val);
           return;
         }
-        const fastFallback = t2Val || t4Val;
+        const fastFallback = isStdYtId ? t1Val || t2Val || t4Val : t2Val || t4Val;
         if (fastFallback) {
-          if (t1Done) {
-            finish(fastFallback);
+          if ((isStdYtId && t3Done) || (!isStdYtId && t1Done)) {
+            finish(pickPriorityWinner());
             return;
           }
           if (!graceTimer) {
             graceTimer = setTimeout(() => {
-              finish(t1Val || t2Val || t4Val || t3Val);
-            }, 350);
+              finish(pickPriorityWinner());
+            }, isStdYtId ? 950 : 350);
           }
-        } else if (t1Done && t2Done && !graceTimer) {
-          // Both JioSaavn and SoundCloud progressive settled without a hit;
-          // do not block SoundCloud HLS assembly for 3+ seconds waiting on ytdl/sumit!
+        } else if (t1Done && t2Done && (!isStdYtId || t3Done) && !graceTimer) {
+          // Verified fast tiers settled without a hit;
+          // do not block SoundCloud HLS assembly waiting on slow fallbacks.
           graceTimer = setTimeout(() => {
             finish(pickPriorityWinner());
           }, 200);
@@ -1624,9 +1672,12 @@ async function resolveExactTrackStreamUrl(
 
       t3Promise
         .then((v) => {
+          t3Done = true;
           t3Val = v;
         })
-        .catch(() => {})
+        .catch(() => {
+          t3Done = true;
+        })
         .finally(onAnySettled);
     });
 
@@ -2419,6 +2470,7 @@ app.get('/api/stream/:videoId/resolve', async (req: Request, res: Response) => {
   res.json({
     success: true,
     videoId,
+    exactMaster: Boolean(isLocalStudioAudio || knownDirectCdnMap[videoId]),
     playable: Boolean(isDirectHttpOrAudio || isGooglevideo || (resolved?.buffer && resolved.buffer.length > 0)),
     streamUrl: freshStreamUrl,
     directCdnUrl: isLocalStudioAudio

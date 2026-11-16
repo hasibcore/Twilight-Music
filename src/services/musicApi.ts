@@ -529,8 +529,16 @@ export class MusicApi {
           })
         : latinCandidates;
 
-    const primarySeg =
-      nonArtistLatinCandidates[0] || latinCandidates[0] || candidates[0] || '';
+    const firstSegment = candidates[0] || '';
+    const firstSegHasLatin = /[a-zA-Z]/.test(firstSegment);
+    const useNonLatinFirstSegment =
+      Boolean(firstSegment) &&
+      !firstSegHasLatin &&
+      (nonArtistLatinCandidates.length === 0 || (latinCandidates.length === 1 && candidates.length >= 2));
+
+    const primarySeg = useNonLatinFirstSegment
+      ? firstSegment
+      : nonArtistLatinCandidates[0] || latinCandidates[0] || candidates[0] || '';
 
     let coreTitle = primarySeg;
     let extractedArtist = '';
@@ -621,7 +629,7 @@ export class MusicApi {
     const rawLower = `${song.title || ''} ${song.artist || ''} ${primaryArtist}`.toLowerCase();
     const dur = song.durationSeconds || 0;
     const wantsSpecialVersion =
-      /\b(?:concert|live|anniversary|unplugged|acoustic|cover|remix|lofi|lo-fi|slowed|reverb|mashup|reprise)\b/i.test(
+      /\b(?:concert|live|anniversary|unplugged|acoustic|cover|remix|lofi|lo-fi|slowed|reverb|mashup|reprise|piano|guitar|fingerstyle|tribute|instrumental|karaoke|bgm)\b/i.test(
         rawLower
       );
 
@@ -685,6 +693,15 @@ export class MusicApi {
     }
 
     return null;
+  }
+
+  static isCuratedExactTrack(song: Song): boolean {
+    const cleanId = (song.id || '').trim();
+    if (!cleanId) return false;
+    if (VERIFIED_DIRECT_STREAMS[cleanId]) return true;
+    if (cleanId.startsWith('js_') || cleanId.startsWith('sp_')) return true;
+    if (song.audioUrl && song.audioUrl.startsWith('/audio/')) return true;
+    return MusicApi.resolveKnownFullLengthMaster(song) !== null;
   }
 
   static invalidateClientDirectStreamCache(songId?: string): void {
@@ -860,6 +877,14 @@ export class MusicApi {
       .replace(/[^a-z0-9\s]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+    const normArtistLower = primaryArtist
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (effectiveTokens.length === 0 || (normCoreTitle && normArtistLower && normCoreTitle === normArtistLower)) {
+      return null;
+    }
     const isDistinctiveCoreTitle =
       effectiveTokens.length >= 2 || (effectiveTokens.length === 1 && normCoreTitle.length >= 6);
     const artistTokens = primaryArtist
@@ -876,6 +901,7 @@ export class MusicApi {
         ].filter(Boolean)
       )
     );
+    const wantsCokeStudio = `${song.title || ''} ${song.artist || ''}`.toLowerCase().includes('coke studio');
 
     for (const q of queries) {
       if (Date.now() < saavnDirectCooldownUntil) break;
@@ -913,48 +939,57 @@ export class MusicApi {
             .replace(/[^a-z0-9\s]/g, ' ')
             .split(/\s+/)
             .filter((w: string) => w.length >= 3);
+          const combinedCand = `${candTitleRaw} ${candArtists}`;
 
           // Reject karaoke, nightcore, covers, or remixes unless explicitly requested
           if (
             !wantsRemixOrKaraoke &&
-            /\b(?:karaoke|instrumental|nightcore|remix|cover|tribute|parody|zzang|cheesyfox)\b/i.test(
-              `${candTitleRaw} ${candArtists}`
+            /\b(?:karaoke|instrumental|nightcore|remix|cover|tribute|parody|zzang|cheesyfox|mashup|piano|guitar|fingerstyle|slowed|reverb|bgm|concert|live|unplugged|acoustic)\b/i.test(
+              combinedCand
             )
           ) {
             continue;
           }
-
-          if (effectiveTokens.length > 0) {
-            const candWords = candTitle
-              .replace(/[^a-z0-9\s]/g, ' ')
-              .split(/\s+/)
-              .filter((w) => w.length >= 3 && !stopWords.has(w) && !/^\d+$/.test(w));
-            const hasForeignWord = candWords.some(
-              (cw) =>
-                !effectiveTokens.some((ct) => tokenMatches(ct, cw) || tokenMatches(cw, ct)) &&
-                !artistTokens.some((at) => tokenMatches(at, cw) || tokenMatches(cw, at)) &&
-                !candArtistTokens.some((cat: string) => tokenMatches(cat, cw) || tokenMatches(cw, cat))
-            );
-            if (hasForeignWord) continue;
-
-            let matched = 0;
-            for (const ct of effectiveTokens) {
-              if (tokenMatches(ct, candTitle)) matched += 1;
-            }
-            const minReq =
-              effectiveTokens.length <= 2
-                ? effectiveTokens.length
-                : Math.ceil(effectiveTokens.length * 0.6);
-            if (matched < minReq) continue;
+          if (wantsCokeStudio !== combinedCand.includes('coke studio')) {
+            continue;
           }
+          if (song.durationSeconds && song.durationSeconds > 0 && durSec > 0) {
+            if (Math.abs(durSec - song.durationSeconds) > (wantsCokeStudio ? 65 : 32)) {
+              continue;
+            }
+          }
+
+          const candWords = candTitle
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .split(/\s+/)
+            .filter((w) => w.length >= 2 && !stopWords.has(w) && !/^\d+$/.test(w));
+          const hasForeignWord = candWords.some(
+            (cw) =>
+              !effectiveTokens.some((ct) => tokenMatches(ct, cw) || tokenMatches(cw, ct)) &&
+              !artistTokens.some((at) => tokenMatches(at, cw) || tokenMatches(cw, at)) &&
+              !candArtistTokens.some((cat: string) => tokenMatches(cat, cw) || tokenMatches(cw, cat))
+          );
+          if (hasForeignWord) continue;
+
+          let matched = 0;
+          for (const ct of effectiveTokens) {
+            if (tokenMatches(ct, candTitle)) matched += 1;
+          }
+          const minReq =
+            effectiveTokens.length <= 3
+              ? effectiveTokens.length
+              : Math.ceil(effectiveTokens.length * 0.75);
+          if (matched < minReq) continue;
+
           const candNorm = candTitle.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
           const artistMatched =
             artistTokens.length === 0 ||
-            artistTokens.some((at) => tokenMatches(at, `${candTitleRaw} ${candArtists}`));
+            artistTokens.some((at) => tokenMatches(at, combinedCand));
           const exactDistinctive =
             isDistinctiveCoreTitle &&
+            effectiveTokens.length >= 2 &&
             candNorm === normCoreTitle &&
-            (!song.durationSeconds || Math.abs(durSec - song.durationSeconds) <= 25);
+            Boolean(song.durationSeconds && song.durationSeconds > 0 && Math.abs(durSec - song.durationSeconds) <= 20);
 
           if (!artistMatched && !exactDistinctive) {
             continue;

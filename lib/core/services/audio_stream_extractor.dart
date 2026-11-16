@@ -499,13 +499,13 @@ class AudioStreamExtractor {
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
         .split(RegExp(r'\s+'))
-        .where((w) => w.length >= 3)
+        .where((w) => w.length >= 2)
         .toList();
     final stripped = _stripParentheticalAndEntities(candTitle)
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
         .split(RegExp(r'\s+'))
-        .where((w) => w.length >= 3 && !_coreTitleStopWords.contains(w) && !RegExp(r'^\d+$').hasMatch(w))
+        .where((w) => w.length >= 2 && !_coreTitleStopWords.contains(w) && !RegExp(r'^\d+$').hasMatch(w))
         .toList();
     for (final w in stripped) {
       final matchesCore = coreTokens.any((ct) => _tokenMatchesText(ct, w) || _tokenMatchesText(w, ct));
@@ -570,11 +570,19 @@ class AudioStreamExtractor {
           }).toList()
         : latinCandidates;
 
-    final primarySeg = nonArtistLatinCandidates.isNotEmpty
-        ? nonArtistLatinCandidates.first
-        : (latinCandidates.isNotEmpty
-            ? latinCandidates.first
-            : (candidateSegments.isNotEmpty ? candidateSegments.first : ''));
+    final firstSegment = candidateSegments.isNotEmpty ? candidateSegments.first : '';
+    final firstSegHasLatin = RegExp(r'[a-zA-Z]').hasMatch(firstSegment);
+    final useNonLatinFirstSegment = firstSegment.isNotEmpty &&
+        !firstSegHasLatin &&
+        (nonArtistLatinCandidates.isEmpty || (latinCandidates.length == 1 && candidateSegments.length >= 2));
+
+    final primarySeg = useNonLatinFirstSegment
+        ? firstSegment
+        : (nonArtistLatinCandidates.isNotEmpty
+            ? nonArtistLatinCandidates.first
+            : (latinCandidates.isNotEmpty
+                ? latinCandidates.first
+                : (candidateSegments.isNotEmpty ? candidateSegments.first : '')));
 
     String coreTitle = primarySeg;
     String extractedArtist = '';
@@ -869,7 +877,9 @@ class AudioStreamExtractor {
     }
 
     final rawLower = '$trackTitle $trackArtist $rawContext'.toLowerCase();
-    final wantsLive = RegExp(r'\b(?:concert|live|anniversary|unplugged)\b').hasMatch(rawLower);
+    final wantsLive = RegExp(
+      r'\b(?:concert|live|anniversary|unplugged|acoustic|reprise|cover|remix|lofi|lo-fi|slowed|reverb|mashup|karaoke|instrumental|piano|guitar|fingerstyle|tribute)\b',
+    ).hasMatch(rawLower);
     if (wantsLive) return null;
 
     final tLower = trackTitle.toLowerCase();
@@ -925,7 +935,12 @@ class AudioStreamExtractor {
       return knownMaster;
     }
 
-    if (trackTitle.isEmpty) return null;
+    final coreTokens = _getCoreTitleTokens(trackTitle);
+    final normTitleCheck = trackTitle.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normArtistCheck = trackArtist.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (trackTitle.isEmpty || coreTokens.isEmpty || (normTitleCheck.isNotEmpty && normArtistCheck.isNotEmpty && normTitleCheck == normArtistCheck)) {
+      return null;
+    }
 
     // Run JioSaavn 320kbps, SoundCloud, and saavn.sumit.co concurrently and pick best verified match
     final cdnFutures = <Future<AudioStreamResult?>>[
@@ -1122,8 +1137,10 @@ class AudioStreamExtractor {
     }.where((q) => q.trim().isNotEmpty).toList();
 
     final coreTokens = _getCoreTitleTokens(title);
+    if (coreTokens.isEmpty) return null;
     final normCoreTitle = title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
     final normTargetArtist = artist.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normCoreTitle.isNotEmpty && normTargetArtist.isNotEmpty && normCoreTitle == normTargetArtist) return null;
     final artistTokens = normTargetArtist
         .split(RegExp(r'\s+'))
         .where((t) => t.length >= 3 && !_coreTitleStopWords.contains(t))
@@ -1131,7 +1148,7 @@ class AudioStreamExtractor {
     final rawContextLower = (rawContext.isNotEmpty ? rawContext : '$title $artist').toLowerCase();
     final wantsCokeStudio = rawContextLower.contains('coke studio');
     final wantsLiveOrConcert = RegExp(
-      r'\b(?:concert|live|anniversary|unplugged|acoustic|reprise)\b',
+      r'\b(?:concert|live|anniversary|unplugged|acoustic|reprise|cover|mashup|piano|guitar|fingerstyle|slowed|reverb|karaoke|instrumental|tribute)\b',
       caseSensitive: false,
     ).hasMatch(rawContextLower);
 
@@ -1175,42 +1192,41 @@ class AudioStreamExtractor {
             coreTokens.length >= 2 || (coreTokens.length == 1 && normCoreTitle.length >= 6);
 
         // STRICT CORE-TITLE MATCH GATE:
-        if (coreTokens.isNotEmpty) {
-          if (_hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candSubtitle)) {
-            continue;
+        if (_hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candSubtitle)) {
+          continue;
+        }
+        int matchedCoreCount = 0;
+        for (final ct in coreTokens) {
+          if (_tokenMatchesText(ct, candTitle)) {
+            matchedCoreCount += 1;
           }
-          int matchedCoreCount = 0;
-          for (final ct in coreTokens) {
-            if (_tokenMatchesText(ct, candTitle)) {
-              matchedCoreCount += 1;
-            }
-          }
-          final minRequired = coreTokens.length == 1
-              ? 1
-              : coreTokens.length == 2
-                  ? 2
-                  : ((coreTokens.length * 0.6).ceil() < 2 ? 2 : (coreTokens.length * 0.6).ceil());
-          final artistMatched =
-              artistTokens.isNotEmpty && artistTokens.any((at) => _tokenMatchesText(at, combined));
-          final hasDistinctiveTokenAndArtist = matchedCoreCount >= 1 &&
-              artistMatched &&
-              coreTokens.any((ct) => ct.length >= 7 && _tokenMatchesText(ct, candTitle));
+        }
+        final minRequired = coreTokens.length <= 3
+            ? coreTokens.length
+            : ((coreTokens.length * 0.75).ceil() < 2 ? 2 : (coreTokens.length * 0.75).ceil());
+        final artistMatched =
+            artistTokens.isNotEmpty && artistTokens.any((at) => _tokenMatchesText(at, combined));
+        final hasDistinctiveTokenAndArtist = coreTokens.length >= 2 &&
+            matchedCoreCount >= minRequired - 1 &&
+            artistMatched &&
+            coreTokens.any((ct) => ct.length >= 7 && _tokenMatchesText(ct, candTitle));
 
-          if (matchedCoreCount < minRequired && !hasDistinctiveTokenAndArtist) {
-            continue;
-          }
+        if (matchedCoreCount < minRequired && !hasDistinctiveTokenAndArtist) {
+          continue;
+        }
 
-          final isObak = normCoreTitle.contains('obak') && normCoreTitle.contains('bhalobasha');
-          final maxExactTitleDurDiff = isObak ? 18 : 20;
-          final exactDistinctiveTitleMatch = isDistinctiveCoreTitle &&
-              (candNormFull == normCoreTitle || candNormBase == normCoreTitle) &&
-              (targetDurationSeconds == null ||
-                  targetDurationSeconds <= 0 ||
-                  (candDurSec > 0 && (candDurSec - targetDurationSeconds).abs() <= maxExactTitleDurDiff));
+        final isObak = normCoreTitle.contains('obak') && normCoreTitle.contains('bhalobasha');
+        final maxExactTitleDurDiff = isObak ? 18 : 20;
+        final exactDistinctiveTitleMatch = isDistinctiveCoreTitle &&
+            coreTokens.length >= 2 &&
+            (candNormFull == normCoreTitle || candNormBase == normCoreTitle) &&
+            targetDurationSeconds != null &&
+            targetDurationSeconds > 0 &&
+            candDurSec > 0 &&
+            (candDurSec - targetDurationSeconds).abs() <= maxExactTitleDurDiff;
 
-          if (artistTokens.isNotEmpty && !artistMatched && !exactDistinctiveTitleMatch) {
-            continue;
-          }
+        if (artistTokens.isNotEmpty && !artistMatched && !exactDistinctiveTitleMatch) {
+          continue;
         }
 
         final isObakTrack = normCoreTitle.contains('obak') &&
@@ -1224,14 +1240,15 @@ class AudioStreamExtractor {
         }
 
         final candIsLiveOrConcert = RegExp(
-          r'\b(?:concert|live|anniversary|unplugged|acoustic|reprise)\b',
+          r'\b(?:concert|live|anniversary|unplugged|acoustic|reprise|cover|mashup|piano|guitar|fingerstyle)\b',
           caseSensitive: false,
         ).hasMatch(combined);
-        if (wantsLiveOrConcert && !candIsLiveOrConcert) {
-          if (targetDurationSeconds != null &&
-              targetDurationSeconds > 0 &&
-              candDurSec > 0 &&
-              (candDurSec - targetDurationSeconds).abs() > 28) {
+        if (wantsLiveOrConcert != candIsLiveOrConcert) {
+          if (!wantsLiveOrConcert ||
+              (targetDurationSeconds != null &&
+                  targetDurationSeconds > 0 &&
+                  candDurSec > 0 &&
+                  (candDurSec - targetDurationSeconds).abs() > 28)) {
             continue;
           }
         }
@@ -1357,6 +1374,7 @@ class AudioStreamExtractor {
   }) async {
     String scClientId = await _getSoundCloudClientId();
     final coreTokens = _getCoreTitleTokens(title);
+    if (coreTokens.isEmpty) return null;
     final normTargetArtist = artist.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
     final artistTokens = normTargetArtist
         .split(RegExp(r'\s+'))
@@ -1369,7 +1387,7 @@ class AudioStreamExtractor {
       caseSensitive: false,
     ).hasMatch(rawContextLower);
     final wantsRemixOrCover = RegExp(
-      r'\b(?:remix|karaoke|instrumental|nightcore|slowed|reverb|cover|lofi|lo-fi)\b',
+      r'\b(?:remix|karaoke|instrumental|nightcore|slowed|reverb|cover|lofi|lo-fi|mashup|piano|guitar|fingerstyle|tribute)\b',
       caseSensitive: false,
     ).hasMatch(rawContextLower);
 
@@ -1384,6 +1402,7 @@ class AudioStreamExtractor {
         .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+    if (normCoreTitle.isNotEmpty && normTargetArtist.isNotEmpty && normCoreTitle == normTargetArtist) return null;
     final isDistinctiveCoreTitle =
         coreTokens.length >= 2 || (coreTokens.length == 1 && normCoreTitle.length >= 6);
 
@@ -1461,33 +1480,33 @@ class AudioStreamExtractor {
                 .trim()
                 .startsWith(normCoreTitle);
 
-        if (coreTokens.isNotEmpty) {
-          final hasForeignFull = _hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candUser);
-          final hasForeignSeg = isBilingualPrefixMatch
-              ? false
-              : _hasForeignSongTitleWords(candSongSegment, coreTokens, artistTokens, candUser);
-          final isMedleyOrOtherAlbumTrack = candTitle.contains('valobashar magh') ||
-              (hasForeignFull && hasForeignSeg && artistTokens.isNotEmpty && artistTokens.any((at) => _tokenMatchesText(at, candTitle)));
-          if (isMedleyOrOtherAlbumTrack || (hasForeignFull && hasForeignSeg)) {
-            continue;
-          }
-          int matched = 0;
-          for (final ct in coreTokens) {
-            if (_tokenMatchesText(ct, candTitle)) matched += 1;
-          }
-          final minReq = coreTokens.length <= 2 ? coreTokens.length : (coreTokens.length * 0.6).ceil();
-          if (matched < minReq) continue;
+        final hasForeignFull = _hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candUser);
+        final hasForeignSeg = isBilingualPrefixMatch
+            ? false
+            : _hasForeignSongTitleWords(candSongSegment, coreTokens, artistTokens, candUser);
+        final isMedleyOrOtherAlbumTrack = candTitle.contains('valobashar magh') ||
+            (hasForeignFull && hasForeignSeg && artistTokens.isNotEmpty && artistTokens.any((at) => _tokenMatchesText(at, candTitle)));
+        if (isMedleyOrOtherAlbumTrack || (hasForeignFull && hasForeignSeg)) {
+          continue;
         }
+        int matched = 0;
+        for (final ct in coreTokens) {
+          if (_tokenMatchesText(ct, candTitle)) matched += 1;
+        }
+        final minReq = coreTokens.length <= 3 ? coreTokens.length : (coreTokens.length * 0.75).ceil();
+        if (matched < minReq) continue;
 
         final candSegNorm = candSongSegment.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
         final artistMatched = artistTokens.isEmpty || artistTokens.any((at) => _tokenMatchesText(at, combined));
-        final durationExactMatch =
-            targetDurationSeconds != null && targetDurationSeconds > 0 && (candDurSec - targetDurationSeconds).abs() <= 8;
         final exactDistinctiveMatch = isDistinctiveCoreTitle &&
+            coreTokens.length >= 2 &&
             (candSegNorm == normCoreTitle || isBilingualPrefixMatch) &&
-            (targetDurationSeconds == null || targetDurationSeconds <= 0 || (candDurSec - targetDurationSeconds).abs() <= 32);
+            targetDurationSeconds != null &&
+            targetDurationSeconds > 0 &&
+            candDurSec > 0 &&
+            (candDurSec - targetDurationSeconds).abs() <= 25;
 
-        if (!artistMatched && !durationExactMatch && !exactDistinctiveMatch) {
+        if (!artistMatched && !exactDistinctiveMatch) {
           continue;
         }
         final isObakSc = normCoreTitle.contains('obak') &&
@@ -1509,12 +1528,13 @@ class AudioStreamExtractor {
           continue;
         }
         if (targetDurationSeconds != null && targetDurationSeconds > 0 && candDurSec > 0) {
-          if ((candDurSec - targetDurationSeconds).abs() > (artistMatched ? 80 : 40)) {
+          if ((candDurSec - targetDurationSeconds).abs() > (artistMatched ? 45 : 25)) {
             continue;
           }
         }
         if (!wantsRemixOrCover &&
-            RegExp(r'\b(?:cover|karaoke|instrumental|remix|nightcore|slowed)\b').hasMatch(candTitleRaw)) {
+            !wantsLiveOrConcert &&
+            RegExp(r'\b(?:cover|karaoke|instrumental|remix|nightcore|slowed|reverb|lofi|lo-fi|mashup|piano|guitar|fingerstyle|tribute|parody|bgm|concert|live|unplugged|acoustic)\b').hasMatch(candTitleRaw)) {
           continue;
         }
 
@@ -1613,6 +1633,7 @@ class AudioStreamExtractor {
     int? targetDurationSeconds,
   }) async {
     final coreTokens = _getCoreTitleTokens(title);
+    if (coreTokens.isEmpty) return null;
     final normCoreTitle = _stripParentheticalAndEntities(title)
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
@@ -1620,15 +1641,19 @@ class AudioStreamExtractor {
         .trim();
     final isDistinctiveCoreTitle =
         coreTokens.length >= 2 || (coreTokens.length == 1 && normCoreTitle.length >= 6);
-    final artistTokens = artist
+    final artistNorm = artist
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    if (normCoreTitle.isNotEmpty && artistNorm.isNotEmpty && normCoreTitle == artistNorm) return null;
+    final artistTokens = artistNorm
         .split(RegExp(r'\s+'))
         .where((t) => t.length >= 3 && !_coreTitleStopWords.contains(t))
         .toList();
     final rawContextLower = (rawContext.isNotEmpty ? rawContext : '$title $artist').toLowerCase();
     final wantsRemixOrKaraoke = RegExp(
-      r'\b(?:remix|karaoke|instrumental|nightcore|slowed|reverb|cover|lofi|lo-fi)\b',
+      r'\b(?:remix|karaoke|instrumental|nightcore|slowed|reverb|cover|lofi|lo-fi|mashup|piano|guitar|fingerstyle|tribute|concert|live|unplugged|acoustic)\b',
       caseSensitive: false,
     ).hasMatch(rawContextLower);
     final wantsCokeStudio = rawContextLower.contains('coke studio');
@@ -1662,9 +1687,9 @@ class AudioStreamExtractor {
       for (int i = 0; i < results.length; i++) {
         final item = results[i];
         final durationSec = int.tryParse(item['duration']?.toString() ?? '0') ?? 0;
-        if (durationSec <= 35) continue;
+        if (durationSec <= 45) continue;
         if (targetDurationSeconds != null && targetDurationSeconds > 0 && durationSec > 0) {
-          if ((durationSec - targetDurationSeconds).abs() > 35) continue;
+          if ((durationSec - targetDurationSeconds).abs() > (wantsCokeStudio ? 65 : 32)) continue;
         }
         final downloadUrls = (item['downloadUrl'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
         if (downloadUrls.isEmpty) continue;
@@ -1681,7 +1706,7 @@ class AudioStreamExtractor {
         final combined = '$candTitleRaw $candArtist';
 
         if (!wantsRemixOrKaraoke &&
-            RegExp(r'\b(?:karaoke|instrumental|nightcore|remix|cover|tribute|parody|zzang|cheesyfox)\b')
+            RegExp(r'\b(?:karaoke|instrumental|nightcore|remix|cover|tribute|parody|zzang|cheesyfox|mashup|piano|guitar|fingerstyle|slowed|reverb|bgm|concert|live|unplugged|acoustic)\b')
                 .hasMatch(combined)) {
           continue;
         }
@@ -1689,22 +1714,23 @@ class AudioStreamExtractor {
           continue;
         }
 
-        if (coreTokens.isNotEmpty) {
-          if (_hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candArtist)) {
-            continue;
-          }
-          int matched = 0;
-          for (final ct in coreTokens) {
-            if (_tokenMatchesText(ct, candTitle)) matched += 1;
-          }
-          final minReq = coreTokens.length <= 2 ? coreTokens.length : (coreTokens.length * 0.6).ceil();
-          if (matched < minReq) continue;
+        if (_hasForeignSongTitleWords(candTitle, coreTokens, artistTokens, candArtist)) {
+          continue;
         }
+        int matched = 0;
+        for (final ct in coreTokens) {
+          if (_tokenMatchesText(ct, candTitle)) matched += 1;
+        }
+        final minReq = coreTokens.length <= 3 ? coreTokens.length : (coreTokens.length * 0.75).ceil();
+        if (matched < minReq) continue;
         final candNorm = candTitle.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
         final artistMatched = artistTokens.isEmpty || artistTokens.any((at) => _tokenMatchesText(at, combined));
         final exactDistinctiveTitleMatch = isDistinctiveCoreTitle &&
+            coreTokens.length >= 2 &&
             candNorm == normCoreTitle &&
-            (targetDurationSeconds == null || targetDurationSeconds <= 0 || (durationSec - targetDurationSeconds).abs() <= 25);
+            targetDurationSeconds != null &&
+            targetDurationSeconds > 0 &&
+            (durationSec - targetDurationSeconds).abs() <= 20;
         if (!artistMatched && !exactDistinctiveTitleMatch) {
           continue;
         }

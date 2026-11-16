@@ -590,6 +590,10 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             },
             onStateChange: (ev: any) => {
               if (activeEngineRef.current !== 'yt') return;
+              const loadedVideoId = ev.target?.getVideoData?.()?.video_id;
+              if (loadedVideoId && stateRef.current.currentSong?.id && loadedVideoId !== stateRef.current.currentSong.id) {
+                return;
+              }
               const state = ev.data;
               // 1 = PLAYING
               if (state === 1) {
@@ -2204,9 +2208,18 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const hasLocalExactFile = Boolean(
         normalizedSong.audioUrl && normalizedSong.audioUrl.startsWith('/audio/')
       );
+      const isCuratedExactMaster = MusicApi.isCuratedExactTrack(normalizedSong);
+      const canUseYtIframeForExactVideo =
+        !loadedFromOfflineStorage &&
+        isStandardYouTubeId &&
+        !isCuratedExactMaster &&
+        !hasLocalExactFile &&
+        !document.hidden &&
+        ytReadyRef.current &&
+        ytPlayerRef.current;
 
-      // Resolve exact full-length direct stream URL (Studio Master -> 320kbps AAC CDN -> SoundCloud)
-      if (!loadedFromOfflineStorage && !abortController.signal.aborted) {
+      // Resolve exact full-length direct stream URL for curated studio masters or non-YT / background playback
+      if (!loadedFromOfflineStorage && !canUseYtIframeForExactVideo && !abortController.signal.aborted) {
         directResolvedUrl = await MusicApi.resolveClientDirectStreamUrl(normalizedSong);
         if (directResolvedUrl && !abortController.signal.aborted) {
           resolvedAudioUrl = directResolvedUrl;
@@ -2221,7 +2234,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return;
       }
 
-      // Use YouTube IFrame Player API only when no playable backend/CDN audio stream was resolved for this YouTube video ID
+      // Play standard YouTube search/explore tracks via exact clicked videoId in YT IFrame first
+      // (guarantees the exact clicked video/version/cover plays, falling back to proxy/CDN only if YT errors or buffers)
       if (
         !loadedFromOfflineStorage &&
         isStandardYouTubeId &&

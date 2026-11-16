@@ -1054,7 +1054,52 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.doesNotMatch(downloadServiceDart, /sourceCached = v31CacheWebm;/);
     assert.match(downloadServiceDart, /Download stream truncated at \$downloadedBytes\/\$totalBytes bytes/);
   });
+
+  it('Scenario 29: Verify exact clicked-song integrity (non-Latin title protection, SoundCloud artist-bypass removal, strict Tier 4 gates, exact YT IFrame playback, and Flutter parity)', async () => {
+    // 1. Live unit verification via MusicApi.extractCoreSongTitleAndArtist: non-Latin Unicode song titles must NEVER fall back to the artist name as coreTitle
+    const { MusicApi } = await import('../src/services/musicApi');
+    const bnArtistTrailing = MusicApi.extractCoreSongTitleAndArtist('আমি তোমাকে ভালোবাসি | Ayub Bachchu', 'Soundtek');
+    assert.strictEqual(bnArtistTrailing.coreTitle, 'আমি তোমাকে ভালোবাসি');
+    assert.ok(bnArtistTrailing.primaryArtist.toLowerCase().includes('ayub bachchu'));
+
+    const bnSameChannel = MusicApi.extractCoreSongTitleAndArtist('ভালোবাসি তাই | Tahsan | Official Video', 'Tahsan');
+    assert.strictEqual(bnSameChannel.coreTitle, 'ভালোবাসি তাই');
+    assert.strictEqual(bnSameChannel.primaryArtist, 'Tahsan');
+
+    const bilingualTitle = MusicApi.extractCoreSongTitleAndArtist('তুমি আমার | Tumi Amar | Tahsan', 'Tahsan Official');
+    assert.strictEqual(bilingualTitle.coreTitle, 'Tumi Amar');
+    assert.strictEqual(bilingualTitle.primaryArtist, 'Tahsan');
+
+    const serverTs = fs.readFileSync(path.join(rootDir, 'server.ts'), 'utf8');
+    const musicApiTs = fs.readFileSync(path.join(rootDir, 'src/services/musicApi.ts'), 'utf8');
+    const musicContextTsx = fs.readFileSync(
+      path.join(rootDir, 'src/context/MusicContext.tsx'),
+      'utf8'
+    );
+    const extractorDart = fs.readFileSync(
+      path.join(rootDir, 'lib/core/services/audio_stream_extractor.dart'),
+      'utf8'
+    );
+
+    // 2. Server & Flutter remove durationExactMatch artist-bypass on SoundCloud and guard empty coreTokens
+    assert.doesNotMatch(serverTs, /durationExactMatch/);
+    assert.doesNotMatch(extractorDart, /durationExactMatch/);
+    assert.match(serverTs, /if \(!title \|\| coreTokens\.length === 0\) return/);
+    assert.match(extractorDart, /if \(coreTokens\.isEmpty\) return null;/);
+    assert.match(serverTs, /isStdYtId \? t3Val \|\| t1Val \|\| t2Val \|\| t4Val : t1Val \|\| t2Val \|\| t4Val \|\| t3Val/);
+
+    // 3. Web MusicApi & MusicContext prefer exact YouTube IFrame playback for non-curated YouTube IDs & guard stale YT events
+    assert.match(musicApiTs, /static isCuratedExactTrack\(song: Song\): boolean/);
+    assert.match(musicApiTs, /useNonLatinFirstSegment/);
+    assert.match(musicContextTsx, /canUseYtIframeForExactVideo/);
+    assert.match(musicContextTsx, /loadedVideoId !== stateRef\.current\.currentSong\.id/);
+
+    // 4. Dart extractor valid syntax (no JS triple-equals) & non-Latin first-segment guard
+    assert.doesNotMatch(extractorDart, /===/);
+    assert.match(extractorDart, /useNonLatinFirstSegment/);
+  });
 });
+
 
 
 
