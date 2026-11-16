@@ -121,7 +121,7 @@ class SettingsScreen extends StatelessWidget {
           _buildHeader(context, 'About & Legal'),
           ListTile(
             title: Text('App Version', style: TextStyle(color: AppColors.textPrimary(context), fontWeight: FontWeight.w600)),
-            subtitle: Text('Twilight Music Player v3.0.0 (Release)',
+            subtitle: Text('Twilight Music Player v3.5.2 (Build 52)',
                 style: TextStyle(color: AppColors.textSecondary(context), fontSize: 12)),
             trailing: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

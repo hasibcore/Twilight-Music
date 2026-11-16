@@ -187,23 +187,23 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onNavigate }) => {
                 <Smartphone className="w-6 h-6" />
               </div>
               <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-extrabold uppercase tracking-wider">
-                v3.0.0 APK
+                v3.5.2 APK
               </span>
             </div>
             <h3 className="text-lg font-bold text-white">Android (APK)</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Native Android 7.0+ APK with exact YouTube videoId streaming, background lockscreen controls &amp; offline downloads.
+              Native Android 7.0+ APK (v3.5.2+52) with exact YouTube videoId streaming, background lockscreen controls &amp; offline downloads.
             </p>
           </div>
 
           <div className="flex flex-col gap-2">
             <a
-              href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.0.0/Twilight-Android-v3.0.0.apk"
-              download="Twilight-Android-v3.0.0.apk"
+              href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.5.2/Twilight-Android-v3.5.2.apk"
+              download="Twilight-Android-v3.5.2.apk"
               className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition-all text-center cursor-pointer"
             >
               <Download className="w-4 h-4" />
-              <span>Download Android APK (v3.0.0)</span>
+              <span>Download Android APK (v3.5.2)</span>
             </a>
             <button
               onClick={() => (onNavigate ? onNavigate('home') : (window.location.href = '/'))}
@@ -213,13 +213,13 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onNavigate }) => {
               <span>Open Web / PWA Player</span>
             </button>
             <a
-              href="https://github.com/hasibcore/Twilight-Music/releases/tag/v3.0.0"
+              href="https://github.com/hasibcore/Twilight-Music/releases/tag/v3.5.2"
               target="_blank"
               rel="noopener noreferrer"
               className="w-full py-1.5 rounded-2xl text-slate-400 hover:text-slate-200 font-medium text-[11px] flex items-center justify-center gap-1.5 transition-colors"
             >
               <ExternalLink className="w-3 h-3" />
-              <span>View on GitHub Releases</span>
+              <span>View v3.5.2 on GitHub Releases</span>
             </a>
           </div>
         </div>
