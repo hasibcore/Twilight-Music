@@ -668,9 +668,11 @@ class PlayerProvider extends ChangeNotifier {
           cleanId = effectiveSong.id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '');
         }
 
-        if (effectiveSong.id.startsWith('sp_') ||
-            effectiveSong.channelId == 'spotify' ||
-            cleanId.length != 11) {
+        final bool isJioSaavnId = cleanId.startsWith('js_');
+        if (!isJioSaavnId &&
+            (effectiveSong.id.startsWith('sp_') ||
+                effectiveSong.channelId == 'spotify' ||
+                cleanId.length != 11)) {
           try {
             final resolved = await MusicImportService().resolveStreamTrack(effectiveSong);
             if (resolved != null && !resolved.id.startsWith('sp_')) {
@@ -692,7 +694,7 @@ class PlayerProvider extends ChangeNotifier {
         final resolvedLocal = forceRefreshStream ? null : DownloadService.findVerifiedDownload(cleanId);
         if (resolvedLocal != null) {
           _isPlayingOfflineFile = true;
-        } else if (cleanId.length != 11 && !_isTest) {
+        } else if (!isJioSaavnId && cleanId.length != 11 && !_isTest) {
           try {
             final searchRes = await _yt.search
                 .search('${effectiveSong.title} ${effectiveSong.artist}')
@@ -769,6 +771,8 @@ class PlayerProvider extends ChangeNotifier {
       // Start loading watchdog (25s safety net to clear spinner on slow networks)
       _loadingWatchdog = Timer(const Duration(seconds: 25), () {
         if (_isLoading && currentRequestId == _playRequestId) {
+          // Bump _playRequestId so stale in-flight resolve/setAudioSource futures cannot resume after timeout
+          _playRequestId++;
           AppLogger.networkDisconnect(
             'playerProvider:loadingWatchdog',
             'Stream loading exceeded 25s watchdog on "${targetSong.title}"',

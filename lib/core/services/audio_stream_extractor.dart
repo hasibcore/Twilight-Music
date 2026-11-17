@@ -613,7 +613,13 @@ class AudioStreamExtractor {
           coreTitle = left;
           extractedArtist = right;
         } else if (RegExp(r'\s+[-–—]\s+').hasMatch(primarySeg)) {
-          if (_metadataSegmentRegex.hasMatch(right) || rawSegments.length >= 3) {
+          final trailingVersionDescRegex = RegExp(
+            r'^(?:female(?:\s+version)?|male(?:\s+version)?|sad(?:\s+version)?|unplugged|acoustic|reprise|remix|lofi|lo-fi|slowed(?:\s*(?:&|\+|and|n)\s*reverb)?|reverb|extended|duet(?:\s+version)?|title\s+track|version|instrumental|from\s+.+)$',
+            caseSensitive: false,
+          );
+          if (_metadataSegmentRegex.hasMatch(right) ||
+              rawSegments.length >= 3 ||
+              trailingVersionDescRegex.hasMatch(right)) {
             coreTitle = left;
           } else {
             coreTitle = right;
@@ -917,6 +923,133 @@ class AudioStreamExtractor {
     return null;
   }
 
+  /// Direct JioSaavn lookup by raw PID (without `js_` prefix) so `js_*` tracks never get misrouted by title searches
+  static Future<AudioStreamResult?> _extractDirectJioSaavnById(String rawJioSaavnId) async {
+    final pid = rawJioSaavnId.trim();
+    if (pid.isEmpty) return null;
+    try {
+      final detailsUri = Uri.parse(
+        'https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${Uri.encodeComponent(pid)}&_format=json&_marker=0&api_version=4&ctx=web6dot0',
+      );
+      final detailsRes = await _getWithRetry(
+        detailsUri,
+        headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+        timeout: const Duration(milliseconds: 2800),
+        retries: 1,
+      );
+      if (detailsRes != null && detailsRes.statusCode == 200) {
+        final detailsData = jsonDecode(detailsRes.body);
+        Map<String, dynamic>? songItem;
+        if (detailsData is Map<String, dynamic>) {
+          if (detailsData[pid] is Map<String, dynamic>) {
+            songItem = detailsData[pid] as Map<String, dynamic>;
+          } else if (detailsData['songs'] is List && (detailsData['songs'] as List).isNotEmpty) {
+            final first = (detailsData['songs'] as List).first;
+            if (first is Map<String, dynamic>) songItem = first;
+          }
+        }
+        final moreInfo = songItem?['more_info'] as Map<String, dynamic>? ?? {};
+        final encUrl = moreInfo['encrypted_media_url']?.toString() ??
+            songItem?['encrypted_media_url']?.toString() ??
+            '';
+        if (encUrl.isNotEmpty) {
+          final authUri = Uri.parse(
+            'https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=${Uri.encodeComponent(encUrl)}&bitrate=320&api_version=4&_format=json&ctx=web6dot0&_marker=0',
+          );
+          final authRes = await _getWithRetry(
+            authUri,
+            headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+            timeout: const Duration(milliseconds: 2600),
+            retries: 1,
+          );
+          if (authRes != null && authRes.statusCode == 200) {
+            final authData = jsonDecode(authRes.body);
+            if (authData is Map<String, dynamic>) {
+              final rawAuthUrl = authData['auth_url']?.toString() ?? '';
+              if (rawAuthUrl.isNotEmpty) {
+                final directCdnUrl = rawAuthUrl
+                    .replaceFirst('https://web.saavncdn.com', 'https://aac.saavncdn.com')
+                    .replaceFirst('http://web.saavncdn.com', 'https://aac.saavncdn.com')
+                    .split('?')
+                    .first;
+                int contentLen = 0;
+                bool rejectedByCdn = false;
+                try {
+                  final headRes = await _headWithRetry(
+                    Uri.parse(directCdnUrl),
+                    headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+                    timeout: const Duration(milliseconds: 2500),
+                    retries: 0,
+                  );
+                  if (headRes != null) {
+                    if (headRes.statusCode >= 400) {
+                      rejectedByCdn = true;
+                    } else {
+                      contentLen = int.tryParse(headRes.headers['content-length'] ?? '0') ?? 0;
+                    }
+                  }
+                } catch (_) {}
+                if (!rejectedByCdn) {
+                  return AudioStreamResult(
+                    url: directCdnUrl,
+                    totalBytes: contentLen,
+                    mimeType: 'audio/mp4',
+                    bitrate: 320000,
+                    headers: const {
+                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                      'Accept': '*/*',
+                    },
+                    isDirectDownloadable: true,
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    try {
+      final sumitUri = Uri.parse('https://saavn.sumit.co/api/songs/${Uri.encodeComponent(pid)}');
+      final sumitRes = await _getWithRetry(
+        sumitUri,
+        headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+        timeout: const Duration(milliseconds: 2500),
+        retries: 0,
+      );
+      if (sumitRes != null && sumitRes.statusCode == 200) {
+        final data = jsonDecode(sumitRes.body);
+        if (data is Map<String, dynamic>) {
+          final rawData = data['data'];
+          final item = rawData is List && rawData.isNotEmpty
+              ? rawData.first
+              : (rawData is Map<String, dynamic> ? rawData : null);
+          if (item is Map<String, dynamic>) {
+            final dls = item['downloadUrl'] as List? ?? [];
+            if (dls.isNotEmpty) {
+              final best = dls.last;
+              final url = (best is Map ? best['url'] : null)?.toString() ?? '';
+              if (url.isNotEmpty) {
+                return AudioStreamResult(
+                  url: url,
+                  totalBytes: 0,
+                  mimeType: 'audio/mp4',
+                  bitrate: 320000,
+                  headers: const {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                    'Accept': '*/*',
+                  },
+                  isDirectDownloadable: true,
+                );
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// Resolves a verified high-bitrate CDN stream (JioSaavn 320kbps, SoundCloud, or saavn.sumit.co)
   /// matching the exact song title, artist, version (Coke Studio / Live / Studio), and duration.
   static Future<AudioStreamResult?> _extractVerifiedCdnMaster(
@@ -924,15 +1057,23 @@ class AudioStreamExtractor {
     String? title,
     String? artist,
     int? durationSeconds,
+    bool allowKnownMaster = true,
   }) async {
+    if (cleanId.startsWith('js_') && cleanId.length > 3) {
+      final directJs = await _extractDirectJioSaavnById(cleanId.substring(3));
+      if (directJs != null) return directJs;
+    }
+
     final meta = await _resolveTrackMetadata(cleanId, title: title, artist: artist);
     final trackTitle = meta['title'] ?? '';
     final trackArtist = meta['artist'] ?? '';
     final rawContext = meta['rawContext'] ?? '$trackTitle $trackArtist';
 
-    final knownMaster = _matchKnownDirectMaster(cleanId, trackTitle, trackArtist, rawContext);
-    if (knownMaster != null) {
-      return knownMaster;
+    if (allowKnownMaster) {
+      final knownMaster = _matchKnownDirectMaster(cleanId, trackTitle, trackArtist, rawContext);
+      if (knownMaster != null) {
+        return knownMaster;
+      }
     }
 
     final coreTokens = _getCoreTitleTokens(trackTitle);
@@ -1022,10 +1163,12 @@ class AudioStreamExtractor {
       }
     }
 
-    final instantMaster = _matchKnownDirectMaster(cleanId, title ?? '', artist ?? '', '$title $artist');
-    if (instantMaster != null) {
-      _setCache(cacheKey, instantMaster);
-      return instantMaster;
+    if (!forceRefresh && !preferCdnFallback) {
+      final instantMaster = _matchKnownDirectMaster(cleanId, title ?? '', artist ?? '', '$title $artist');
+      if (instantMaster != null) {
+        _setCache(cacheKey, instantMaster);
+        return instantMaster;
+      }
     }
 
     if (!forceRefresh && _inFlightExtractions.containsKey(cacheKey)) {
@@ -1049,6 +1192,7 @@ class AudioStreamExtractor {
         title: title,
         artist: artist,
         durationSeconds: durationSeconds,
+        allowKnownMaster: !forceRefresh && !preferCdnFallback,
       );
 
       if (preferCdnFallback) {
@@ -1337,14 +1481,15 @@ class AudioStreamExtractor {
       try {
         final headRes = await _headWithRetry(
           Uri.parse(directCdnUrl),
-          headers: const {'User-Agent': 'Mozilla/5.0'},
-          timeout: const Duration(milliseconds: 2200),
-          retries: 1,
+          headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+          timeout: const Duration(milliseconds: 2500),
+          retries: 0,
         );
-        if (headRes != null && (headRes.statusCode == 200 || headRes.statusCode == 206)) {
+        if (headRes != null) {
+          if (headRes.statusCode >= 400) {
+            continue;
+          }
           contentLen = int.tryParse(headRes.headers['content-length'] ?? '0') ?? 0;
-        } else {
-          continue;
         }
       } catch (_) {}
 
@@ -1576,11 +1721,18 @@ class AudioStreamExtractor {
                     .contains('mpegurl')))
             .toList();
         hlsTr.sort((a, b) {
-          final pA = a['preset']?.toString() ?? '';
-          final pB = b['preset']?.toString() ?? '';
-          final scoreA = pA.contains('160k') ? 3 : (pA.contains('96k') ? 2 : 1);
-          final scoreB = pB.contains('160k') ? 3 : (pB.contains('96k') ? 2 : 1);
-          return scoreB.compareTo(scoreA);
+          int rank(Map<String, dynamic> tr) {
+            final p = (tr['preset']?.toString() ?? '').toLowerCase();
+            final m = ((tr['format'] as Map<String, dynamic>?)?['mime_type']?.toString() ?? '').toLowerCase();
+            int score = 0;
+            if (m.contains('mpeg') || m.contains('mp4') || p.contains('aac') || p.contains('mp3')) {
+              score += 10;
+            }
+            if (p.contains('160k')) score += 3;
+            else if (p.contains('96k')) score += 2;
+            return score;
+          }
+          return rank(b).compareTo(rank(a));
         });
         final chosenList = progTr.isNotEmpty ? progTr : hlsTr;
         for (final chosen in chosenList) {

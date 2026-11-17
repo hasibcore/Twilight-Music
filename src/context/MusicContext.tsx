@@ -647,7 +647,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         return;
                       }
                       const curState = ev.target.getPlayerState?.();
-                      if (curState === 1 || curState === 3 || curState === -1 || curState === 5) return;
+                      if (curState === 1 || curState === 3) return;
                       const activeSong = stateRef.current.currentSong;
                       const availability = activeSong
                         ? await MusicApi.checkProxyStreamPlayable(activeSong).catch(() => ({ playable: false, url: null }))
@@ -1803,7 +1803,12 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           primePromise
             .then(() => {
               audioUnlockedRef.current = true;
-              if (isPrimingAudioRef.current && audioRef.current) {
+              const currentAttrSrc = audioRef.current?.getAttribute('src') || '';
+              if (
+                isPrimingAudioRef.current &&
+                audioRef.current &&
+                currentAttrSrc.startsWith('data:audio/wav')
+              ) {
                 audioRef.current.pause();
                 audioRef.current.currentTime = 0;
               }
@@ -2000,6 +2005,14 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         activeEngineRef.current = 'html5';
+        if (ytFallbackWatchdogRef.current) {
+          clearTimeout(ytFallbackWatchdogRef.current);
+          ytFallbackWatchdogRef.current = null;
+        }
+        if (ytBufferingWatchdogRef.current) {
+          clearTimeout(ytBufferingWatchdogRef.current);
+          ytBufferingWatchdogRef.current = null;
+        }
         if (ytPlayerRef.current && ytReadyRef.current) {
           try {
             ytPlayerRef.current.stopVideo();
@@ -2218,8 +2231,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ytReadyRef.current &&
         ytPlayerRef.current;
 
-      // Resolve exact full-length direct stream URL for curated studio masters or non-YT / background playback
-      if (!loadedFromOfflineStorage && !canUseYtIframeForExactVideo && !abortController.signal.aborted) {
+      // Resolve exact full-length direct HTML5 stream first so playback never stalls behind a hidden autoplay-blocked YT IFrame
+      if (!loadedFromOfflineStorage && !abortController.signal.aborted) {
         directResolvedUrl = await MusicApi.resolveClientDirectStreamUrl(normalizedSong);
         if (directResolvedUrl && !abortController.signal.aborted) {
           resolvedAudioUrl = directResolvedUrl;
@@ -2234,17 +2247,9 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return;
       }
 
-      // Play standard YouTube search/explore tracks via exact clicked videoId in YT IFrame first
-      // (guarantees the exact clicked video/version/cover plays, falling back to proxy/CDN only if YT errors or buffers)
-      if (
-        !loadedFromOfflineStorage &&
-        isStandardYouTubeId &&
-        !directResolvedUrl &&
-        !hasLocalExactFile &&
-        !document.hidden &&
-        ytReadyRef.current &&
-        ytPlayerRef.current
-      ) {
+      // Play standard YouTube search/explore tracks via exact clicked videoId in YT IFrame
+      // when backend resolution returned no direct HTML5 audio stream
+      if (canUseYtIframeForExactVideo && !directResolvedUrl) {
         try {
           activeEngineRef.current = 'yt';
           hasInitializedStreamRef.current = true;
@@ -2281,7 +2286,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               startHtml5StreamPlayback(0, true);
               return;
             }
-            // Give YT buffering/startup an extra 3200ms grace period before switching to HTML5
+            // Give YT startup a brief grace period before falling back to HTML5
             ytFallbackWatchdogRef.current = setTimeout(() => {
               ytFallbackWatchdogRef.current = null;
               if (
@@ -2294,8 +2299,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               if (ytPlayerRef.current?.getPlayerState?.() !== 1) {
                 startHtml5StreamPlayback(0, true);
               }
-            }, 3200);
-          }, 2000);
+            }, 1500);
+          }, 1500);
           return;
         } catch {
           // Fall through to HTML5 stream playback

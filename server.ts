@@ -97,6 +97,7 @@ interface ResolvedStreamEntry {
   url: string;
   mimeType: string;
   buffer?: Buffer;
+  headers?: Record<string, string>;
   resolvedAt: number;
 }
 
@@ -497,10 +498,12 @@ export function extractCoreTrackAndArtist(
         coreTitle = left;
         extractedArtist = right;
       } else if (/\s+[-–—]\s+/.test(primarySeg)) {
-        if (METADATA_SEGMENT_REGEX.test(right)) {
-          coreTitle = left;
-        } else if (rawSegments.length >= 3) {
-          // Multi-pipe Indian/Bangla format: "Song - Movie/Album | Cast | Singer"
+        const isTrailingVersionDescriptor =
+          /^(?:female(?:\s+version)?|male(?:\s+version)?|sad(?:\s+version)?|unplugged|acoustic|reprise|remix|lofi|lo-fi|slowed(?:\s*(?:&|\+|and|n)\s*reverb)?|reverb|extended|duet(?:\s+version)?|title\s+track|version|instrumental|from\s+.+)$/i.test(
+            right
+          );
+        if (METADATA_SEGMENT_REGEX.test(right) || rawSegments.length >= 3 || isTrailingVersionDescriptor) {
+          // Multi-pipe or suffix descriptor format: "Song - Female" or "Song - Movie | Cast | Singer"
           coreTitle = left;
         } else {
           coreTitle = right;
@@ -878,6 +881,101 @@ async function resolveExactTrackStreamUrl(
     }
   }
 
+  // Tier 0b: Direct JioSaavn ID fast-path (js_<pid>) bypassing fragile title-search heuristics
+  const rawJioSaavnId = cleanId.startsWith('js_') ? cleanId.slice(3).trim() : '';
+  if (rawJioSaavnId) {
+    try {
+      const detailsUrl = `https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${encodeURIComponent(
+        rawJioSaavnId
+      )}&_format=json&_marker=0&api_version=4&ctx=web6dot0`;
+      const detailsRes = await fetchWithRetry(
+        detailsUrl,
+        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+        { retries: 1, timeoutMs: 2800 }
+      );
+      if (detailsRes.ok) {
+        const detailsData: any = await detailsRes.json();
+        const songItem =
+          detailsData?.[rawJioSaavnId] ||
+          (Array.isArray(detailsData?.songs) ? detailsData.songs[0] : null);
+        const encMediaUrl =
+          songItem?.more_info?.encrypted_media_url || songItem?.encrypted_media_url;
+        if (encMediaUrl) {
+          const authUrl = `https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=${encodeURIComponent(
+            encMediaUrl
+          )}&bitrate=320&api_version=4&_format=json&ctx=web6dot0&_marker=0`;
+          const authRes = await fetchWithRetry(
+            authUrl,
+            { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+            { retries: 1, timeoutMs: 2600 }
+          );
+          if (authRes.ok) {
+            const authData: any = await authRes.json();
+            const rawAuthUrl = String(authData?.auth_url || '');
+            if (rawAuthUrl) {
+              const directCdnUrl = rawAuthUrl
+                .replace(/^https?:\/\/web\.saavncdn\.com/i, 'https://aac.saavncdn.com')
+                .split('?')[0];
+              let rejectedByCdn = false;
+              try {
+                const probeRes = await fetchWithRetry(
+                  directCdnUrl,
+                  {
+                    method: 'GET',
+                    headers: {
+                      Range: 'bytes=0-63',
+                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                    },
+                  },
+                  { retries: 0, timeoutMs: 2600 }
+                );
+                await probeRes.body?.cancel().catch(() => {});
+                if (probeRes.status >= 400) rejectedByCdn = true;
+              } catch {
+                // Accept freshly minted JioSaavn auth URL on transient CDN probe timeout
+              }
+              if (!rejectedByCdn) {
+                const resolved: ResolvedStreamEntry = {
+                  url: directCdnUrl,
+                  mimeType: 'audio/mp4',
+                  resolvedAt: Date.now(),
+                };
+                if (cacheKey) resolvedStreamCache.set(cacheKey, resolved);
+                return resolved;
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Fall through to saavn.sumit.co song ID backup
+    }
+    try {
+      const sumitDirectRes = await fetchWithRetry(
+        `https://saavn.sumit.co/api/songs/${encodeURIComponent(rawJioSaavnId)}`,
+        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+        { retries: 0, timeoutMs: 2400 }
+      );
+      if (sumitDirectRes.ok) {
+        const sumitJson: any = await sumitDirectRes.json();
+        const item = Array.isArray(sumitJson?.data) ? sumitJson.data[0] : sumitJson?.data;
+        const dls: any[] = Array.isArray(item?.downloadUrl) ? item.downloadUrl : [];
+        const fullUrl = String(dls[dls.length - 1]?.url || '');
+        if (fullUrl) {
+          const resolved: ResolvedStreamEntry = {
+            url: fullUrl,
+            mimeType: 'audio/mp4',
+            resolvedAt: Date.now(),
+          };
+          if (cacheKey) resolvedStreamCache.set(cacheKey, resolved);
+          return resolved;
+        }
+      }
+    } catch {
+      // Fall through to multi-source resolution tiers
+    }
+  }
+
   // Tier 1: Exact-Track 320kbps AAC Direct CDN Resolver (JioSaavn Official API)
   // Enforces strict title, artist, version (Coke Studio vs Album, Live/Concert vs Studio), and duration gates
   const resolveTier1JioSaavn = async (): Promise<ResolvedStreamEntry | null> => {
@@ -1073,12 +1171,27 @@ async function resolveExactTrackStreamUrl(
           .replace(/^https?:\/\/web\.saavncdn\.com/i, 'https://aac.saavncdn.com')
           .split('?')[0];
 
-        const headCheck = await fetchWithRetry(
-          directCdnUrl,
-          { method: 'HEAD' },
-          { retries: 1, timeoutMs: 1800 }
-        );
-        if (headCheck.ok) {
+        let rejectedByCdn = false;
+        try {
+          const headCheck = await fetchWithRetry(
+            directCdnUrl,
+            {
+              method: 'GET',
+              headers: {
+                Range: 'bytes=0-63',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+              },
+            },
+            { retries: 0, timeoutMs: 2600 }
+          );
+          await headCheck.body?.cancel().catch(() => {});
+          if (headCheck.status >= 400) {
+            rejectedByCdn = true;
+          }
+        } catch {
+          // Transient CDN probe timeout should not discard a freshly minted JioSaavn auth URL
+        }
+        if (!rejectedByCdn) {
           return {
             url: directCdnUrl,
             mimeType: 'audio/mp4',
@@ -2633,6 +2746,7 @@ app.get('/api/stream/:videoId', async (req: Request, res: Response) => {
         const upstreamHeaders: Record<string, string> = {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
           Accept: '*/*',
+          ...(activeResolved.headers || {}),
         };
         if (req.headers.range) {
           upstreamHeaders['Range'] = String(req.headers.range);
@@ -3266,7 +3380,12 @@ async function startServer() {
   });
 }
 
-if (!process.env.VITEST) {
+const isRunningUnderTest =
+  Boolean(process.env.VITEST) ||
+  Boolean(process.env.NODE_TEST_CONTEXT) ||
+  process.argv.some((arg) => arg.includes('--test') || arg.endsWith('.test.ts'));
+
+if (!isRunningUnderTest) {
   startServer();
 }
 

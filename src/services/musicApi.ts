@@ -571,7 +571,11 @@ export class MusicApi {
           coreTitle = left;
           extractedArtist = right;
         } else if (/\s+[-–—]\s+/.test(primarySeg)) {
-          if (metadataRegex.test(right) || rawSegments.length >= 3) {
+          const isTrailingVersionDescriptor =
+            /^(?:female(?:\s+version)?|male(?:\s+version)?|sad(?:\s+version)?|unplugged|acoustic|reprise|remix|lofi|lo-fi|slowed(?:\s*(?:&|\+|and|n)\s*reverb)?|reverb|extended|duet(?:\s+version)?|title\s+track|version|instrumental|from\s+.+)$/i.test(
+              right
+            );
+          if (metadataRegex.test(right) || rawSegments.length >= 3 || isTrailingVersionDescriptor) {
             coreTitle = left;
           } else {
             coreTitle = right;
@@ -743,7 +747,7 @@ export class MusicApi {
     // 1. Check verified full-length studio masters by ID or Title+Artist+Duration FIRST (0ms, exact match)
     const knownMaster = MusicApi.resolveKnownFullLengthMaster(song);
     const cleanId = (song.id || '').trim();
-    if (knownMaster) {
+    if (knownMaster && !(forceRefresh && knownMaster.startsWith('https://'))) {
       const resolvedMaster =
         forceRefresh && knownMaster.startsWith('/api/stream/')
           ? `${knownMaster}${knownMaster.includes('?') ? '&' : '?'}refresh=1&t=${Date.now()}`
@@ -833,6 +837,26 @@ export class MusicApi {
       }
       if (backendRespondedOk) {
         return null;
+      }
+
+      if (cleanId.startsWith('js_') && cleanId.length > 3) {
+        try {
+          const directRes = await clientFetchWithRetry(
+            `https://saavn.sumit.co/api/songs/${encodeURIComponent(cleanId.slice(3))}`,
+            {},
+            { retries: 0, timeoutMs: 2600 }
+          );
+          if (directRes.ok) {
+            const dj = await directRes.json();
+            const item = Array.isArray(dj?.data) ? dj.data[0] : dj?.data;
+            const dls: any[] = Array.isArray(item?.downloadUrl) ? item.downloadUrl : [];
+            const fullUrl = String(dls[dls.length - 1]?.url || '');
+            if (fullUrl && !isShortPreviewUrl(fullUrl) && fullUrl.startsWith('https://')) {
+              clientDirectStreamCache.set(cleanId, fullUrl);
+              return fullUrl;
+            }
+          }
+        } catch {}
       }
 
     // 3. Direct client-side full-length 320kbps AAC resolution via saavn.sumit.co (CORS-enabled)

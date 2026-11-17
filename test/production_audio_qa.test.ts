@@ -1098,7 +1098,59 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.doesNotMatch(extractorDart, /===/);
     assert.match(extractorDart, /useNonLatinFirstSegment/);
   });
+
+  it('Scenario 30: Verify js_<id> direct resolution, hyphenated version descriptor parsing, Web HTML5-first startup & primer race guard, and Flutter watchdog request cancellation', async () => {
+    const { MusicApi } = await import('../src/services/musicApi');
+    const serverMod = await import('../server');
+
+    // 1. Trailing hyphenated version descriptors ("- Female", "- Reprise", "- Lofi") must NOT flip the song title to "Female"
+    const femaleParsed = MusicApi.extractCoreSongTitleAndArtist('Ishq de Fanniyar - Female', 'Jyotica Tangri');
+    assert.strictEqual(femaleParsed.coreTitle, 'Ishq de Fanniyar');
+    assert.ok(femaleParsed.primaryArtist.toLowerCase().includes('jyotica'));
+
+    const serverFemaleParsed = serverMod.extractCoreTrackAndArtist('Ishq de Fanniyar - Female', 'Jyotica Tangri');
+    assert.strictEqual(serverFemaleParsed.coreTitle, 'Ishq de Fanniyar');
+
+    const repriseParsed = MusicApi.extractCoreSongTitleAndArtist('Tum Hi Ho - Reprise', 'Arijit Singh');
+    assert.strictEqual(repriseParsed.coreTitle, 'Tum Hi Ho');
+
+    const serverTs = fs.readFileSync(path.join(rootDir, 'server.ts'), 'utf8');
+    const musicApiTs = fs.readFileSync(path.join(rootDir, 'src/services/musicApi.ts'), 'utf8');
+    const musicContextTsx = fs.readFileSync(
+      path.join(rootDir, 'src/context/MusicContext.tsx'),
+      'utf8'
+    );
+    const extractorDart = fs.readFileSync(
+      path.join(rootDir, 'lib/core/services/audio_stream_extractor.dart'),
+      'utf8'
+    );
+    const playerProvDart = fs.readFileSync(
+      path.join(rootDir, 'lib/presentation/providers/player_provider.dart'),
+      'utf8'
+    );
+
+    // 2. Server supports direct js_<pid> lookup, header forwarding on ResolvedStreamEntry, and non-fatal transient CDN probe
+    assert.match(serverTs, /rawJioSaavnId/);
+    assert.match(serverTs, /__call=song\.getDetails/);
+    assert.match(serverTs, /\.\.\.\(activeResolved\.headers \|\| \{\}\)/);
+    assert.match(serverTs, /if \(headCheck\.status >= 400\)/);
+
+    // 3. Web bypasses static external URLs on forceRefresh, resolves HTML5 direct stream before YT IFrame stall, and guards data:audio/wav primer pause
+    assert.match(musicApiTs, /!\(forceRefresh && knownMaster\.startsWith\('https:\/\/'\)\)/);
+    assert.match(musicContextTsx, /currentAttrSrc\.startsWith\('data:audio\/wav'\)/);
+    assert.match(musicContextTsx, /if \(!loadedFromOfflineStorage && !abortController\.signal\.aborted\) \{\s*directResolvedUrl = await MusicApi\.resolveClientDirectStreamUrl\(normalizedSong\);/);
+    assert.match(musicContextTsx, /if \(canUseYtIframeForExactVideo && !directResolvedUrl\)/);
+
+    // 4. Flutter supports direct js_<pid> extraction, skips hardcoded static masters on refresh, preserves js_ IDs, and bumps _playRequestId in timeout watchdog
+    assert.match(extractorDart, /_extractDirectJioSaavnById/);
+    assert.match(extractorDart, /if \(!forceRefresh && !preferCdnFallback\)/);
+    assert.match(extractorDart, /allowKnownMaster: !forceRefresh && !preferCdnFallback/);
+    assert.doesNotMatch(extractorDart, /===/);
+    assert.match(playerProvDart, /final bool isJioSaavnId = cleanId\.startsWith\('js_'\);/);
+    assert.match(playerProvDart, /if \(_isLoading && currentRequestId == _playRequestId\) \{[\s\S]*?_playRequestId\+\+;/);
+  });
 });
+
 
 
 
