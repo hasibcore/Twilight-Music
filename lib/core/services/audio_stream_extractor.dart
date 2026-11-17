@@ -1030,17 +1030,31 @@ class AudioStreamExtractor {
               final best = dls.last;
               final url = (best is Map ? best['url'] : null)?.toString() ?? '';
               if (url.isNotEmpty) {
-                return AudioStreamResult(
-                  url: url,
-                  totalBytes: 0,
-                  mimeType: 'audio/mp4',
-                  bitrate: 320000,
-                  headers: const {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                    'Accept': '*/*',
-                  },
-                  isDirectDownloadable: true,
-                );
+                bool rejected = false;
+                try {
+                  final headRes = await _headWithRetry(
+                    Uri.parse(url),
+                    headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+                    timeout: const Duration(milliseconds: 1600),
+                    retries: 0,
+                  );
+                  if (headRes != null && headRes.statusCode >= 400) {
+                    rejected = true;
+                  }
+                } catch (_) {}
+                if (!rejected) {
+                  return AudioStreamResult(
+                    url: url,
+                    totalBytes: 0,
+                    mimeType: 'audio/mp4',
+                    bitrate: 320000,
+                    headers: const {
+                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                      'Accept': '*/*',
+                    },
+                    isDirectDownloadable: true,
+                  );
+                }
               }
             }
           }
@@ -1244,6 +1258,37 @@ class AudioStreamExtractor {
       if (lateYt != null) {
         _setCache(cacheKey, lateYt);
         return lateYt;
+      }
+
+      // Final exact-track YouTube search fallback for external catalog IDs (js_* / sp_*) when CDN audio is 404/geo-blocked
+      if (!isStandardYouTubeId && title != null && title.trim().isNotEmpty) {
+        try {
+          final parsedMeta = extractCoreTitleAndArtist(title, artist);
+          final coreTitle = parsedMeta['title'] ?? title;
+          final coreTokens = _getCoreTitleTokens(coreTitle);
+          if (coreTokens.isNotEmpty) {
+            final ytQuery = '$coreTitle ${parsedMeta['artist'] ?? artist ?? ''}'.trim();
+            final searchResults = await _yt.search.search(ytQuery).timeout(const Duration(seconds: 3));
+            for (final v in searchResults.take(5)) {
+              final vidId = v.id.value;
+              final candTitle = _stripParentheticalAndEntities(v.title).toLowerCase();
+              final candDur = v.duration?.inSeconds ?? 0;
+              if (candDur > 0 && candDur <= 45) continue;
+              if (durationSeconds != null &&
+                  durationSeconds > 0 &&
+                  candDur > 0 &&
+                  (candDur - durationSeconds).abs() > 40) {
+                continue;
+              }
+              if (!coreTokens.every((ct) => _tokenMatchesText(ct, candTitle))) continue;
+              final ytFallback = await _extractVerifiedYouTubeDirect(vidId);
+              if (ytFallback != null) {
+                _setCache(cacheKey, ytFallback);
+                return ytFallback;
+              }
+            }
+          }
+        } catch (_) {}
       }
 
       AppLogger.error('All audio stream extraction tiers failed for $cleanId');

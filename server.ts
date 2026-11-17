@@ -7,6 +7,9 @@ import os from 'os';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import ytdl from '@distube/ytdl-core';
+import dns from 'node:dns';
+
+dns.setDefaultResultOrder('ipv4first');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -752,7 +755,7 @@ async function resolveExactTrackStreamUrl(
     }
   }
 
-  if (cleanId && knownDirectCdnMap[cleanId]) {
+  if (!forceRefresh && cleanId && knownDirectCdnMap[cleanId]) {
     const resolved: ResolvedStreamEntry = {
       url: knownDirectCdnMap[cleanId],
       mimeType: 'audio/mp4',
@@ -883,6 +886,9 @@ async function resolveExactTrackStreamUrl(
 
   // Tier 0b: Direct JioSaavn ID fast-path (js_<pid>) bypassing fragile title-search heuristics
   const rawJioSaavnId = cleanId.startsWith('js_') ? cleanId.slice(3).trim() : '';
+  let fallbackSearchTitle = title;
+  let fallbackSearchArtist = artist;
+  let fallbackSearchDuration = effectiveDuration;
   if (rawJioSaavnId) {
     try {
       const detailsUrl = `https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${encodeURIComponent(
@@ -891,13 +897,24 @@ async function resolveExactTrackStreamUrl(
       const detailsRes = await fetchWithRetry(
         detailsUrl,
         { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
-        { retries: 1, timeoutMs: 2800 }
+        { retries: 1, timeoutMs: 2600 }
       );
       if (detailsRes.ok) {
         const detailsData: any = await detailsRes.json();
         const songItem =
           detailsData?.[rawJioSaavnId] ||
           (Array.isArray(detailsData?.songs) ? detailsData.songs[0] : null);
+        if (songItem) {
+          const itemTitle = decodeHtmlEntitiesServer(String(songItem?.title || songItem?.song || '')).trim();
+          const itemSub = decodeHtmlEntitiesServer(String(songItem?.subtitle || songItem?.more_info?.singers || '')).trim();
+          const itemDur = Number(songItem?.more_info?.duration || songItem?.duration || 0);
+          if (!fallbackSearchTitle && itemTitle) {
+            const parsed = extractCoreTrackAndArtist(itemTitle, itemSub);
+            fallbackSearchTitle = parsed.coreTitle || itemTitle;
+            if (!fallbackSearchArtist) fallbackSearchArtist = parsed.primaryArtist || itemSub;
+          }
+          if (!fallbackSearchDuration && itemDur > 0) fallbackSearchDuration = itemDur;
+        }
         const encMediaUrl =
           songItem?.more_info?.encrypted_media_url || songItem?.encrypted_media_url;
         if (encMediaUrl) {
@@ -907,7 +924,7 @@ async function resolveExactTrackStreamUrl(
           const authRes = await fetchWithRetry(
             authUrl,
             { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
-            { retries: 1, timeoutMs: 2600 }
+            { retries: 1, timeoutMs: 2400 }
           );
           if (authRes.ok) {
             const authData: any = await authRes.json();
@@ -921,13 +938,10 @@ async function resolveExactTrackStreamUrl(
                 const probeRes = await fetchWithRetry(
                   directCdnUrl,
                   {
-                    method: 'GET',
-                    headers: {
-                      Range: 'bytes=0-63',
-                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                    },
+                    method: 'HEAD',
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
                   },
-                  { retries: 0, timeoutMs: 2600 }
+                  { retries: 0, timeoutMs: 1400 }
                 );
                 await probeRes.body?.cancel().catch(() => {});
                 if (probeRes.status >= 400) rejectedByCdn = true;
@@ -954,21 +968,37 @@ async function resolveExactTrackStreamUrl(
       const sumitDirectRes = await fetchWithRetry(
         `https://saavn.sumit.co/api/songs/${encodeURIComponent(rawJioSaavnId)}`,
         { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
-        { retries: 0, timeoutMs: 2400 }
+        { retries: 0, timeoutMs: 2200 }
       );
       if (sumitDirectRes.ok) {
         const sumitJson: any = await sumitDirectRes.json();
         const item = Array.isArray(sumitJson?.data) ? sumitJson.data[0] : sumitJson?.data;
+        if (item && !fallbackSearchTitle) {
+          const parsed = extractCoreTrackAndArtist(String(item?.name || ''), '');
+          fallbackSearchTitle = parsed.coreTitle || String(item?.name || '');
+        }
         const dls: any[] = Array.isArray(item?.downloadUrl) ? item.downloadUrl : [];
         const fullUrl = String(dls[dls.length - 1]?.url || '');
         if (fullUrl) {
-          const resolved: ResolvedStreamEntry = {
-            url: fullUrl,
-            mimeType: 'audio/mp4',
-            resolvedAt: Date.now(),
-          };
-          if (cacheKey) resolvedStreamCache.set(cacheKey, resolved);
-          return resolved;
+          let sumitRejected = false;
+          try {
+            const sumitProbe = await fetchWithRetry(
+              fullUrl,
+              { method: 'HEAD', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+              { retries: 0, timeoutMs: 1400 }
+            );
+            await sumitProbe.body?.cancel().catch(() => {});
+            if (sumitProbe.status >= 400) sumitRejected = true;
+          } catch {}
+          if (!sumitRejected) {
+            const resolved: ResolvedStreamEntry = {
+              url: fullUrl,
+              mimeType: 'audio/mp4',
+              resolvedAt: Date.now(),
+            };
+            if (cacheKey) resolvedStreamCache.set(cacheKey, resolved);
+            return resolved;
+          }
         }
       }
     } catch {
@@ -1671,11 +1701,23 @@ async function resolveExactTrackStreamUrl(
           : [];
         const fullUrl = String(downloadUrls[downloadUrls.length - 1]?.url || '');
         if (fullUrl) {
-          return {
-            url: fullUrl,
-            mimeType: 'audio/mp4',
-            resolvedAt: Date.now(),
-          };
+          let tier4Rejected = false;
+          try {
+            const tier4Probe = await fetchWithRetry(
+              fullUrl,
+              { method: 'HEAD', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+              { retries: 0, timeoutMs: 1400 }
+            );
+            await tier4Probe.body?.cancel().catch(() => {});
+            if (tier4Probe.status >= 400) tier4Rejected = true;
+          } catch {}
+          if (!tier4Rejected) {
+            return {
+              url: fullUrl,
+              mimeType: 'audio/mp4',
+              resolvedAt: Date.now(),
+            };
+          }
         }
       }
     } catch {
@@ -1808,6 +1850,61 @@ async function resolveExactTrackStreamUrl(
         resolvedStreamCache.set(cacheKey, hlsWinner);
       }
       return hlsWinner;
+    }
+
+    // Final exact-track YouTube fallback for external catalog IDs (js_* / sp_*) whose CDN audio was 404/geo-restricted
+    const ytFallbackTitle = fallbackSearchTitle || title;
+    const ytFallbackTokens = getCoreTitleTokens(ytFallbackTitle);
+    if (!isStdYtId && ytFallbackTitle && ytFallbackTokens.length > 0) {
+      try {
+        const ytQuery = `${ytFallbackTitle} ${fallbackSearchArtist || artist || ''}`.trim();
+        const ytCandidates = await searchYouTube(ytQuery, {
+          retries: 0,
+          timeoutMs: 2200,
+          skipSaavnFallback: true,
+        });
+        for (const cand of ytCandidates.slice(0, 5)) {
+          const candId = String(cand?.id || '');
+          if (candId.length !== 11) continue;
+          const candTitleNorm = stripParentheticalAndEntities(String(cand?.title || '')).toLowerCase();
+          const candDur = Number(cand?.durationSeconds || 0);
+          if (candDur > 0 && candDur <= 45) continue;
+          if (
+            fallbackSearchDuration > 0 &&
+            candDur > 0 &&
+            Math.abs(candDur - fallbackSearchDuration) > 40
+          ) {
+            continue;
+          }
+          if (!ytFallbackTokens.every((ct) => tokenMatchesText(ct, candTitleNorm))) continue;
+          const info: any = await Promise.race([
+            ytdl.getInfo(`https://www.youtube.com/watch?v=${candId}`),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('ytdl-timeout')), 2800)),
+          ]).catch(() => null);
+          if (!info) continue;
+          const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+          if (audioFormats.length === 0) continue;
+          const bestAudio = audioFormats.reduce((prev, curr) =>
+            (curr.audioBitrate || 0) > (prev.audioBitrate || 0) ? curr : prev
+          );
+          if (!bestAudio?.url) continue;
+          const probe = await fetchWithRetry(
+            String(bestAudio.url),
+            { headers: { Range: 'bytes=0-511' } },
+            { retries: 0, timeoutMs: 1500 }
+          ).catch(() => null);
+          if (probe && (probe.ok || probe.status === 206)) {
+            await probe.body?.cancel().catch(() => {});
+            const resolvedYt: ResolvedStreamEntry = {
+              url: String(bestAudio.url),
+              mimeType: bestAudio.mimeType?.split(';')[0] || 'audio/mp4',
+              resolvedAt: Date.now(),
+            };
+            if (cacheKey) resolvedStreamCache.set(cacheKey, resolvedYt);
+            return resolvedYt;
+          }
+        }
+      } catch {}
     }
 
     return null;
@@ -2075,7 +2172,6 @@ async function searchSaavnFallback(
         (images.length > 0 ? String(images[images.length - 1]?.url || '') : '') ||
         'https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg';
 
-      knownDirectCdnMap[trackId] = fullStreamUrl;
       songMetaCache.set(trackId, { title, artist, durationSeconds: durSec });
       songs.push({
         id: trackId,

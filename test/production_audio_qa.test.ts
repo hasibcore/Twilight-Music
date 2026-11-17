@@ -1129,11 +1129,14 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
       'utf8'
     );
 
-    // 2. Server supports direct js_<pid> lookup, header forwarding on ResolvedStreamEntry, and non-fatal transient CDN probe
+    // 2. Server supports direct js_<pid> lookup, IPv4-first DNS, header forwarding, dead 404 CDN probe rejection, and YouTube ytdl fallback for geo-restricted js_* tracks
+    assert.match(serverTs, /setDefaultResultOrder\('ipv4first'\)/);
     assert.match(serverTs, /rawJioSaavnId/);
     assert.match(serverTs, /__call=song\.getDetails/);
     assert.match(serverTs, /\.\.\.\(activeResolved\.headers \|\| \{\}\)/);
     assert.match(serverTs, /if \(headCheck\.status >= 400\)/);
+    assert.match(serverTs, /sumitProbe\.status >= 400/);
+    assert.match(serverTs, /ytFallbackTitle = fallbackSearchTitle \|\| title/);
 
     // 3. Web bypasses static external URLs on forceRefresh, resolves HTML5 direct stream before YT IFrame stall, and guards data:audio/wav primer pause
     assert.match(musicApiTs, /!\(forceRefresh && knownMaster\.startsWith\('https:\/\/'\)\)/);
@@ -1141,10 +1144,11 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(musicContextTsx, /if \(!loadedFromOfflineStorage && !abortController\.signal\.aborted\) \{\s*directResolvedUrl = await MusicApi\.resolveClientDirectStreamUrl\(normalizedSong\);/);
     assert.match(musicContextTsx, /if \(canUseYtIframeForExactVideo && !directResolvedUrl\)/);
 
-    // 4. Flutter supports direct js_<pid> extraction, skips hardcoded static masters on refresh, preserves js_ IDs, and bumps _playRequestId in timeout watchdog
+    // 4. Flutter supports direct js_<pid> extraction, skips hardcoded static masters on refresh, rejects 404 sumit URLs, falls back to YouTube search, preserves js_ IDs, and bumps _playRequestId in timeout watchdog
     assert.match(extractorDart, /_extractDirectJioSaavnById/);
     assert.match(extractorDart, /if \(!forceRefresh && !preferCdnFallback\)/);
     assert.match(extractorDart, /allowKnownMaster: !forceRefresh && !preferCdnFallback/);
+    assert.match(extractorDart, /if \(!isStandardYouTubeId && title != null && title\.trim\(\)\.isNotEmpty\)/);
     assert.doesNotMatch(extractorDart, /===/);
     assert.match(playerProvDart, /final bool isJioSaavnId = cleanId\.startsWith\('js_'\);/);
     assert.match(playerProvDart, /if \(_isLoading && currentRequestId == _playRequestId\) \{[\s\S]*?_playRequestId\+\+;/);
