@@ -13,3 +13,6 @@ public/assets/aistudio/
 bun.lock
 *-watch.html
 *-player-script.js
+.flutter-plugins-dependencies
+.vscode/
+.env

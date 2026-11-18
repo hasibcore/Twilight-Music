@@ -21,10 +21,54 @@ app.use(cors());
 app.use(express.json());
 
 // Serve static native app downloads & audio streams
+app.use('/landing', express.static(path.resolve(__dirname, 'landing')));
 app.use('/downloads', express.static(path.resolve(__dirname, 'landing/downloads')));
 app.use('/landing/downloads', express.static(path.resolve(__dirname, 'landing/downloads')));
 app.use('/assets', express.static(path.resolve(__dirname, 'assets')));
+app.use('/landing/assets', express.static(path.resolve(__dirname, 'landing/assets')));
 app.use('/audio', express.static(path.resolve(__dirname, 'public/audio')));
+
+// Explicit CSS and JS assets for public landing page
+app.get(['/styles.css', '/landing/styles.css', '*/styles.css', '/download/styles.css'], (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/css; charset=utf-8');
+  res.sendFile(path.resolve(__dirname, 'landing', 'styles.css'));
+});
+
+app.get(['/app.js', '/landing/app.js', '*/app.js', '/download/app.js'], (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.sendFile(path.resolve(__dirname, 'landing', 'app.js'));
+});
+
+// Direct Public Downloads & Landing Page Routes
+app.get(['/download', '/download/', '/downloads-hub', '/site', '/site/', '/downloads-page'], (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.sendFile(path.resolve(__dirname, 'landing', 'index.html'));
+});
+
+// Resilient direct binary download fallback: if binary is not on disk, 302 redirect to official GitHub Release
+app.get('/downloads/:filename', (req: Request, res: Response) => {
+  const filename = req.params.filename;
+  const localFile = path.resolve(__dirname, 'landing/downloads', filename);
+  if (fs.existsSync(localFile)) {
+    return res.download(localFile);
+  }
+  const GITHUB_DOWNLOADS: Record<string, string> = {
+    'Twilight-Android-v3.6.0.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Android-v3.6.0.apk',
+    'Twilight-Android-v3.6.0.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Android-v3.6.0.apk',
+    'app-release.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Android-v3.6.0.apk',
+    'Twilight-Android-v3.0.0.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Android-v3.6.0.apk',
+    'Twilight-Windows-x64.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Windows-x64-v3.6.0.zip',
+    'Twilight-Windows-x64-v3.6.0.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Windows-x64-v3.6.0.zip',
+    'Twilight-Windows-x64-v3.0.0.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Windows-x64-v3.6.0.zip',
+    'Twilight-iOS.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-iOS-v3.6.0.ipa',
+    'Twilight-iOS-v3.6.0.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-iOS-v3.6.0.ipa',
+    'Twilight-iOS-v3.0.0.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-iOS-v3.6.0.ipa',
+  };
+  if (GITHUB_DOWNLOADS[filename]) {
+    return res.redirect(302, GITHUB_DOWNLOADS[filename]);
+  }
+  return res.redirect(302, 'https://github.com/hasibcore/Twilight-Music/releases/latest');
+});
 
 // Predefined catalog for instant loading & resilience
 const FALLBACK_POPULAR = [
@@ -90,9 +134,155 @@ const FALLBACK_POPULAR = [
   },
 ];
 
+const FALLBACK_BANGLA_BAND = [
+  {
+    id: 'XlNSOUfO-NA',
+    title: 'Icche Ghuri',
+    artist: 'Shironamhin',
+    channelId: 'Shironamhin',
+    thumbnailUrl: 'https://i.ytimg.com/vi/XlNSOUfO-NA/hqdefault.jpg',
+    durationSeconds: 287,
+    durationFormatted: '04:47',
+    viewCount: 15000000,
+  },
+  {
+    id: '8pgvTBikV9U',
+    title: 'Obak Bhalobasha',
+    artist: 'Warfaze',
+    channelId: 'CokeStudioBangla',
+    thumbnailUrl: 'https://i.ytimg.com/vi/8pgvTBikV9U/hqdefault.jpg',
+    durationSeconds: 409,
+    durationFormatted: '06:49',
+    viewCount: 25000000,
+  },
+  {
+    id: '60M4NlUuSD0',
+    title: 'Hashimukh',
+    artist: 'Shironamhin',
+    channelId: 'Shironamhin',
+    thumbnailUrl: 'https://i.ytimg.com/vi/60M4NlUuSD0/hqdefault.jpg',
+    durationSeconds: 336,
+    durationFormatted: '05:36',
+    viewCount: 22000000,
+  },
+  {
+    id: 'sFZPMjcsBoQ',
+    title: 'Bondho Janala',
+    artist: 'Shironamhin',
+    channelId: 'Shironamhin',
+    thumbnailUrl: 'https://i.ytimg.com/vi/sFZPMjcsBoQ/hqdefault.jpg',
+    durationSeconds: 242,
+    durationFormatted: '04:02',
+    viewCount: 18000000,
+  },
+  {
+    id: 'wsENMyoabFw',
+    title: 'Omimangshito',
+    artist: 'Mizan ft. Ahmed Razeeb',
+    channelId: 'G Series Music',
+    thumbnailUrl: 'https://i.ytimg.com/vi/wsENMyoabFw/hqdefault.jpg',
+    durationSeconds: 235,
+    durationFormatted: '03:55',
+    viewCount: 4500000,
+  },
+  {
+    id: 'GPJ6WxtUuBQ',
+    title: 'Pakhi',
+    artist: 'Shironamhin',
+    channelId: 'Shironamhin',
+    thumbnailUrl: 'https://i.ytimg.com/vi/GPJ6WxtUuBQ/hqdefault.jpg',
+    durationSeconds: 256,
+    durationFormatted: '04:16',
+    viewCount: 12000000,
+  },
+  {
+    id: 'l9o3eOf0AJ0',
+    title: 'Cafetaria',
+    artist: 'Shironamhin',
+    channelId: 'Shironamhin',
+    thumbnailUrl: 'https://i.ytimg.com/vi/l9o3eOf0AJ0/hqdefault.jpg',
+    durationSeconds: 259,
+    durationFormatted: '04:19',
+    viewCount: 10000000,
+  },
+  {
+    id: 'js_3-s2hqsd',
+    title: 'Anmone',
+    artist: 'Artcell',
+    channelId: 'Artcell',
+    thumbnailUrl: 'https://c.saavncdn.com/385/Neel-Bhalobasha-Bengali-2025-20250109100903-500x500.jpg',
+    durationSeconds: 307,
+    durationFormatted: '05:07',
+    viewCount: 9000000,
+  },
+  {
+    id: 'js_fOuybpG_',
+    title: 'Oniket Prantor',
+    artist: 'Artcell',
+    channelId: 'Artcell',
+    thumbnailUrl: 'https://c.saavncdn.com/865/Aniket-Prantor-Bengali-2006-20230316051320-500x500.jpg',
+    durationSeconds: 980,
+    durationFormatted: '16:20',
+    viewCount: 14000000,
+  },
+  {
+    id: 's8Qk0eMxsLA',
+    title: 'Dhushor Shomoy',
+    artist: 'Artcell',
+    channelId: 'Artcell',
+    thumbnailUrl: 'https://i.ytimg.com/vi/s8Qk0eMxsLA/hqdefault.jpg',
+    durationSeconds: 407,
+    durationFormatted: '06:47',
+    viewCount: 7500000,
+  },
+];
+
+const FALLBACK_HINDI = [
+  {
+    id: 'BddP6PYo2gs',
+    title: 'Kesariya',
+    artist: 'Arijit Singh, Pritam',
+    channelId: 'SonyMusicIndia',
+    thumbnailUrl: 'https://i.ytimg.com/vi/BddP6PYo2gs/hqdefault.jpg',
+    durationSeconds: 268,
+    durationFormatted: '04:28',
+    viewCount: 500000000,
+  },
+  {
+    id: 'IJq0cfTOvd8',
+    title: 'Tum Hi Ho',
+    artist: 'Arijit Singh',
+    channelId: 'TSeries',
+    thumbnailUrl: 'https://i.ytimg.com/vi/IJq0cfTOvd8/hqdefault.jpg',
+    durationSeconds: 262,
+    durationFormatted: '04:22',
+    viewCount: 800000000,
+  },
+  {
+    id: '284VoJ-4G_8',
+    title: 'Channa Mereya',
+    artist: 'Arijit Singh',
+    channelId: 'SonyMusicIndia',
+    thumbnailUrl: 'https://i.ytimg.com/vi/284VoJ-4G_8/hqdefault.jpg',
+    durationSeconds: 289,
+    durationFormatted: '04:49',
+    viewCount: 600000000,
+  },
+  {
+    id: 'gvyUuxdRdR4',
+    title: 'Raataan Lambiyan',
+    artist: 'Jubin Nautiyal, Asees Kaur',
+    channelId: 'SonyMusicIndia',
+    thumbnailUrl: 'https://i.ytimg.com/vi/gvyUuxdRdR4/hqdefault.jpg',
+    durationSeconds: 230,
+    durationFormatted: '03:50',
+    viewCount: 750000000,
+  },
+];
+
 // Cache canonical song metadata (title, artist, durationSeconds) by videoId for exact-track resolution
 const songMetaCache = new Map<string, { title: string; artist: string; durationSeconds?: number }>();
-for (const s of FALLBACK_POPULAR) {
+for (const s of [...FALLBACK_POPULAR, ...FALLBACK_BANGLA_BAND, ...FALLBACK_HINDI]) {
   songMetaCache.set(s.id, { title: s.title, artist: s.artist, durationSeconds: s.durationSeconds });
 }
 
@@ -190,12 +380,28 @@ async function fetchWithRetry(
       throw externalSignal.reason || new DOMException('Aborted', 'AbortError');
     }
 
-    const attemptSignal = externalSignal
-      ? AbortSignal.any([externalSignal, AbortSignal.timeout(timeoutMs)])
-      : AbortSignal.timeout(timeoutMs);
+    const connectAbortController = new AbortController();
+    let connectTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      connectAbortController.abort(new DOMException('Connection timeout', 'TimeoutError'));
+    }, timeoutMs);
+
+    const onExternalAbort = () => {
+      connectAbortController.abort(externalSignal?.reason);
+    };
+    if (externalSignal) {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
 
     try {
-      const res = await fetch(url, { ...init, signal: attemptSignal });
+      const res = await fetch(url, { ...init, signal: connectAbortController.signal });
+      if (connectTimer) {
+        clearTimeout(connectTimer);
+        connectTimer = null;
+      }
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
+
       if (!RETRYABLE_HTTP_STATUSES.has(res.status) || attempt === retries) {
         if (RETRYABLE_HTTP_STATUSES.has(res.status) && attempt === retries) {
           logStreamDiagnostic('warn', 'retry_exhausted', 'fetchWithRetry', `Upstream ${label} returned retryable status`, {
@@ -225,6 +431,13 @@ async function fetchWithRetry(
       });
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     } catch (err: any) {
+      if (connectTimer) {
+        clearTimeout(connectTimer);
+        connectTimer = null;
+      }
+      if (externalSignal) {
+        externalSignal.removeEventListener('abort', onExternalAbort);
+      }
       lastError = err;
       if (externalSignal?.aborted || attempt === retries) {
         if (!externalSignal?.aborted) {
@@ -291,7 +504,7 @@ function decodeHtmlEntitiesServer(str: string): string {
 }
 
 const METADATA_SEGMENT_REGEX =
-  /^(?:#.*|coke\s+studio(?:\s+bangla|\s+india|\s+pakistan|\s+global|\s+tamil|\s+bharat)?|season\s*\d+|episode\s*\d+|ep\s*\.?\s*\d+|s\d+\s*e\d+|official.*|lyric(?:al)?.*|full\s+(?:song|video|audio|album).*|audio\s+song.*|video\s+song.*|music\s+video.*|original\s+(?:track|song|audio|video).*|.*anniversary\s+concert.*|.*live\s+concert.*|rabindra\s+sangeet.*|tagore\s+song.*|nazrul\s+geeti.*|bangla\s+(?:gaan|song|music|band|lofi|natok).*|new\s+(?:bangla|bengali|hindi)\s+song.*|hd|4k|hq|remaster(?:ed)?|live(?:\s+performance|\s+session|\s+in\s+concert)?|unplugged|mtv\s+unplugged.*|t-series.*|sony\s+music.*|zee\s+music.*|svf.*|sangeet\s+bangla.*|soundtek.*|laser\s+vision.*|cd\s+choice.*|eagle\s+music.*|gaanchill.*|bhavna\s+records.*|g-series.*|g\s+series.*|agniveena.*|saregama.*|times\s+music.*|tips\s+official.*|yrf.*|speed\s+records.*|satv\s+music.*)$/i;
+  /^(?:#.*|coke\s+studio(?:\s+bangla|\s+india|\s+pakistan|\s+global|\s+tamil|\s+bharat)?|season\s*\d+|episode\s*\d+|ep\s*\.?\s*\d+|s\d+\s*e\d+|official.*|lyric(?:al)?.*|full\s+(?:song|video|audio|album).*|audio\s+song.*|video\s+song.*|music\s+video.*|original\s+(?:track|song|audio|video).*|art\s+track.*|official\s+art\s+track.*|audio\s+track.*|track\s+\d+.*|visualizer.*|.*anniversary\s+concert.*|.*live\s+concert.*|rabindra\s+sangeet.*|tagore\s+song.*|nazrul\s+geeti.*|bangla\s+(?:new\s+song|latest\s+song|gaan|song|music|band|lofi|natok).*|new\s+(?:bangla|bengali|hindi|punjabi)?\s*song.*|hd|4k|hq|remaster(?:ed)?|live(?:\s+performance|\s+session|\s+in\s+concert)?|unplugged|mtv\s+unplugged.*|t-series.*|sony\s+music.*|zee\s+music.*|svf.*|sangeet\s+bangla.*|soundtek.*|laser\s+vision.*|cd\s+choice.*|eagle\s+music.*|gaanchill.*|bhavna\s+records.*|g-series.*|g\s+series.*|agniveena.*|saregama.*|times\s+music.*|tips\s+official.*|yrf.*|speed\s+records.*|satv\s+music.*)$/i;
 
 const CORE_TITLE_STOP_WORDS = new Set([
   'the', 'and', 'for', 'with', 'from', 'feat', 'ft', 'of', 'in', 'on', 'to', 'at', 'by', 'is', 'it', 'my', 'me',
@@ -405,9 +618,9 @@ function cleanTrackQueryText(input: string): string {
       /\b(?:official\s+music\s+video|official\s+video|official\s+audio|lyric(?:al)?\s+video|full\s+video|full\s+audio|full\s+song|4k\s+remaster|audio\s+song|video\s+song|original\s+track)\b/gi,
       ' '
     )
-    .replace(/\s*[-|•·]\s*(?:official|topic|vevo).*$/gi, ' ')
+    .replace(/\s*[-|â€¢Â·]\s*(?:official|topic|vevo).*$/gi, ' ')
     .replace(/\b(?:VEVO|Topic)\b/gi, ' ')
-    .replace(/[|•·"“”‘’]/g, ' ')
+    .replace(/[|â€¢Â·"â€œâ€â€˜â€™]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -429,7 +642,7 @@ export function extractCoreTrackAndArtist(
     !cleanedChannelArtist || METADATA_SEGMENT_REGEX.test(cleanedChannelArtist);
 
   const rawSegments = decodeHtmlEntitiesServer(String(rawTitle || ''))
-    .split(/(?:\s*\|\|\s*|\s*[|•·]\s*|\s+\/\/\s+)/)
+    .split(/(?:\s*\|\|\s*|\s*[|â€¢Â·]\s*|\s+\/\/\s+)/)
     .map((s) => cleanTrackQueryText(s))
     .filter(Boolean);
 
@@ -447,7 +660,7 @@ export function extractCoreTrackAndArtist(
     return segCompact !== compactChannel;
   });
 
-  // If the leading segment is non-Latin script (e.g., Bengali/Hindi title "আমি তোমাকে | Artist Name"),
+  // If the leading segment is non-Latin script (e.g., Bengali/Hindi title "à¦†à¦®à¦¿ à¦¤à§‹à¦®à¦¾à¦•à§‡ | Artist Name"),
   // do NOT promote a lone trailing Latin artist/channel segment into coreTitle.
   const firstSegment = candidateSegments[0] || '';
   const firstSegHasLatin = /[a-zA-Z]/.test(firstSegment);
@@ -472,11 +685,28 @@ export function extractCoreTrackAndArtist(
     extractedArtist = matchedArtistSeg;
   }
 
-  if (primarySeg.includes('-') || primarySeg.includes('–') || primarySeg.includes('—')) {
-    const hyphenParts = primarySeg
-      .split(/\s*[-–—]\s*/)
+  let featArtist = '';
+  const featMatch = rawTitle.match(/[\(\[](?:feat\.?|ft\.?)\s+([^\)\]]+)[\)\]]/i);
+  if (featMatch) {
+    featArtist = featMatch[1].trim();
+  }
+
+  let cleanedPrimarySeg = primarySeg
+    .replace(/[\(\[](?:feat\.?|ft\.?)\s+([^\)\]]+)[\)\]]/gi, '')
+    .replace(/[\(\[][^\)\]]*(?:lyrics?|lyrical|video|audio|version|master|24bits|48khz|art\s+track|official|hd|4k)[^\)\]]*[\)\]]/gi, '')
+    .replace(/\s+-\s+(?:single|ep|album|remastered|remaster|official|audio|video|lyrics?)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (cleanedPrimarySeg.includes('-') || cleanedPrimarySeg.includes('â€“') || cleanedPrimarySeg.includes('â€”')) {
+    const rawHyphenParts = cleanedPrimarySeg
+      .split(/\s*[-â€“â€”]\s*/)
       .map((p) => p.trim())
       .filter(Boolean);
+    const hyphenParts = rawHyphenParts.filter((p, idx) => {
+      if (idx === 0) return true;
+      return !/^(?:single|ep|album|lyrics?|lyrical(?:\s+video)?|official(?:\s+(?:audio|video|track))?|art\s+track|audio|video|4k|hd|24bits.*)$/i.test(p.trim());
+    });
     if (hyphenParts.length === 2) {
       const [left, right] = hyphenParts;
       const leftCompact = left.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -500,7 +730,7 @@ export function extractCoreTrackAndArtist(
       ) {
         coreTitle = left;
         extractedArtist = right;
-      } else if (/\s+[-–—]\s+/.test(primarySeg)) {
+      } else if (/\s+[-â€“â€”]\s+/.test(cleanedPrimarySeg)) {
         const isTrailingVersionDescriptor =
           /^(?:female(?:\s+version)?|male(?:\s+version)?|sad(?:\s+version)?|unplugged|acoustic|reprise|remix|lofi|lo-fi|slowed(?:\s*(?:&|\+|and|n)\s*reverb)?|reverb|extended|duet(?:\s+version)?|title\s+track|version|instrumental|from\s+.+)$/i.test(
             right
@@ -520,18 +750,19 @@ export function extractCoreTrackAndArtist(
     (s) => s !== primarySeg && !METADATA_SEGMENT_REGEX.test(s)
   );
   if (!extractedArtist && otherLatinSegments.length > 0) {
-    extractedArtist =
-      rawSegments.length >= 3
-        ? otherLatinSegments.slice(-2).join(' ')
-        : otherLatinSegments[0];
+    // In YouTube multi-segment titles (Title | Bengali Script | Artist | Label/Album),
+    // the first segment following the title is the actual artist (e.g. "Ahmed Razeeb Feat. Mizan")
+    extractedArtist = otherLatinSegments[0];
   }
 
-  // Prefer human-spaced extractedArtist (e.g. "LEVEL FIVE", "Shironamhin") when channel is generic or a glued handle
+  // Prefer human-spaced extractedArtist (e.g. "LEVEL FIVE", "Shironamhin", "Mizan") when channel is generic,
+  // a glued handle, or an unrelated third-party uploader/fan channel
   const preferExtracted =
     Boolean(extractedArtist) &&
     (isChannelGenericOrShow ||
       (!cleanedChannelArtist.includes(' ') && extractedArtist.includes(' ')) ||
-      compactChannel === extractedArtist.toLowerCase().replace(/[^a-z0-9]/g, ''));
+      compactChannel === extractedArtist.toLowerCase().replace(/[^a-z0-9]/g, '') ||
+      Boolean(extractedArtist && !compactChannel.includes(extractedArtist.toLowerCase().replace(/[^a-z0-9]/g, ''))));
 
   const primaryArtist = preferExtracted
     ? extractedArtist || cleanedChannelArtist
@@ -542,10 +773,13 @@ export function extractCoreTrackAndArtist(
     rawSegments.length >= 3 && otherLatinSegments.length > 1
       ? otherLatinSegments.slice(-2).join(' ')
       : '';
-  const secondaryArtist =
+  let secondaryArtist =
     tailArtists && !primaryArtist.toLowerCase().includes(tailArtists.toLowerCase())
       ? `${baseSecondary} ${tailArtists}`.trim()
       : baseSecondary;
+  if (featArtist && !primaryArtist.toLowerCase().includes(featArtist.toLowerCase()) && !secondaryArtist.toLowerCase().includes(featArtist.toLowerCase())) {
+    secondaryArtist = `${secondaryArtist} ${featArtist}`.trim();
+  }
 
   const finalCoreTitle = stripParentheticalAndEntities(coreTitle.trim() || cleanTrackQueryText(rawTitle));
 
@@ -662,6 +896,25 @@ const knownDirectCdnMap: Record<string, string> = {
   rEGYM2DarbQ: 'https://aac.saavncdn.com/649/d43613a52a0b2f0331a84e2ff9bb65ba_320.mp4',
   fJ9rUzIMcZQ: 'https://aac.saavncdn.com/806/442b9d1e36a4bcef050a32de50a82316_320.mp4',
   JirEG9LIJTU: 'https://aac.saavncdn.com/000/8a81a552431793831c58e09f3d7fde01_320.mp4',
+  sFZPMjcsBoQ: 'https://aac.saavncdn.com/000/8a81a552431793831c58e09f3d7fde01_320.mp4',
+  'XlNSOUfO-NA': 'https://aac.saavncdn.com/720/0d0bec146254bfcd0c8d61a72d784bd9_320.mp4',
+  hLb5UPeROkc: 'https://aac.saavncdn.com/720/0d0bec146254bfcd0c8d61a72d784bd9_320.mp4',
+  js_lDF3u96b: 'https://aac.saavncdn.com/720/0d0bec146254bfcd0c8d61a72d784bd9_320.mp4',
+  '60M4NlUuSD0': 'https://aac.saavncdn.com/260/f0d33fd85842ea3360c137c890849e76_320.mp4',
+  GPJ6WxtUuBQ: 'https://aac.saavncdn.com/720/7427d48dd875e1346f5469b76808f0a9_320.mp4',
+  js_ssDY7xnd: 'https://aac.saavncdn.com/720/7427d48dd875e1346f5469b76808f0a9_320.mp4',
+  l9o3eOf0AJ0: 'https://aac.saavncdn.com/720/cedb3c7eadacffc6d9f9207ab880c887_320.mp4',
+  js_meprHaFX: 'https://aac.saavncdn.com/720/cedb3c7eadacffc6d9f9207ab880c887_320.mp4',
+  'js_3-s2hqsd': 'https://aac.saavncdn.com/385/081d326c688c1476cbf2d0c240e71890_320.mp4',
+  js_fOuybpG_: 'https://aac.saavncdn.com/865/7e7b53bcbf1e22f821e8ff27d666be5b_320.mp4',
+  pUUZuINHba0: 'https://aac.saavncdn.com/865/7e7b53bcbf1e22f821e8ff27d666be5b_320.mp4',
+  js_BQme9DJF: 'https://aac.saavncdn.com/865/f3d8c00186344c17e7b7b4d98995303f_320.mp4',
+  s8Qk0eMxsLA: 'https://aac.saavncdn.com/865/f3d8c00186344c17e7b7b4d98995303f_320.mp4',
+  wsENMyoabFw: 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
+  sIkPfQKODGg: 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
+  '51SvVPPwTFI': 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
+  wltb62pGT10: 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
+  js_1Xfub2IJ: 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
 };
 
 async function resolveExactTrackStreamUrl(
@@ -770,17 +1023,90 @@ async function resolveExactTrackStreamUrl(
       rawContextLower
     );
 
+  const isExplicitLiveQuery = /\b(?:live|concert|unplugged|acoustic|cover)\b/i.test(meta.title);
+
   const matchKnownTitleMaster = (): { url: string; mimeType: string } | null => {
-    if (wantsLiveOrConcert) return null;
+    if (isExplicitLiveQuery) return null;
+    if (
+      (normCoreTitle === 'icche ghuri' || normCoreTitle.includes('icche ghuri')) &&
+      (rawContextLower.includes('shironamhin') || combinedArtistText.includes('shironamhin'))
+    ) {
+      return {
+        url: 'https://aac.saavncdn.com/720/0d0bec146254bfcd0c8d61a72d784bd9_320.mp4',
+        mimeType: 'audio/mp4',
+      };
+    }
+    if (
+      (normCoreTitle === 'hashimukh' || normCoreTitle === 'abar hashimukh' || normCoreTitle.includes('hashimukh')) &&
+      (rawContextLower.includes('shironamhin') || combinedArtistText.includes('shironamhin'))
+    ) {
+      return {
+        url: 'https://aac.saavncdn.com/260/f0d33fd85842ea3360c137c890849e76_320.mp4',
+        mimeType: 'audio/mp4',
+      };
+    }
     if (
       (normCoreTitle === 'bondho janala' || normCoreTitle.includes('bondho janala')) &&
       (rawContextLower.includes('shironamhin') || combinedArtistText.includes('shironamhin')) &&
       !normCoreTitle.includes('bhalobasha') &&
-      !normCoreTitle.includes('valobasha') &&
-      (effectiveDuration === 0 || Math.abs(effectiveDuration - 243) <= 22)
+      !normCoreTitle.includes('valobasha')
     ) {
       return {
         url: 'https://aac.saavncdn.com/000/8a81a552431793831c58e09f3d7fde01_320.mp4',
+        mimeType: 'audio/mp4',
+      };
+    }
+    if (
+      (normCoreTitle === 'pakhi' || normCoreTitle.includes('pakhi')) &&
+      (rawContextLower.includes('shironamhin') || combinedArtistText.includes('shironamhin'))
+    ) {
+      return {
+        url: 'https://aac.saavncdn.com/720/7427d48dd875e1346f5469b76808f0a9_320.mp4',
+        mimeType: 'audio/mp4',
+      };
+    }
+    if (
+      (normCoreTitle === 'cafetaria' || normCoreTitle.includes('cafetaria')) &&
+      (rawContextLower.includes('shironamhin') || combinedArtistText.includes('shironamhin'))
+    ) {
+      return {
+        url: 'https://aac.saavncdn.com/720/cedb3c7eadacffc6d9f9207ab880c887_320.mp4',
+        mimeType: 'audio/mp4',
+      };
+    }
+    if (
+      (normCoreTitle === 'anmone' || normCoreTitle.includes('anmone')) &&
+      (rawContextLower.includes('artcell') || combinedArtistText.includes('artcell'))
+    ) {
+      return {
+        url: 'https://aac.saavncdn.com/385/081d326c688c1476cbf2d0c240e71890_320.mp4',
+        mimeType: 'audio/mp4',
+      };
+    }
+    if (
+      (normCoreTitle === 'aniket prantor' || normCoreTitle === 'oniket prantor' || normCoreTitle.includes('aniket prantor') || normCoreTitle.includes('oniket prantor')) &&
+      (rawContextLower.includes('artcell') || combinedArtistText.includes('artcell'))
+    ) {
+      return {
+        url: 'https://aac.saavncdn.com/865/7e7b53bcbf1e22f821e8ff27d666be5b_320.mp4',
+        mimeType: 'audio/mp4',
+      };
+    }
+    if (
+      (normCoreTitle === 'dhushor shomoy' || normCoreTitle.includes('dhushor shomoy')) &&
+      (rawContextLower.includes('artcell') || combinedArtistText.includes('artcell'))
+    ) {
+      return {
+        url: 'https://aac.saavncdn.com/865/f3d8c00186344c17e7b7b4d98995303f_320.mp4',
+        mimeType: 'audio/mp4',
+      };
+    }
+    if (
+      (normCoreTitle === 'omimangshito' || normCoreTitle.includes('omimangshito')) &&
+      (rawContextLower.includes('mizan') || combinedArtistText.includes('mizan') || rawContextLower.includes('razeeb') || combinedArtistText.includes('razeeb') || rawContextLower.includes('g series'))
+    ) {
+      return {
+        url: 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
         mimeType: 'audio/mp4',
       };
     }
@@ -1116,28 +1442,39 @@ async function resolveExactTrackStreamUrl(
             continue;
           }
 
-          const candIsLiveOrConcert =
-            /\b(?:concert|live|anniversary|unplugged|acoustic|reprise|cover|mashup|piano|guitar|fingerstyle)\b/i.test(
-              combined
-            );
-          if (wantsLiveOrConcert !== candIsLiveOrConcert) {
-            if (
-              !wantsLiveOrConcert ||
-              (effectiveDuration > 0 && candDurSec > 0 && Math.abs(candDurSec - effectiveDuration) > 18)
-            ) {
-              continue;
-            }
-          }
+          const isExactCoreTrackMatch =
+            (candNormFull === normCoreTitle || candNormBase === normCoreTitle) && artistMatched;
 
-          // 4. DURATION GATE (allows up to 65s for Coke Studio music video intros/credits when artist & Coke Studio match, 32s otherwise):
-          if (effectiveDuration > 0 && candDurSec > 0) {
+          if (!isExactCoreTrackMatch) {
+            const candIsLiveOrConcert =
+              /\b(?:concert|live|anniversary|unplugged|acoustic|reprise|cover|mashup|piano|guitar|fingerstyle)\b/i.test(
+                combined
+              );
+            if (wantsLiveOrConcert !== candIsLiveOrConcert) {
+              if (
+                !wantsLiveOrConcert ||
+                (effectiveDuration > 0 && candDurSec > 0 && Math.abs(candDurSec - effectiveDuration) > 18)
+              ) {
+                continue;
+              }
+            }
+
+            // 4. DURATION GATE (allows up to 65s for Coke Studio music video intros/credits when artist & Coke Studio match, 32s otherwise):
+            if (effectiveDuration > 0 && candDurSec > 0) {
+              const durDiff = Math.abs(candDurSec - effectiveDuration);
+              const maxAllowedDurDiff = isObak
+                ? 25
+                : wantsCokeStudio && candIsCokeStudio
+                ? 65
+                : 32;
+              if (durDiff > maxAllowedDurDiff) {
+                continue;
+              }
+            }
+          } else if (effectiveDuration > 0 && candDurSec > 0) {
+            // For exact title + artist match, allow up to 95s difference to accommodate concert video intros/outros
             const durDiff = Math.abs(candDurSec - effectiveDuration);
-            const maxAllowedDurDiff = isObak
-              ? 25
-              : wantsCokeStudio && candIsCokeStudio
-              ? 65
-              : 32;
-            if (durDiff > maxAllowedDurDiff) {
+            if (durDiff > 95) {
               continue;
             }
           }
@@ -1299,9 +1636,9 @@ async function resolveExactTrackStreamUrl(
             if (candDurSec <= 45) continue;
 
             let candSongSegment = candTitle;
-            if (candTitle.includes('-') || candTitle.includes('–') || candTitle.includes('—')) {
+            if (candTitle.includes('-') || candTitle.includes('â€“') || candTitle.includes('â€”')) {
               const hParts = candTitle
-                .split(/\s*[-–—]\s*/)
+                .split(/\s*[-â€“â€”]\s*/)
                 .map((p) => p.trim())
                 .filter(Boolean);
               if (hParts.length >= 2) {
@@ -1558,7 +1895,7 @@ async function resolveExactTrackStreamUrl(
     try {
       const videoUrl = `https://www.youtube.com/watch?v=${cleanId}`;
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('ytdl-timeout')), 3000)
+        setTimeout(() => reject(new Error('ytdl-timeout')), 6000)
       );
       const infoPromise = ytdl.getInfo(videoUrl);
       const info: any = await Promise.race([infoPromise, timeoutPromise]);
@@ -2392,7 +2729,7 @@ app.get('/api/search', async (req: Request, res: Response) => {
   res.json({ success: true, query, songs: combined });
 });
 
-// Trending Songs API Endpoint — guarantees real playable single tracks (no unplayable 2-hour mixes)
+// Trending Songs API Endpoint â€” guarantees real playable single tracks (no unplayable 2-hour mixes)
 app.get('/api/trending', async (_req: Request, res: Response) => {
   const cacheKey = 'trending:global';
   const cached = searchResponseCache.get(cacheKey);
@@ -2527,6 +2864,148 @@ app.post('/api/recommendations/dynamic', async (req: Request, res: Response) => 
   }
 });
 
+// ===== Smart Radio API â€” YouTube-style "Up Next" based on song language/artist/genre =====
+app.get('/api/radio', async (req: Request, res: Response) => {
+  let categoryFallback = FALLBACK_POPULAR;
+  try {
+    const title = String(req.query.title || '').trim();
+    const artist = String(req.query.artist || '').trim();
+    const currentId = String(req.query.currentId || '').trim();
+
+    // 1. Detect language / category from title + artist
+    const combined = `${title} ${artist}`.toLowerCase();
+    const isBengali =
+      /[\u0980-\u09FF]/.test(combined) ||
+      /\b(bangla|bengali|rabindra|nazrul|baul|coke\s*studio\s*bangla|anupam\s*roy|arijit\s*singh|artcell|warfaze|miles|shironamhin|fossils|black|cactus|chandrabindoo|lakkhichhara|bappa\s*mazumder|nachiketa|iman\s*chakraborty|rupam\s*islam|tahsan|habib\s*wahid|minar|hridoy\s*khan|arnob|chandrabindoo|shunno|nemesis|cryptic\s*fate|powersurge|avoid\s*rafa|de\s*facto|mizan|razeeb|level\s*five)\b/i.test(combined);
+    const isHindi =
+      /[\u0900-\u097F]/.test(combined) ||
+      /\b(hindi|bollywood|arijit|atif\s*aslam|shreya\s*ghoshal|kumar\s*sanu|sonu\s*nigam|kishore\s*kumar|lata\s*mangeshkar|neha\s*kakkar|jubin\s*nautiyal|b\s*praak|darshan\s*raval|armaan\s*malik|badshah|yo\s*yo\s*honey|shankar\s*mahadevan|ar\s*rahman|amit\s*trivedi|vishal\s*mishra|anuv\s*jain|sachin-jigar|tanishk|pritam)\b/i.test(combined);
+    const isKorean =
+      /[\uAC00-\uD7AF]/.test(combined) ||
+      /\b(k-?pop|bts|blackpink|twice|stray\s*kids|enhypen|txt|ateez|aespa|itzy|newjeans|seventeen|exo|red\s*velvet|nct)\b/i.test(combined);
+    const isJapanese =
+      /[\u3040-\u309F\u30A0-\u30FF]/.test(combined) ||
+      /\b(j-?pop|j-?rock|yoasobi|ado|fujii\s*kaze|kenshi\s*yonezu|lisa|one\s*ok\s*rock)\b/i.test(combined);
+    const isSpanish =
+      /\b(reggaeton|latin|bad\s*bunny|j\s*balvin|ozuna|daddy\s*yankee|shakira|maluma|karol\s*g|rosalia|rauw\s*alejandro)\b/i.test(combined);
+
+    categoryFallback = isBengali ? FALLBACK_BANGLA_BAND : isHindi ? FALLBACK_HINDI : FALLBACK_POPULAR;
+
+    if (!title && !artist) {
+      res.json({ success: true, songs: categoryFallback });
+      return;
+    }
+
+    // 2. Detect genre/mood
+    const isRock = /\b(rock|metal|band|grunge|punk|alternative|classic\s*rock|hard\s*rock)\b/i.test(combined);
+    const isLofi = /\b(lofi|lo-fi|chill\s*beats|study\s*beats|chillhop)\b/i.test(combined);
+    const isRomantic = /\b(romantic|love|pyaar|prem|valobasha|ishq|valentine)\b/i.test(combined);
+    const isRap = /\b(rap|hip\s*hop|trap|drill|eminem|kanye|drake|kendrick|j\s*cole|travis)\b/i.test(combined);
+    const isEDM = /\b(edm|electronic|house|techno|trance|dubstep|martin\s*garrix|avicii|marshmello|alan\s*walker)\b/i.test(combined);
+
+    // 3. Build smart search queries for radio
+    const queries: string[] = [];
+    const { coreTitle, primaryArtist } = extractCoreTrackAndArtist(title, artist);
+    const cleanArtist = primaryArtist || artist;
+
+    // Always start with artist radio
+    if (cleanArtist && cleanArtist.length > 1) {
+      queries.push(`${cleanArtist} best songs`);
+      queries.push(`${cleanArtist} top hits`);
+    }
+
+    // Language-specific radio queries
+    if (isBengali) {
+      queries.push('best bangla songs', 'bangla band songs hits', 'bengali acoustic soulful hits', 'bengali modern songs trending');
+      if (isRock) queries.push('bangla rock band songs artcell warfaze miles', 'bengali band hits');
+      if (isRomantic) queries.push('bengali romantic songs hits', 'bangla love songs best');
+    } else if (isHindi) {
+      queries.push('hindi hits songs', 'bollywood best songs', 'new hindi songs trending');
+      if (isRomantic) queries.push('hindi romantic songs best', 'bollywood love songs hits');
+      if (isRap) queries.push('hindi rap songs trending');
+    } else if (isKorean) {
+      queries.push('kpop hits songs', 'best kpop songs trending', 'kpop new releases');
+    } else if (isJapanese) {
+      queries.push('jpop hits songs', 'japanese popular songs', 'anime openings best');
+    } else if (isSpanish) {
+      queries.push('latin hits songs', 'reggaeton trending hits', 'spanish music popular');
+    } else {
+      // Default: English / global
+      queries.push('top pop songs hits', 'best english songs trending');
+      if (isRock) queries.push('rock hits songs best', 'alternative rock popular');
+      if (isLofi) queries.push('lofi chill beats study relax', 'lo-fi hip hop chill');
+      if (isRomantic) queries.push('love songs best romantic hits', 'romantic acoustic songs');
+      if (isRap) queries.push('hip hop rap hits trending', 'rap songs best');
+      if (isEDM) queries.push('edm electronic dance hits', 'electronic music popular');
+    }
+
+    // Also add a mix query combining artist + genre context
+    if (cleanArtist && cleanArtist.length > 1) {
+      if (isBengali) queries.push(`${cleanArtist} bangla songs`);
+      else if (isHindi) queries.push(`${cleanArtist} hindi songs`);
+      else queries.push(`${cleanArtist} similar songs`);
+    }
+
+    // 4. Pick queries: q1 targets the artist specifically, q2 targets the category/genre/language
+    const artistQuery = cleanArtist && cleanArtist.length > 1 ? `${cleanArtist} best songs` : null;
+    const categoryQueries = queries.filter((q) => q !== artistQuery).sort(() => Math.random() - 0.5);
+    const q1 = artistQuery || categoryQueries[0] || 'top music hits';
+    const q2 = categoryQueries[0] || categoryQueries[1] || `${cleanArtist || 'music'} popular songs`;
+
+    const cacheKey = `radio:${normalizeServerPhoneticQuery(`${cleanArtist}|${isBengali ? 'bn' : isHindi ? 'hi' : isKorean ? 'ko' : 'en'}|${isRock ? 'rock' : 'pop'}`).toLowerCase()}`;
+    const cached = searchResponseCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < SEARCH_CACHE_TTL_MS && cached.songs.length > 0) {
+      // Filter out the currently playing song and return
+      const filtered = cached.songs.filter((s: any) => s.id !== currentId);
+      const shuffledSongs = filtered.sort(() => Math.random() - 0.5);
+      res.json({ success: true, songs: shuffledSongs.length > 0 ? shuffledSongs : cached.songs });
+      return;
+    }
+
+    const fetchTasks: Promise<any[]>[] = [
+      searchYouTube(q1, { retries: 0, timeoutMs: 2800, skipSaavnFallback: true }),
+      searchYouTube(q2, { retries: 0, timeoutMs: 2800, skipSaavnFallback: true }),
+    ];
+    // Only invoke Saavn for Bengali or Hindi tracks â€” never for English, K-Pop, etc.
+    if (isBengali || isHindi) {
+      const saavnQuery = cleanArtist && cleanArtist.length > 1 ? cleanArtist : q1;
+      fetchTasks.push(searchSaavnFallback(saavnQuery, { retries: 0, timeoutMs: 2400 }));
+    }
+
+    const results = await withSoftDeadline(
+      Promise.all(fetchTasks).then(([yt1, yt2, saavn = []]) => {
+        // Prioritize official studio tracks from Saavn over live/concert YouTube videos
+        const all = [...(saavn || []), ...(yt1 || []), ...(yt2 || [])];
+        // Deduplicate by id, filter out current song, and limit to single tracks
+        const seen = new Set<string>();
+        const singles: any[] = [];
+        for (const s of all) {
+          if (!s?.id || seen.has(s.id) || s.id === currentId) continue;
+          if ((s.durationSeconds || 0) < 60 || (s.durationSeconds || 0) > 600) continue;
+          if (COMPILATION_MIX_REGEX.test(String(s.title || ''))) continue;
+          seen.add(s.id);
+          singles.push(s);
+          if (singles.length >= 25) break;
+        }
+        return singles;
+      }),
+      4500,
+      categoryFallback.filter((s: any) => s.id !== currentId)
+    );
+
+    if (results.length > 0) {
+      searchResponseCache.set(cacheKey, { songs: results, cachedAt: Date.now() });
+    }
+
+    // Shuffle for variety on each request
+    const shuffledResult = results.sort(() => Math.random() - 0.5);
+    res.json({ success: true, songs: shuffledResult.length > 0 ? shuffledResult : categoryFallback });
+  } catch (err) {
+    console.error('Radio API error:', err);
+    res.json({ success: true, songs: categoryFallback });
+  }
+});
+
 // Real Synced & Plain Lyrics API Endpoint (mirrors lib/core/services/lyrics_service.dart)
 app.get('/api/lyrics', async (req: Request, res: Response) => {
   const rawTitle = String(req.query.title || '').trim();
@@ -2547,7 +3026,7 @@ app.get('/api/lyrics', async (req: Request, res: Response) => {
         cleanTitle
       )}&artist_name=${encodeURIComponent(cleanArtist)}`;
       const getRes = await fetch(getUrl, {
-        headers: { 'User-Agent': 'TwilightMusic/3.5.2' },
+        headers: { 'User-Agent': 'TwilightMusic/3.6.0' },
         signal: AbortSignal.timeout(3500),
       });
       if (getRes.ok) {
@@ -2578,7 +3057,7 @@ app.get('/api/lyrics', async (req: Request, res: Response) => {
     for (const q of searchQueries) {
       const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(q)}`;
       const searchRes = await fetch(searchUrl, {
-        headers: { 'User-Agent': 'TwilightMusic/3.5.2' },
+        headers: { 'User-Agent': 'TwilightMusic/3.6.0' },
         signal: AbortSignal.timeout(3500),
       });
       if (!searchRes.ok) continue;
@@ -2692,7 +3171,7 @@ app.get('/api/stream/:videoId/resolve', async (req: Request, res: Response) => {
   });
 });
 
-// Audio Stream API Endpoint — Resolves & proxies the exact clicked track with HTTP byte-range support
+// Audio Stream API Endpoint â€” Resolves & proxies the exact clicked track with HTTP byte-range support
 app.get('/api/stream/:videoId', async (req: Request, res: Response) => {
   const videoId = req.params.videoId;
   if (!videoId) {
@@ -2897,7 +3376,7 @@ app.get('/api/stream/:videoId', async (req: Request, res: Response) => {
                 const readPromise = reader.read();
                 let chunkTimer: ReturnType<typeof setTimeout> | null = null;
                 const timeoutPromise = new Promise<{ done: boolean; value?: Uint8Array }>((_, reject) => {
-                  chunkTimer = setTimeout(() => reject(new Error('Stream read timeout')), 10000);
+                  chunkTimer = setTimeout(() => reject(new Error('Stream read timeout')), 45000);
                 });
                 let readResult: { done: boolean; value?: Uint8Array };
                 try {
@@ -3147,7 +3626,7 @@ function pushFullAppRepositoryToGitHub(cleanRepo: string, ghToken: string, tagNa
     execFileSync('git', [...baseArgs, 'add', '-A'], gitOpts);
     execFileSync(
       'git',
-      [...baseArgs, 'commit', '--allow-empty', '-m', `release: Twilight Music ${tagName} — Full App Production Release`],
+      [...baseArgs, 'commit', '--allow-empty', '-m', `release: Twilight Music ${tagName} â€” Full App Production Release`],
       gitOpts
     );
     execFileSync('git', [...baseArgs, 'tag', '-f', tagName], gitOpts);
@@ -3179,15 +3658,15 @@ function pushFullAppRepositoryToGitHub(cleanRepo: string, ghToken: string, tagNa
 // Release Metadata API Endpoint
 app.get('/api/release/info', (_req: Request, res: Response) => {
   res.json({
-    version: 'v3.5.2',
+    version: 'v3.6.0',
     legacyTag: 'v3.0.0',
-    buildNumber: 52,
+    buildNumber: 60,
     releaseDate: new Date().toISOString().slice(0, 10),
-    title: 'Twilight Music v3.5.2 — New Official Android APK, iOS IPA & Windows PC Release',
+    title: 'Twilight Music v3.6.0 â€” New Official Android APK, iOS IPA & Windows PC Release',
     highlights: [
       '100% Exact YouTube Video Audio Stream (videoId First): Prioritizes direct YouTube videoId streams across Android, iOS, Windows, and Web so live concerts, unplugged versions, and remixes always match YouTube',
       'Clean Click-to-Play Startup: Starts with currentSong = null so no track is pre-selected or shown in the player bar until clicked',
-      'Native Multi-Platform Releases: Automated CI/CD builds for Android APK (Twilight-Android-v3.5.2.apk), Apple iOS IPA (Twilight-iOS-v3.5.2.ipa), and Windows x64 ZIP (Twilight-Windows-x64-v3.5.2.zip)',
+      'Native Multi-Platform Releases: Automated CI/CD builds for Android APK (Twilight-Android-v3.6.0.apk), Apple iOS IPA (Twilight-iOS-v3.6.0.ipa), and Windows x64 ZIP (Twilight-Windows-x64-v3.6.0.zip)',
       'Pause/Resume & Stall Recovery: Proactive stream URL refresh after >3 min pause with exact playback position preservation and bounded retry recovery',
       'Uninterrupted Background Playback: Android WAKE_LOCK + FOREGROUND_SERVICE_MEDIA_PLAYBACK permissions, AudioSession interruption/becoming-noisy handlers, and ongoing notification persistence',
       'Offline Downloads Integrity: Real file verification, one-tap Re-download badge for missing/corrupted files, and local AudioSource.file playback',
@@ -3285,15 +3764,15 @@ app.post('/api/release/github', async (req: Request, res: Response) => {
 
     // 2. Check if release tag already exists or create a new GitHub Release
     const releaseBody = [
-      `### 🌙 Twilight Music ${tagName} — Official Multi-Platform Production Release`,
+      `### ðŸŒ™ Twilight Music ${tagName} â€” Official Multi-Platform Production Release`,
       '',
-      `#### ✅ Fixed Bugs, Verified Audio Masters & Synced UI in ${tagName}`,
+      `#### âœ… Fixed Bugs, Verified Audio Masters & Synced UI in ${tagName}`,
       `- **Full App Source Code Pushed (\`main\` + \`${tagName}\`)**: Complete Flutter (\`lib/\`, \`android/\`, \`ios/\`, \`windows/\`, \`web/\`) + React/Express (\`src/\`, \`server.ts\`, \`public/audio/\`) codebase.`,
       '- **Exact Clicked-Song Guarantee**: Eliminated wrong-song playback bugs across Web, Express Proxy, and Flutter by enforcing `videoId`-first direct YouTube audio matching, strict foreign/variant title token gating, and normalized track-title matching.',
       '- **Reliable Play/Pause & Post-Download Playback**: Fixed post-download playback freezes, retry stalls, and pause/resume URL refreshes with single-session request sequencing (`playRequestId`).',
       '- **Verified Full-Length Studio Masters & Zero Remix/Karaoke Mismatch**: Added verified full-length studio audio masters and strict filtering so displayed songs always play their exact original studio track.',
       '- **In-App Offline Audio Downloads (`Library -> Downloaded`)**: One-tap download on any song card or player bar with persistent offline playback inside the app.',
-      '- **UI Parity (AI Studio ↔ Android APK)**: Synced MiniPlayer widget (gradient progress bar, live time counter, favorite heart toggle, circular white play/pause button, queue drawer) and Home Screen (`DYNAMIC TASTE ENGINE` greeting + `ON HEAVY REPEAT` section).',
+      '- **UI Parity (AI Studio â†” Android APK)**: Synced MiniPlayer widget (gradient progress bar, live time counter, favorite heart toggle, circular white play/pause button, queue drawer) and Home Screen (`DYNAMIC TASTE ENGINE` greeting + `ON HEAVY REPEAT` section).',
       '- **Uninterrupted Background Playback**: Added Android `WAKE_LOCK` & `FOREGROUND_SERVICE_MEDIA_PLAYBACK` permissions, `AudioSession` interruption/becoming-noisy handlers, and ongoing foreground notification persistence.',
       '- **Monochrome Notification Icon**: Added `drawable/ic_stat_music.xml` vector icon to eliminate the white square in the Android status bar and notification shade.',
       '- **Full Automated Test Coverage**: Verified across all 29 TypeScript QA scenarios and all 6 Dart unit & widget test suites (`flutter test`).',
@@ -3314,7 +3793,7 @@ app.post('/api/release/github', async (req: Request, res: Response) => {
           headers: { ...headers, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             tag_name: tagName,
-            name: `Twilight Music ${tagName} — Production Audio & UI Sync Release`,
+            name: `Twilight Music ${tagName} â€” Production Audio & UI Sync Release`,
             body: releaseBody,
             draft: false,
             prerelease: false,
@@ -3328,7 +3807,7 @@ app.post('/api/release/github', async (req: Request, res: Response) => {
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tag_name: tagName,
-          name: `Twilight Music ${tagName} — Production Audio & UI Sync Release`,
+          name: `Twilight Music ${tagName} â€” Production Audio & UI Sync Release`,
           body: releaseBody,
           draft: false,
           prerelease: false,
@@ -3472,7 +3951,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🌙 Twilight Music server running at http://0.0.0.0:${PORT}`);
+    console.log(`ðŸŒ™ Twilight Music server running at http://0.0.0.0:${PORT}`);
   });
 }
 
@@ -3484,4 +3963,5 @@ const isRunningUnderTest =
 if (!isRunningUnderTest) {
   startServer();
 }
+
 

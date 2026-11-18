@@ -269,12 +269,13 @@ export const AudioPlayer: React.FC = () => {
             <ListMusic className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
-          <div className="hidden md:flex items-center gap-2 pl-2">
+          <div className="flex items-center gap-1 sm:gap-2 pl-1 sm:pl-2">
             <button
               onClick={() => setVolume(volume === 0 ? 0.8 : 0)}
-              className="text-slate-400 hover:text-white transition-colors"
+              className="text-slate-400 hover:text-white transition-colors p-1"
+              title={volume === 0 ? 'Unmute' : 'Mute'}
             >
-              {volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              {volume === 0 ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
             </button>
             <input
               type="range"
@@ -283,7 +284,8 @@ export const AudioPlayer: React.FC = () => {
               step="0.01"
               value={volume}
               onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              className="w-14 sm:w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              title={`Volume: ${Math.round(volume * 100)}%`}
             />
           </div>
 
@@ -505,6 +507,30 @@ export const AudioPlayer: React.FC = () => {
               >
                 <Repeat className="w-5 h-5" />
               </button>
+            </div>
+
+            {/* Volume Control Bar */}
+            <div className="w-full flex items-center justify-center gap-3 px-4 mb-6">
+              <button
+                onClick={() => setVolume(volume === 0 ? 0.8 : 0)}
+                className="text-slate-400 hover:text-white transition-colors p-1"
+                title={volume === 0 ? 'Unmute' : 'Mute'}
+              >
+                {volume === 0 ? <VolumeX className="w-5 h-5 text-rose-400" /> : <Volume2 className="w-5 h-5" />}
+              </button>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={volume}
+                onChange={(e) => setVolume(parseFloat(e.target.value))}
+                className="w-full max-w-[220px] sm:max-w-xs h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                title={`Volume: ${Math.round(volume * 100)}%`}
+              />
+              <span className="text-[11px] text-slate-400 font-mono w-8 text-right tabular-nums">
+                {Math.round(volume * 100)}%
+              </span>
             </div>
 
             {/* Bottom Sheet Action Bar (Speed, Sleep Timer, Lyrics, Queue) */}

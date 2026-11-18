@@ -1,0 +1,88 @@
+name: Build & Release Twilight Android APK (v2.4.0)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Flutter Release APK & Package v2.4.0
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Get Dependencies
+        run: flutter pub get
+
+      - name: Run Flutter Unit Tests
+        run: flutter test
+
+      - name: Build Android Release APK
+        run: |
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Twilight-Android-v2.4.0.apk
+
+      - name: Package Full Project Release ZIP
+        run: |
+          zip -r Twilight-Music-v2.4.0-Full-Project.zip . \
+            -x "node_modules/*" ".git/*" "build/*" ".dart_tool/*" "dist/*"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Twilight-Release-v2.4.0
+          path: |
+            build/app/outputs/flutter-apk/Twilight-Android-v2.4.0.apk
+            build/app/outputs/flutter-apk/app-release.apk
+            Twilight-Music-v2.4.0-Full-Project.zip
+
+      - name: Create GitHub Release (v2.4.0)
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: v2.4.0
+          name: "Twilight Music v2.4.0 — Production Audio & UI Sync Release"
+          body: |
+            ### 🌙 Twilight Music v2.4.0 Official Release
+            Built automatically with Flutter 3.29 & Android SDK.
+
+            #### ✅ What's Fixed & Updated in v2.4.0
+            - **UI Parity (AI Studio ↔ Android APK)**: Synced MiniPlayer widget (gradient progress bar, live time counter, favorite heart button, circular white play/pause control, queue launcher) and Home Screen (`DYNAMIC TASTE ENGINE` greeting + `ON HEAVY REPEAT` section).
+            - **Pause/Resume & Stall Recovery**: Fixed stream URL expiration after extended pauses (>3 min) with proactive URL refresh, position preservation, and bounded retry recovery.
+            - **Uninterrupted Background Playback**: Added `WAKE_LOCK` & `FOREGROUND_SERVICE_MEDIA_PLAYBACK` permissions, `AudioSession` interruption/becoming-noisy handlers, and ongoing foreground notification persistence.
+            - **Offline Downloads Integrity**: Added real file verification (`existsSync` + non-zero byte check), one-tap re-download badge for missing/corrupted files, and offline local file playback (`AudioSource.file`).
+            - **Monochrome Notification Icon**: Added `drawable/ic_stat_music.xml` vector icon to eliminate the white square in the Android status bar and notification shade.
+            - **Fast Cold & Warm Startup**: Parallelized startup initialization and added synchronous Frame-1 home screen cache hydration.
+            - **Single Authoritative Audio Session**: Added monotonic `_playRequestId` sequencing to prevent overlapping audio on rapid track switches.
+
+            #### 📦 Downloads
+            - `Twilight-Android-v2.4.0.apk` — Install directly on your Android device.
+            - `Twilight-Music-v2.4.0-Full-Project.zip` — Complete Flutter + React/Express source bundle.
+          files: |
+            build/app/outputs/flutter-apk/Twilight-Android-v2.4.0.apk
+            build/app/outputs/flutter-apk/app-release.apk
+            Twilight-Music-v2.4.0-Full-Project.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

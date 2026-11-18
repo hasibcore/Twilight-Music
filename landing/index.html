@@ -1,359 +1,2922 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Twilight Music — Stream, Play Offline & Cloud Sync</title>
-  <meta name="description" content="Download Twilight Music for Android, PC (Windows), and iOS. Enjoy seamless ad-free audio streaming, high-bitrate offline playback, and cloud sync across all your devices.">
-  <meta name="keywords" content="Twilight Music, music player, android apk, windows music player, ios music app, offline music, youtube stream, spotify import">
+  <title>Twilight Music — Next-Gen Ad-Free Music Streaming & Offline Player</title>
+  <meta name="description" content="Twilight Music is a beautifully crafted, ultra-fast, 100% free open-source music player with background lockscreen playback and offline downloads for Android, Windows, iOS, and Web.">
+  <meta name="keywords" content="Twilight Music, open source music player, ad-free music, android apk, windows music app, ios ipa, background playback, offline audio">
+  
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Twilight Music — Music Without Limits">
+  <meta property="og:description" content="Stream and download high-bitrate music with zero ads, lockscreen background playback, and cloud sync. Available for Android, Windows, iOS, and Web.">
+  <meta property="og:image" content="assets/logo.png">
+  <meta property="og:url" content="https://github.com/hasibcore/Twilight-Music">
+
+  <!-- Fonts & Icons -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%236366f1'/><stop offset='100%25' stop-color='%23ec4899'/></linearGradient></defs><circle cx='50' cy='50' r='48' fill='%230f172a'/><path d='M40 30 L72 50 L40 70 Z' fill='url(%23g)'/></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/landing/styles.css">
+  <style>
+/* ==========================================================================
+   Embedded Production Stylesheet (Zero-FOUC & 100% Reliable Delivery)
+   ========================================================================== */
+/* ==========================================================================
+   Twilight Music — High-End 2026 Modern Aesthetic Design System
+   Designed with Linear, Apple, & Raycast-level precision & craftsmanship.
+   ========================================================================== */
+
+:root {
+  /* Color Palette */
+  --bg-canvas: #05070D;
+  --bg-surface: #090D17;
+  --bg-card: rgba(15, 21, 37, 0.65);
+  --bg-card-hover: rgba(22, 30, 52, 0.85);
+  --bg-glass: rgba(13, 18, 33, 0.75);
+
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-medium: rgba(255, 255, 255, 0.12);
+  --border-glow: rgba(99, 102, 241, 0.45);
+
+  --primary: #6366F1;
+  --primary-hover: #4F46E5;
+  --primary-glow: rgba(99, 102, 241, 0.35);
+
+  --accent-cyan: #38BDF8;
+  --accent-emerald: #10B981;
+  --accent-rose: #F43F5E;
+  --accent-amber: #F59E0B;
+
+  --text-main: #FFFFFF;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+
+  --gradient-brand: linear-gradient(135deg, #6366F1 0%, #A855F7 50%, #EC4899 100%);
+  --gradient-text: linear-gradient(180deg, #FFFFFF 20%, #94A3B8 100%);
+
+  /* Typography */
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Shadows & Radius */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-full: 9999px;
+
+  --shadow-card: 0 16px 40px -12px rgba(0, 0, 0, 0.65);
+  --shadow-glow: 0 0 35px -5px rgba(99, 102, 241, 0.35);
+
+  --transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Base Styles */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-family: var(--font-sans);
+  background-color: var(--bg-canvas);
+  color: var(--text-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+  line-height: 1.5;
+}
+
+/* Ambient Background Mesh */
+.mesh-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.38;
+}
+
+.orb-primary {
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, #6366F1, transparent 70%);
+  top: -150px;
+  left: 10%;
+}
+
+.orb-secondary {
+  width: 550px;
+  height: 550px;
+  background: radial-gradient(circle, #A855F7, transparent 70%);
+  top: 300px;
+  right: -100px;
+}
+
+.orb-accent {
+  width: 450px;
+  height: 450px;
+  background: radial-gradient(circle, #06B6D4, transparent 70%);
+  bottom: 100px;
+  left: 20%;
+}
+
+.grid-overlay {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse at 50% 20%, #000 40%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 20%, #000 40%, transparent 80%);
+}
+
+.container {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* Announcement Bar */
+.announcement-bar {
+  position: relative;
+  z-index: 50;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.15) 0%, rgba(236, 72, 153, 0.15) 100%);
+  border-bottom: 1px solid var(--border-subtle);
+  backdrop-filter: blur(12px);
+  padding: 10px 0;
+}
+
+.announcement-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.badge-pill {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: var(--primary);
+  color: #fff;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+}
+
+.announcement-text strong {
+  color: #fff;
+}
+
+.announcement-link {
+  color: var(--accent-cyan);
+  text-decoration: none;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: var(--transition);
+}
+
+.announcement-link:hover {
+  color: #fff;
+}
+
+/* Header & Navbar */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(5, 7, 13, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.header-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 72px;
+}
+
+.brand-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
+
+.brand-icon-wrapper {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.brand-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.brand-fallback-svg {
+  width: 20px;
+  height: 20px;
+}
+
+.brand-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-name {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: #fff;
+}
+
+.brand-version {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+}
+
+.nav-menu {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.nav-item {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: var(--transition);
+}
+
+.nav-item:hover {
+  color: #fff;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-github-star {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  color: #fff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: var(--transition);
+}
+
+.btn-github-star:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-medium);
+}
+
+.star-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: #FCD34D;
+  background: rgba(252, 211, 77, 0.12);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+}
+
+.btn-primary-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--gradient-brand);
+  color: #fff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: var(--radius-full);
+  box-shadow: 0 4px 18px var(--primary-glow);
+  transition: var(--transition);
+}
+
+.btn-primary-compact:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px var(--primary-glow);
+}
+
+/* Hero Section */
+.hero-section {
+  position: relative;
+  z-index: 10;
+  padding: 72px 0 60px;
+}
+
+.hero-container {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 48px;
+  align-items: center;
+}
+
+.hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  color: #A5B4FC;
+  margin-bottom: 24px;
+}
+
+.pulsing-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34D399;
+  box-shadow: 0 0 10px #34D399;
+  animation: pulse-ring 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+@keyframes pulse-ring {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.6; }
+}
+
+.hero-title {
+  font-size: 54px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -1.8px;
+  margin-bottom: 20px;
+}
+
+.text-gradient {
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.hero-description {
+  font-size: 17px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 36px;
+  max-width: 540px;
+}
+
+.hero-buttons {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 48px;
+}
+
+.btn-hero-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  background: var(--gradient-brand);
+  border-radius: var(--radius-full);
+  color: #fff;
+  text-decoration: none;
+  box-shadow: 0 12px 32px var(--primary-glow);
+  transition: var(--transition);
+}
+
+.btn-hero-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 40px var(--primary-glow);
+}
+
+.btn-label-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.btn-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.btn-subtitle {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.btn-hero-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 22px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.btn-hero-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-medium);
+  transform: translateY(-2px);
+}
+
+.btn-hero-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.btn-hero-ghost:hover {
+  color: #fff;
+  border-color: var(--border-medium);
+}
+
+.hero-metrics {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.metric-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.metric-number {
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.metric-caption {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.metric-separator {
+  width: 1px;
+  height: 28px;
+  background: var(--border-subtle);
+}
+
+/* Floating Glass Audio Player Mockup */
+.hero-right {
+  display: flex;
+  justify-content: center;
+}
+
+.glass-player-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-xl);
+  padding: 24px 20px;
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.75), 0 0 45px rgba(99, 102, 241, 0.2);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.player-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.player-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.indicator-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-emerald);
+  box-shadow: 0 0 8px var(--accent-emerald);
+}
+
+.audio-badge {
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(99, 102, 241, 0.15);
+  color: #A5B4FC;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+.player-art-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 10px 0 20px;
+}
+
+.ambient-glow {
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.4), transparent 70%);
+  filter: blur(24px);
+  pointer-events: none;
+}
+
+.disc-rotor {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #252D4A 0%, #101526 65%, #05070D 100%);
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.8);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: vinyl-spin 18s linear infinite;
+  animation-play-state: paused;
+}
+
+@keyframes vinyl-spin {
+  100% { transform: rotate(360deg); }
+}
+
+.disc-vinyl-grooves {
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.disc-center-label {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--gradient-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+}
+
+.disc-pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #05070D;
+}
+
+.player-track-info {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.track-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 2px;
+}
+
+.track-artist {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.visualizer-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.player-progress-wrapper {
+  margin-bottom: 16px;
+  cursor: pointer;
+}
+
+.player-progress-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.player-progress-fill {
+  width: 0%;
+  height: 100%;
+  background: var(--gradient-brand);
+  transition: width 0.15s linear;
+}
+
+.player-timestamps {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.player-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  margin-bottom: 14px;
+}
+
+.ctrl-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.ctrl-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ctrl-play-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #fff;
+  color: #000;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(255, 255, 255, 0.3);
+  transition: var(--transition);
+}
+
+.ctrl-play-btn:hover {
+  transform: scale(1.06);
+  box-shadow: 0 8px 24px rgba(255, 255, 255, 0.45);
+}
+
+.player-footnote {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Bento Grid Features Section */
+.section-container {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 96px 24px;
+  position: relative;
+  z-index: 10;
+}
+
+.section-heading {
+  max-width: 680px;
+  margin: 0 auto 56px;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.section-eyebrow {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--primary);
+  margin-bottom: 12px;
+}
+
+.section-main-title {
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.2;
+  margin-bottom: 16px;
+}
+
+.section-subtitle {
+  font-size: 16px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.bento-card {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  overflow: hidden;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: var(--transition);
+}
+
+.bento-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--border-medium);
+  background: var(--bg-card-hover);
+  box-shadow: var(--shadow-card);
+}
+
+.bento-span-2 {
+  grid-column: span 2;
+}
+
+.bento-icon-box {
+  font-size: 32px;
+  margin-bottom: 16px;
+}
+
+.bento-content h3 {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  color: #fff;
+}
+
+.bento-content p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.bento-stat-chip {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 4px 10px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  color: #34D399;
+}
+
+.bento-tag-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.bento-tag-row .tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+}
+
+/* Downloads Hub */
+.downloads-hub-section {
+  padding-top: 60px;
+}
+
+.platform-segmented-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(14, 19, 34, 0.85);
+  border: 1px solid var(--border-subtle);
+  padding: 6px;
+  border-radius: var(--radius-full);
+  width: fit-content;
+  margin: 0 auto 48px;
+  flex-wrap: wrap;
+}
+
+.seg-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.seg-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.seg-btn.active {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 4px 16px var(--primary-glow);
+}
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.platform-card {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: var(--transition);
+}
+
+.platform-card:hover {
+  transform: translateY(-6px);
+  background: var(--bg-card-hover);
+  border-color: var(--border-medium);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5);
+}
+
+.platform-card.target-highlight {
+  border-color: rgba(99, 102, 241, 0.85) !important;
+  box-shadow: 0 0 35px rgba(99, 102, 241, 0.35) !important;
+  transform: translateY(-4px);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.card-platform-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.android-accent { background: rgba(16, 185, 129, 0.12); color: var(--accent-emerald); }
+.windows-accent { background: rgba(56, 189, 248, 0.12); color: var(--accent-cyan); }
+.apple-accent   { background: rgba(244, 63, 94, 0.12); color: var(--accent-rose); }
+.web-accent     { background: rgba(99, 102, 241, 0.12); color: var(--primary); }
+.source-accent  { background: rgba(245, 158, 11, 0.12); color: var(--accent-amber); }
+
+.card-badge-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+}
+
+.card-title {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.card-summary {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 24px;
+  flex: 1;
+}
+
+.card-specs-list {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spec-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.spec-name { color: var(--text-muted); }
+.spec-val { color: var(--text-main); font-weight: 600; }
+.text-emerald { color: #34D399; }
+.text-cyan { color: #38BDF8; }
+.text-rose { color: #FB7185; }
+.text-amber { color: #FBBF24; }
+.text-muted { color: var(--text-muted); }
+
+.card-action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.btn-download-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 13px 20px;
+  border-radius: var(--radius-md);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 14px;
+  transition: var(--transition);
+}
+
+.btn-android { background: #059669; box-shadow: 0 4px 18px rgba(16, 185, 129, 0.35); }
+.btn-android:hover { background: #10B981; }
+
+.btn-windows { background: #0284C7; box-shadow: 0 4px 18px rgba(2, 132, 199, 0.35); }
+.btn-windows:hover { background: #0EA5E9; }
+
+.btn-apple { background: #E11D48; box-shadow: 0 4px 18px rgba(225, 29, 72, 0.35); }
+.btn-apple:hover { background: #F43F5E; }
+
+.btn-web { background: #6366F1; box-shadow: 0 4px 18px rgba(99, 102, 241, 0.35); }
+.btn-web:hover { background: #4F46E5; }
+
+.btn-source { background: #334155; }
+.btn-source:hover { background: #475569; }
+
+.btn-qr-scan {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.btn-qr-scan:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.card-footer-links {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.link-sub {
+  color: #818CF8;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.link-sub:hover {
+  text-decoration: underline;
+}
+
+/* GitHub Community Section */
+.community-section {
+  padding-top: 40px;
+}
+
+.community-banner {
+  background: linear-gradient(180deg, rgba(16, 22, 38, 0.9) 0%, rgba(9, 13, 23, 0.95) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-xl);
+  padding: 56px 40px;
+  text-align: center;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+}
+
+.community-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 700;
+  color: #A5B4FC;
+  margin-bottom: 20px;
+}
+
+.community-title {
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  margin-bottom: 14px;
+}
+
+.community-description {
+  font-size: 16px;
+  color: var(--text-secondary);
+  max-width: 640px;
+  margin: 0 auto 36px;
+  line-height: 1.6;
+}
+
+.terminal-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #04060B;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  max-width: 580px;
+  margin: 0 auto 36px;
+  font-family: var(--font-mono);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+.terminal-cmd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--accent-cyan);
+  overflow-x: auto;
+}
+
+.terminal-prompt {
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.terminal-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+
+.terminal-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.community-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  max-width: 720px;
+  margin: 0 auto 36px;
+}
+
+.c-metric-item {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.c-val {
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.c-lbl {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.community-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.btn-community-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  background: #fff;
+  color: #000;
+  font-weight: 700;
+  font-size: 14px;
+  border-radius: var(--radius-full);
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.btn-community-primary:hover {
+  background: #E2E8F0;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(255, 255, 255, 0.25);
+}
+
+.btn-community-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  text-decoration: none;
+  transition: var(--transition);
+}
+
+.btn-community-ghost:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-medium);
+}
+
+/* Installation Guides */
+.guides-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.guide-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 32px 28px;
+  backdrop-filter: blur(14px);
+}
+
+.guide-icon-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  margin-bottom: 14px;
+}
+
+.guide-box h4 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 18px;
+}
+
+.steps-numbered {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.steps-numbered li strong {
+  color: #fff;
+}
+
+/* FAQ Section */
+.faq-stack {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.faq-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 20px 24px;
+  transition: var(--transition);
+}
+
+.faq-item summary {
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  color: #fff;
+}
+
+.faq-answer {
+  margin-top: 14px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+.faq-answer a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+/* Modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(12px);
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-backdrop.open {
+  display: flex;
+}
+
+.modal-dialog {
+  background: #0E1324;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-xl);
+  padding: 36px 32px;
+  max-width: 400px;
+  width: 100%;
+  position: relative;
+  text-align: center;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.9), 0 0 50px rgba(99, 102, 241, 0.3);
+}
+
+.modal-close-btn {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.modal-close-btn:hover {
+  color: #fff;
+}
+
+.modal-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #34D399;
+  margin-bottom: 6px;
+  display: inline-block;
+}
+
+.modal-header h3 {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.modal-header p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+}
+
+.modal-qr-frame {
+  background: #fff;
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: inline-flex;
+  margin-bottom: 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.modal-copy-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.modal-copy-row input {
+  flex: 1;
+  background: #05070D;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  outline: none;
+}
+
+.btn-copy-link {
+  background: var(--primary);
+  border: none;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.btn-copy-link:hover {
+  background: var(--primary-hover);
+}
+
+.modal-caption {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Toast */
+.toast-hub {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast-msg {
+  background: rgba(14, 20, 36, 0.96);
+  border: 1px solid var(--border-glow);
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  transform: translateY(16px);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toast-msg.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Footer */
+.site-footer {
+  border-top: 1px solid var(--border-subtle);
+  padding: 48px 0;
+  background: var(--bg-surface);
+  position: relative;
+  z-index: 10;
+}
+
+.footer-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.footer-brand-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.footer-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.footer-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.footer-tagline {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.footer-tagline a {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.footer-tagline a:hover {
+  color: #fff;
+}
+
+.footer-links-group {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.footer-links-group a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 13px;
+  transition: var(--transition);
+}
+
+.footer-links-group a:hover {
+  color: #fff;
+}
+
+/* Responsive Styles */
+@media (max-width: 1024px) {
+  .hero-container {
+    grid-template-columns: 1fr;
+    text-align: center;
+    padding-top: 20px;
+  }
+  .hero-description {
+    margin: 0 auto 36px;
+  }
+  .hero-buttons {
+    justify-content: center;
+  }
+  .hero-metrics {
+    justify-content: center;
+  }
+  .bento-grid, .cards-grid, .guides-grid {
+    grid-template-columns: 1fr;
+  }
+  .bento-span-2 {
+    grid-column: span 1;
+  }
+  .community-metrics-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 680px) {
+  .nav-menu {
+    display: none;
+  }
+  .hero-title {
+    font-size: 38px;
+    letter-spacing: -1px;
+  }
+  .hero-metrics {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .metric-separator {
+    display: none;
+  }
+  .terminal-box {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+  .terminal-copy-btn {
+    justify-content: center;
+  }
+  .community-title {
+    font-size: 26px;
+  }
+  .community-banner {
+    padding: 36px 20px;
+  }
+}
+
+  </style>
+  <link rel="icon" type="image/png" href="/assets/logo.png">
 </head>
 <body>
-  <!-- Background Glow Orbs -->
-  <div class="glow-orb orb-1"></div>
-  <div class="glow-orb orb-2"></div>
-  <div class="glow-orb orb-3"></div>
+  <!-- Ambient Background Mesh Glows -->
+  <div class="mesh-bg">
+    <div class="glow-orb orb-primary"></div>
+    <div class="glow-orb orb-secondary"></div>
+    <div class="glow-orb orb-accent"></div>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <!-- Announcement Bar -->
+  <aside class="announcement-bar">
+    <div class="container announcement-content">
+      <span class="badge-pill">v3.5.2 Release</span>
+      <p class="announcement-text">
+        <strong>Twilight Music v3.5.2</strong> is live! Enjoy high-bitrate streaming, zero ads, and instant cloud sync.
+      </p>
+      <a href="https://github.com/hasibcore/Twilight-Music/releases/tag/v3.5.2" target="_blank" rel="noopener noreferrer" class="announcement-link">
+        Changelog <span>→</span>
+      </a>
+    </div>
+  </aside>
 
   <!-- Navigation Bar -->
-  <header class="navbar">
-    <div class="nav-container">
-      <div class="brand">
-        <div class="brand-logo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="5 3 19 12 5 21 5 3" fill="url(#gradLogo)"></polygon>
+  <header class="site-header">
+    <div class="container header-container">
+      <!-- Brand -->
+      <a href="#" class="brand-link">
+        <div class="brand-icon-wrapper">
+          <img src="/assets/logo.png" alt="Twilight Logo" class="brand-img" onerror="this.style.display='none'">
+          <svg class="brand-fallback-svg" width="20" height="20" style="width:20px;height:20px;max-width:20px;max-height:20px;flex-shrink:0;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 3 19 12 5 21 5 3" fill="url(#twilightGradient)"></polygon>
             <defs>
-              <linearGradient id="gradLogo" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#818cf8"/>
-                <stop offset="100%" stop-color="#f43f5e"/>
+              <linearGradient id="twilightGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#6366F1"/>
+                <stop offset="100%" stop-color="#EC4899"/>
               </linearGradient>
             </defs>
           </svg>
         </div>
-        <div class="brand-text">
-          <span class="brand-title">Twilight</span>
-          <span class="brand-badge">v2.4.0</span>
+        <div class="brand-identity">
+          <span class="brand-name">Twilight</span>
+          <span class="brand-version" id="headerVersionTag">v3.5.2</span>
         </div>
-      </div>
+      </a>
 
-      <nav class="nav-links">
-        <a href="#downloads">Downloads</a>
-        <a href="#features">Features</a>
-        <a href="#platforms">Platforms</a>
-        <a href="#faq">FAQ</a>
-        <a href="https://github.com/hasibcore/Twilight" target="_blank" class="github-btn">
-          <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
+      <!-- Navigation Links -->
+      <nav class="nav-menu">
+        <a href="#overview" class="nav-item">Overview</a>
+        <a href="#features" class="nav-item">Features</a>
+        <a href="#downloads" class="nav-item">Downloads</a>
+        <a href="#install" class="nav-item">Installation</a>
+        <a href="#community" class="nav-item">GitHub</a>
+        <a href="#faq" class="nav-item">FAQ</a>
+      </nav>
+
+      <!-- Action Buttons -->
+      <div class="header-actions">
+        <!-- Live GitHub Star Badge -->
+        <a href="https://github.com/hasibcore/Twilight-Music" target="_blank" rel="noopener noreferrer" class="btn-github-star" title="Star repository on GitHub">
+          <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
           </svg>
-          GitHub
+          <span class="star-label">Star</span>
+          <span class="star-count" id="navStarCounter">★ 12</span>
         </a>
-      </nav>
+
+        <!-- Launch Web App Button -->
+        <a href="/" class="btn-primary-compact">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          <span>Web Player</span>
+        </a>
+      </div>
     </div>
   </header>
 
   <!-- Hero Section -->
-  <main>
-    <section class="hero">
-      <div class="hero-content">
-        <div class="hero-tag">
-          <span class="pulse-dot"></span>
-          <span>Open Source Cross-Platform Audio Player</span>
-        </div>
-        <h1 class="hero-heading">
-          Your Music, Everywhere. <br>
-          <span class="gradient-text">Zero Ads. Zero Delays.</span>
-        </h1>
-        <p class="hero-subheading">
-          Twilight is an ultra-fast music streaming & offline player engineered with high-bitrate audio, background lockscreen playback, and Firebase cloud sync across Android, Windows PC, and iOS.
-        </p>
+  <main id="overview">
+    <section class="hero-section">
+      <div class="container hero-container">
+        <!-- Hero Content (Text & Call-to-actions) -->
+        <div class="hero-left">
+          <div class="hero-pill">
+            <span class="pulsing-indicator"></span>
+            <span>Ultra-Fast Cross-Platform Audio Player</span>
+          </div>
 
-        <!-- Dynamic OS Detector & Fast Action -->
-        <div class="hero-cta-group">
-          <a id="primaryDownloadBtn" href="#downloads" class="cta-primary">
-            <span class="cta-icon" id="primaryOsIcon">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/>
+          <h1 class="hero-title">
+            Music Without Limits.<br>
+            <span class="text-gradient">Zero Ads. Pure Fidelity.</span>
+          </h1>
+
+          <p class="hero-description">
+            Experience uncompressed, high-bitrate audio streaming with background lockscreen playback, smart radio autoplay, and instant Firebase cloud sync across <strong>Android, Windows, iOS, and Web</strong>.
+          </p>
+
+          <!-- Hero Action Buttons -->
+          <div class="hero-buttons">
+            <!-- Smart Dynamic Download Button (Adapts to detected OS) -->
+            <a id="heroSmartDownloadBtn" href="#downloads" class="btn-hero-primary">
+              <span class="btn-icon-wrapper" id="smartBtnIcon">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                  <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                </svg>
+              </span>
+              <div class="btn-label-block">
+                <span class="btn-title" id="smartBtnLabel">Download Twilight</span>
+                <span class="btn-subtitle" id="smartBtnSub">Free • v3.5.2 Release</span>
+              </div>
+            </a>
+
+            <!-- Web Player Button -->
+            <a href="/" class="btn-hero-secondary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"></polygon>
               </svg>
-            </span>
-            <div class="cta-text">
-              <span class="cta-label" id="primaryOsLabel">Download Twilight</span>
-              <span class="cta-version">Free • v2.4.0 Release</span>
+              <span>Instant Web App</span>
+            </a>
+
+            <!-- View on GitHub -->
+            <a href="https://github.com/hasibcore/Twilight-Music" target="_blank" rel="noopener noreferrer" class="btn-hero-ghost">
+              <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+              </svg>
+              <span>GitHub Repo</span>
+            </a>
+          </div>
+
+          <!-- Key Metrics Row -->
+          <div class="hero-metrics">
+            <div class="metric-block">
+              <span class="metric-number" id="heroDownloadsCounter">1.5k+</span>
+              <span class="metric-caption">Active Downloads</span>
             </div>
-          </a>
-          <a href="#downloads" class="cta-secondary">
-            View All Platforms
-          </a>
+            <div class="metric-separator"></div>
+            <div class="metric-block">
+              <span class="metric-number">256 kbps</span>
+              <span class="metric-caption">Enhanced Audio</span>
+            </div>
+            <div class="metric-separator"></div>
+            <div class="metric-block">
+              <span class="metric-number">&lt; 100ms</span>
+              <span class="metric-caption">Instant Start</span>
+            </div>
+            <div class="metric-separator"></div>
+            <div class="metric-block">
+              <span class="metric-number">0 Ads</span>
+              <span class="metric-caption">Free &amp; Open Source</span>
+            </div>
+          </div>
         </div>
 
-        <!-- Social Proof Stats -->
-        <div class="hero-stats">
-          <div class="stat-item">
-            <span class="stat-number">256 kbps</span>
-            <span class="stat-desc">Enhanced AAC Audio</span>
-          </div>
-          <div class="stat-divider"></div>
-          <div class="stat-item">
-            <span class="stat-number">&lt; 100ms</span>
-            <span class="stat-desc">Instant Song Load</span>
-          </div>
-          <div class="stat-divider"></div>
-          <div class="stat-item">
-            <span class="stat-number">100% Free</span>
-            <span class="stat-desc">No Subscription or Ads</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- App Mockup Preview with Audio Visualizer -->
-      <div class="hero-preview">
-        <div class="phone-frame">
-          <div class="phone-notch"></div>
-          <div class="phone-screen">
-            <div class="screen-header">
-              <span class="screen-chip">Now Playing</span>
-              <span class="screen-badge">Cloud Sync</span>
+        <!-- Hero Right: Interactive Sleek Glass Audio Player -->
+        <div class="hero-right">
+          <div class="glass-player-card">
+            <!-- Top Status Bar -->
+            <div class="player-topbar">
+              <div class="player-indicator">
+                <span class="indicator-dot"></span>
+                <span class="indicator-text" id="playerStatusText">Live Audio Preview</span>
+              </div>
+              <span class="audio-badge">256k AAC</span>
             </div>
-            <div class="album-art-container">
-              <div class="album-art-disc">
-                <div class="disc-groove"></div>
-                <div class="disc-center">
-                  <div class="disc-inner-dot"></div>
+
+            <!-- Album Artwork & Disc Reflection -->
+            <div class="player-art-stage">
+              <div class="ambient-glow" id="artAmbientGlow"></div>
+              <div class="disc-rotor" id="heroAlbumDisc">
+                <div class="disc-vinyl-grooves"></div>
+                <div class="disc-center-label">
+                  <div class="disc-pin"></div>
                 </div>
               </div>
             </div>
-            <div class="track-meta">
-              <div class="track-name">Die With A Smile</div>
-              <div class="track-artist">Lady Gaga & Bruno Mars</div>
+
+            <!-- Track Info -->
+            <div class="player-track-info">
+              <h3 class="track-title" id="playerTrackTitle">Obak Bhalobasha</h3>
+              <p class="track-artist" id="playerTrackArtist">Warfaze • Coke Studio Bangla</p>
             </div>
-            <canvas id="visualizerCanvas" width="260" height="42"></canvas>
-            <div class="progress-bar">
-              <div class="progress-fill"></div>
+
+            <!-- Real-time Reactive Waveform Visualizer -->
+            <div class="visualizer-container">
+              <canvas id="heroVisualizerCanvas" width="320" height="48"></canvas>
             </div>
-            <div class="time-meta">
-              <span>1:42</span>
-              <span>4:11</span>
+
+            <!-- Progress Bar -->
+            <div class="player-progress-wrapper" id="playerProgressWrapper">
+              <div class="player-progress-bar">
+                <div class="player-progress-fill" id="playerProgressFill"></div>
+              </div>
+              <div class="player-timestamps">
+                <span id="playerCurrentTime">0:00</span>
+                <span id="playerTotalTime">5:24</span>
+              </div>
             </div>
-            <div class="controls-row">
-              <button class="mock-btn">⏮</button>
-              <button class="mock-btn-play">▶</button>
-              <button class="mock-btn">⏭</button>
+
+            <!-- Interactive Playback Controls -->
+            <div class="player-controls">
+              <button class="ctrl-btn" id="ctrlPrevBtn" title="Previous Track">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                  <polygon points="19 20 9 12 19 4 19 20"></polygon>
+                  <line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" stroke-width="2.5"></line>
+                </svg>
+              </button>
+
+              <button class="ctrl-play-btn" id="ctrlPlayBtn" title="Play or Pause">
+                <svg id="playIconSvg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
+                  <polygon points="6 4 20 12 6 20 6 4"></polygon>
+                </svg>
+                <svg id="pauseIconSvg" viewBox="0 0 24 24" fill="currentColor" width="22" height="22" style="display:none;">
+                  <rect x="6" y="4" width="4" height="16"></rect>
+                  <rect x="14" y="4" width="4" height="16"></rect>
+                </svg>
+              </button>
+
+              <button class="ctrl-btn" id="ctrlNextBtn" title="Next Track">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                  <polygon points="5 4 15 12 5 20 5 4"></polygon>
+                  <line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2.5"></line>
+                </svg>
+              </button>
+            </div>
+
+            <p class="player-footnote">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+              </svg>
+              Click Play to experience real audio streaming
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bento Grid Features Section -->
+    <section id="features" class="section-container">
+      <div class="section-heading text-center">
+        <span class="section-eyebrow">Engineered For Performance</span>
+        <h2 class="section-main-title">Crafted for Pure Listening Pleasure</h2>
+        <p class="section-subtitle">
+          Built from the ground up to outperform mainstream streaming apps with lightning speed, privacy, and zero interruptions.
+        </p>
+      </div>
+
+      <!-- Bento Grid Layout -->
+      <div class="bento-grid">
+        <!-- Feature 1: Instant Streaming (Large) -->
+        <div class="bento-card bento-span-2">
+          <div class="bento-card-bg"></div>
+          <div class="bento-content">
+            <div class="bento-icon-box">⚡</div>
+            <h3>Sub-100ms Instant Playback</h3>
+            <p>
+              Our multi-tiered stream extractor pre-warms audio buffers in memory. Music starts playing before you even lift your finger from the screen.
+            </p>
+            <div class="bento-stat-chip">
+              <span>99.9% Cache Hit Rate</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 2: Background Playback -->
+        <div class="bento-card">
+          <div class="bento-card-bg"></div>
+          <div class="bento-content">
+            <div class="bento-icon-box">🔒</div>
+            <h3>Lockscreen Audio</h3>
+            <p>
+              Full system integration with notification controls, lockscreen widgets, and background audio policies that never stall.
+            </p>
+          </div>
+        </div>
+
+        <!-- Feature 3: Offline Downloads -->
+        <div class="bento-card">
+          <div class="bento-card-bg"></div>
+          <div class="bento-content">
+            <div class="bento-icon-box">📥</div>
+            <h3>256k AAC Offline Vault</h3>
+            <p>
+              Download unlimited high-quality tracks with embedded cover art and metadata. Listen anywhere without an internet connection.
+            </p>
+          </div>
+        </div>
+
+        <!-- Feature 4: Cloud Sync (Large) -->
+        <div class="bento-card bento-span-2">
+          <div class="bento-card-bg"></div>
+          <div class="bento-content">
+            <div class="bento-icon-box">☁️</div>
+            <h3>Firebase Real-Time Cloud Sync</h3>
+            <p>
+              Sign in with Google or email to synchronize your playlists, liked tracks, and listening history across Android, Windows, and Web in real time.
+            </p>
+            <div class="bento-tag-row">
+              <span class="tag">Cross-Platform Sync</span>
+              <span class="tag">Encrypted User Vault</span>
+              <span class="tag">Instant Recovery</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 5: Smart Radio Autoplay -->
+        <div class="bento-card">
+          <div class="bento-card-bg"></div>
+          <div class="bento-content">
+            <div class="bento-icon-box">📻</div>
+            <h3>Smart Radio Autoplay</h3>
+            <p>
+              Never let the music end. Our recommendation algorithm automatically cues similar songs based on your listening mood.
+            </p>
+          </div>
+        </div>
+
+        <!-- Feature 6: Zero Ads -->
+        <div class="bento-card">
+          <div class="bento-card-bg"></div>
+          <div class="bento-content">
+            <div class="bento-icon-box">🚫</div>
+            <h3>Zero Ads. 100% Free</h3>
+            <p>
+              No premium subscriptions, no audio interruptions, and no user tracking. Clean, honest software licensed under MIT.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Unified Downloads Hub -->
+    <section id="downloads" class="section-container downloads-hub-section">
+      <div class="section-heading text-center">
+        <span class="section-eyebrow">Available Across All Platforms</span>
+        <h2 class="section-main-title">Download Twilight for Your Device</h2>
+        <p class="section-subtitle">
+          Direct, unrestricted downloads for public use. Click your platform below to download the compiled binary.
+        </p>
+      </div>
+
+      <!-- Segmented Platform Tabs -->
+      <div class="platform-segmented-nav">
+        <button class="seg-btn active" data-filter="all">All Platforms</button>
+        <button class="seg-btn" data-filter="android">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+            <path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993.0001.5511-.4483.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993 0 .5511-.4482.9997-.9993.9997m11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1521-.5676.416.416 0 00-.5676.1521l-2.0223 3.503C15.5902 8.4116 13.8533 8.12 12 8.12s-3.5902.2916-5.1368.8307L4.8409 5.4477a.416.416 0 00-.5676-.1521.416.416 0 00-.1521.5676l1.9973 3.4592C2.6889 11.1867.3432 14.6589 0 18.761h24c-.3432-4.1021-2.6889-7.5743-6.1185-9.4396"/>
+          </svg>
+          Android
+        </button>
+        <button class="seg-btn" data-filter="windows">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+            <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.901-1.801"/>
+          </svg>
+          Windows PC
+        </button>
+        <button class="seg-btn" data-filter="ios">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.38c.62-.75 1.04-1.8 0.93-2.85-.9.04-1.99.6-2.61 1.34-.55.63-1.03 1.68-.9 2.7 1 .08 2-.45 2.58-1.19z"/>
+          </svg>
+          iOS / Apple
+        </button>
+        <button class="seg-btn" data-filter="web">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+          </svg>
+          Web Player
+        </button>
+        <button class="seg-btn" data-filter="source">Source Code</button>
+      </div>
+
+      <!-- Download Cards Grid -->
+      <div class="cards-grid">
+        <!-- 1. Android Card -->
+        <div class="platform-card" id="card-android" data-platform="android">
+          <div class="card-glow"></div>
+          <div class="card-inner">
+            <div class="card-header">
+              <div class="card-platform-icon android-accent">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32">
+                  <path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993.0001.5511-.4483.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993 0 .5511-.4482.9997-.9993.9997m11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1521-.5676.416.416 0 00-.5676.1521l-2.0223 3.503C15.5902 8.4116 13.8533 8.12 12 8.12s-3.5902.2916-5.1368.8307L4.8409 5.4477a.416.416 0 00-.5676-.1521.416.416 0 00-.1521.5676l1.9973 3.4592C2.6889 11.1867.3432 14.6589 0 18.761h24c-.3432-4.1021-2.6889-7.5743-6.1185-9.4396"/>
+                </svg>
+              </div>
+              <span class="card-badge-pill">Most Popular</span>
+            </div>
+
+            <h3 class="card-title">Android APK</h3>
+            <p class="card-summary">
+              Complete native package with system media notifications, lockscreen playback, and offline storage.
+            </p>
+
+            <div class="card-specs-list">
+              <div class="spec-row">
+                <span class="spec-name">Compatibility</span>
+                <span class="spec-val">Android 7.0 - 15+</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-name">Package Size</span>
+                <span class="spec-val">~69 MB APK</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-name">Release Tag</span>
+                <span class="spec-val text-emerald">v3.0.0 Official</span>
+              </div>
+            </div>
+
+            <div class="card-action-stack">
+              <a href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.5.2/Twilight-Android-v3.5.2.apk" class="btn-download-primary btn-android" download="Twilight-Android-v3.5.2.apk">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                  <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                </svg>
+                <span>Download APK (v3.0.0)</span>
+              </a>
+
+              <button class="btn-qr-scan" onclick="triggerQrModal('https://github.com/hasibcore/Twilight-Music/releases/download/v3.5.2/Twilight-Android-v3.5.2.apk', 'Android APK')">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                  <path d="M3 3h8v8H3zm2 2v4h4V5zm8-2h8v8h-8zm2 2v4h4V5zM3 13h8v8H3zm2 2v4h4v-4zm13-2h3v2h-3zm-5 0h3v3h-3zm2 5h3v3h-3zm3-2h3v5h-2v-3h-1zm-3-3h2v2h-2zm-2 5h2v2h-2z"/>
+                </svg>
+                <span>Scan QR for Mobile</span>
+              </button>
+            </div>
+
+            <div class="card-footer-links">
+              <a href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.5.2/Twilight-Android-v3.5.2.apk" class="link-sub" download>Mirror Download</a>
+              <a href="#install-android" class="link-sub">Install Instructions →</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Windows PC Card -->
+        <div class="platform-card" id="card-windows" data-platform="windows">
+          <div class="card-glow"></div>
+          <div class="card-inner">
+            <div class="card-header">
+              <div class="card-platform-icon windows-accent">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32">
+                  <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.901-1.801"/>
+                </svg>
+              </div>
+              <span class="card-badge-pill">Desktop App</span>
+            </div>
+
+            <h3 class="card-title">Windows PC (x64)</h3>
+            <p class="card-summary">
+              Lightweight desktop edition with global keyboard media keys, system tray minimization, and zero bloat.
+            </p>
+
+            <div class="card-specs-list">
+              <div class="spec-row">
+                <span class="spec-name">Compatibility</span>
+                <span class="spec-val">Windows 10 &amp; 11 (64-bit)</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-name">Format</span>
+                <span class="spec-val">Portable ZIP / Standalone EXE</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-name">Media Keys</span>
+                <span class="spec-val text-cyan">Hardware Supported</span>
+              </div>
+            </div>
+
+            <div class="card-action-stack">
+              <a href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.0.0/Twilight-Windows-x64-v3.0.0.zip" class="btn-download-primary btn-windows" download="Twilight-Windows-x64-v3.0.0.zip">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                  <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                </svg>
+                <span>Download Windows (x64 ZIP)</span>
+              </a>
+
+              <a href="#install-windows" class="btn-qr-scan">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="16" x2="12" y2="12"></line>
+                  <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                </svg>
+                <span>Setup Guide for Windows</span>
+              </a>
+            </div>
+
+            <div class="card-footer-links">
+              <span class="text-muted">Zero installation needed</span>
+              <a href="#install-windows" class="link-sub">SmartScreen Info →</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. iOS Card -->
+        <div class="platform-card" id="card-ios" data-platform="ios">
+          <div class="card-glow"></div>
+          <div class="card-inner">
+            <div class="card-header">
+              <div class="card-platform-icon apple-accent">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32">
+                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.38c.62-.75 1.04-1.8 0.93-2.85-.9.04-1.99.6-2.61 1.34-.55.63-1.03 1.68-.9 2.7 1 .08 2-.45 2.58-1.19z"/>
+                </svg>
+              </div>
+              <span class="card-badge-pill">Apple Ecosystem</span>
+            </div>
+
+            <h3 class="card-title">iOS (iPhone &amp; iPad)</h3>
+            <p class="card-summary">
+              Sideload the IPA package via AltStore / Sideloadly, or launch the instantaneous full-screen PWA in Safari.
+            </p>
+
+            <div class="card-specs-list">
+              <div class="spec-row">
+                <span class="spec-name">Compatibility</span>
+                <span class="spec-val">iOS 14.0 - iOS 18+</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-name">IPA Package</span>
+                <span class="spec-val">~9.7 MB</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-name">Web PWA</span>
+                <span class="spec-val text-rose">Add to Home Screen</span>
+              </div>
+            </div>
+
+            <div class="card-action-stack">
+              <a href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.0.0/Twilight-iOS-v3.0.0.ipa" class="btn-download-primary btn-apple" download="Twilight-iOS-v3.0.0.ipa">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                  <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                </svg>
+                <span>Download iOS IPA</span>
+              </a>
+
+              <a href="/" class="btn-qr-scan">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"></polygon>
+                </svg>
+                <span>Launch in Safari (PWA)</span>
+              </a>
+            </div>
+
+            <div class="card-footer-links">
+              <span class="text-muted">AltStore / TrollStore Ready</span>
+              <a href="#install-ios" class="link-sub">Sideload Guide →</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Web Player Card -->
+        <div class="platform-card" id="card-web" data-platform="web">
+          <div class="card-glow"></div>
+          <div class="card-inner">
+            <div class="card-header">
+              <div class="card-platform-icon web-accent">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="32" height="32">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="2" y1="12" x2="22" y2="12"></line>
+                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                </svg>
+              </div>
+              <span class="card-badge-pill">Zero Install</span>
+            </div>
+
+            <h3 class="card-title">Instant Web Player</h3>
+            <p class="card-summary">
+              Listen directly in any modern desktop or mobile browser with offline caching and background audio support.
+            </p>
+
+            <div class="card-specs-list">
+              <div class="spec-row">
+                <span class="spec-name">Browsers</span>
+                <span class="spec-val">Chrome, Safari, Edge, Firefox</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-name">PWA Ready</span>
+                <span class="spec-val text-emerald">1-Click Installable</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-name">Storage</span>
+                <span class="spec-val">IndexedDB Offline Cache</span>
+              </div>
+            </div>
+
+            <div class="card-action-stack">
+              <a href="/" class="btn-download-primary btn-web">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                  <path d="M8 5v14l11-7z"/>
+                </svg>
+                <span>Launch Web Player Now</span>
+              </a>
+            </div>
+
+            <div class="card-footer-links">
+              <span class="text-muted">Instant Access</span>
+              <a href="/" class="link-sub">Open App →</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Source Code Card -->
+        <div class="platform-card" id="card-source" data-platform="source">
+          <div class="card-glow"></div>
+          <div class="card-inner">
+            <div class="card-header">
+              <div class="card-platform-icon source-accent">
+                <svg height="32" width="32" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+                </svg>
+              </div>
+              <span class="card-badge-pill">Open Source</span>
+            </div>
+
+            <h3 class="card-title">Full Source Code (ZIP)</h3>
+            <p class="card-summary">
+              Download the complete codebase: Flutter mobile/desktop apps, React web UI, Express audio backend, and build scripts.
+            </p>
+
+            <div class="card-specs-list">
+              <div class="spec-row">
+                <span class="spec-name">Stack</span>
+                <span class="spec-val">Flutter, Dart, React, TS, Node</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-name">License</span>
+                <span class="spec-val text-amber">MIT Open Source</span>
+              </div>
+              <div class="spec-row">
+                <span class="spec-name">CI/CD</span>
+                <span class="spec-val">GitHub Actions APK Workflows</span>
+              </div>
+            </div>
+
+            <div class="card-action-stack">
+              <a href="https://github.com/hasibcore/Twilight-Music/archive/refs/tags/v3.5.2.zip" class="btn-download-primary btn-source" download="Twilight-Music-v3.0.0-Full-Project.zip">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+                  <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                </svg>
+                <span>Download Source ZIP</span>
+              </a>
+            </div>
+
+            <div class="card-footer-links">
+              <a href="https://github.com/hasibcore/Twilight-Music" target="_blank" class="link-sub">Browse on GitHub →</a>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Download Section (Platforms) -->
-    <section id="downloads" class="section downloads-section">
-      <div class="section-header">
-        <span class="section-tag">Direct Downloads</span>
-        <h2 class="section-title">Get Twilight for Your Device</h2>
-        <p class="section-subtitle">Single unified hub to download installable packages for Android, Windows PC, and iOS.</p>
-      </div>
+    <!-- GitHub Community & Terminal Clone Section -->
+    <section id="community" class="section-container community-section">
+      <div class="community-banner">
+        <div class="community-badge">
+          <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+          </svg>
+          <span>Open Source Developer Hub</span>
+        </div>
 
-      <div class="download-grid">
-        <!-- Android Card -->
-        <div class="download-card" id="card-android">
-          <div class="card-badge">Most Popular</div>
-          <div class="platform-icon android-icon">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="44" height="44">
-              <path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993.0001.5511-.4483.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993 0 .5511-.4482.9997-.9993.9997m11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1521-.5676.416.416 0 00-.5676.1521l-2.0223 3.503C15.5902 8.4116 13.8533 8.12 12 8.12s-3.5902.2916-5.1368.8307L4.8409 5.4477a.416.416 0 00-.5676-.1521.416.416 0 00-.1521.5676l1.9973 3.4592C2.6889 11.1867.3432 14.6589 0 18.761h24c-.3432-4.1021-2.6889-7.5743-6.1185-9.4396"/>
-            </svg>
+        <h2 class="community-title">
+          100% Transparent. Maintained by <span class="text-gradient">@hasibcore</span>
+        </h2>
+        <p class="community-description">
+          Twilight Music is free and open to everyone. Fork the project, submit pull requests, or inspect the source code anytime.
+        </p>
+
+        <!-- 1-Click Copy Terminal Command Box -->
+        <div class="terminal-box">
+          <div class="terminal-cmd">
+            <span class="terminal-prompt">$</span>
+            <code id="terminalCloneText">git clone https://github.com/hasibcore/Twilight-Music.git</code>
           </div>
-          <h3 class="card-title">Android APK</h3>
-          <p class="card-desc">Full native support with background playback, notification player, lockscreen widget, and offline MP3/M4A storage.</p>
-          <ul class="card-specs">
-            <li>✓ Android 7.0 (Nougat) to Android 15+</li>
-            <li>✓ Ad-Free Background Audio</li>
-            <li>✓ Offline Downloads with Cover Artwork</li>
-          </ul>
-          <a href="/downloads/app-release.apk" download="app-release.apk" class="download-btn android-btn">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+          <button class="terminal-copy-btn" id="terminalCopyBtn" onclick="copyTerminalSnippet()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
             </svg>
-            Download APK (v2.4.0)
+            <span id="copyBtnStatus">Copy</span>
+          </button>
+        </div>
+
+        <!-- Live Metrics Cards -->
+        <div class="community-metrics-row">
+          <div class="c-metric-item">
+            <span class="c-val" id="metricStarsLive">12</span>
+            <span class="c-lbl">GitHub Stars</span>
+          </div>
+          <div class="c-metric-item">
+            <span class="c-val" id="metricForksLive">4</span>
+            <span class="c-lbl">Forks</span>
+          </div>
+          <div class="c-metric-item">
+            <span class="c-val" id="metricReleaseLive">v3.0.0</span>
+            <span class="c-lbl">Latest Build</span>
+          </div>
+          <div class="c-metric-item">
+            <span class="c-val">MIT</span>
+            <span class="c-lbl">Open License</span>
+          </div>
+        </div>
+
+        <!-- Community Action Buttons -->
+        <div class="community-actions">
+          <a href="https://github.com/hasibcore/Twilight-Music" target="_blank" rel="noopener noreferrer" class="btn-community-primary">
+            <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+            </svg>
+            <span>Star on GitHub</span>
           </a>
-          <span class="file-size">~22 MB • Direct APK Installer</span>
-        </div>
-
-        <!-- PC (Windows) Card -->
-        <div class="download-card" id="card-windows">
-          <div class="card-badge">Desktop Power</div>
-          <div class="platform-icon windows-icon">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="44" height="44">
-              <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.901-1.801"/>
-            </svg>
-          </div>
-          <h3 class="card-title">Windows PC (x64)</h3>
-          <p class="card-desc">High-fidelity studio playback on your desktop or laptop. Minimal CPU usage, native system tray controls, and media hotkeys.</p>
-          <ul class="card-specs">
-            <li>✓ Windows 10 & 11 (64-bit)</li>
-            <li>✓ Keyboard Media Keys Support</li>
-            <li>✓ Portable ZIP / Standalone Runner</li>
-          </ul>
-          <a href="/downloads/Twilight-Windows-x64.zip" download="Twilight-Windows-x64.zip" class="download-btn windows-btn">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
-            </svg>
-            Download PC (x64 ZIP)
+          <a href="https://github.com/hasibcore/Twilight-Music/releases" target="_blank" rel="noopener noreferrer" class="btn-community-ghost">
+            <span>All Release Notes →</span>
           </a>
-          <span class="file-size">~18 MB • Portable Executable</span>
-        </div>
-
-        <!-- iOS (Apple) Card -->
-        <div class="download-card" id="card-ios">
-          <div class="card-badge">Apple Ecosystem</div>
-          <div class="platform-icon apple-icon">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="44" height="44">
-              <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.38c.62-.75 1.04-1.8 0.93-2.85-.9.04-1.99.6-2.61 1.34-.55.63-1.03 1.68-.9 2.7 1 .08 2-.45 2.58-1.19z"/>
-            </svg>
-          </div>
-          <h3 class="card-title">iOS (iPhone & iPad)</h3>
-          <p class="card-desc">Sideload the unsigned IPA package via AltStore, TrollStore, or Sideloadly, or launch the zero-install Web App instantly.</p>
-          <ul class="card-specs">
-            <li>✓ iOS 14.0 to iOS 18+</li>
-            <li>✓ Sideloadable IPA Package</li>
-            <li>✓ Instant PWA Web App Support</li>
-          </ul>
-          <a href="/downloads/Twilight-iOS.ipa" download="Twilight-iOS.ipa" class="download-btn apple-btn">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
-            </svg>
-            Download iOS (IPA)
+          <a href="https://github.com/hasibcore/Twilight-Music/issues" target="_blank" rel="noopener noreferrer" class="btn-community-ghost">
+            <span>Report an Issue</span>
           </a>
-          <span class="file-size">~25 MB • AltStore / Sideloadly</span>
         </div>
       </div>
     </section>
 
-    <!-- Key Features Section -->
-    <section id="features" class="section features-section">
-      <div class="section-header">
-        <span class="section-tag">Superior Tech</span>
-        <h2 class="section-title">Built for Real Music Enthusiasts</h2>
-        <p class="section-subtitle">Engineered to outperform standard streaming apps with freedom, privacy, and speed.</p>
+    <!-- Installation Steps Section -->
+    <section id="install" class="section-container">
+      <div class="section-heading text-center">
+        <span class="section-eyebrow">Quick Setup</span>
+        <h2 class="section-main-title">Installation Guides</h2>
+        <p class="section-subtitle">
+          Ready to run in seconds. Follow these simple steps for your platform.
+        </p>
       </div>
 
-      <div class="features-grid">
-        <div class="feature-card">
-          <div class="feature-icon">⚡</div>
-          <h3>Zero-Delay Instant Play</h3>
-          <p>Multi-tiered audio extractor with memory caching starts music in under 100 milliseconds without buffering delays.</p>
+      <div class="guides-grid">
+        <!-- Android Guide -->
+        <div class="guide-box" id="install-android">
+          <div class="guide-icon-tag android-accent">Android</div>
+          <h4>How to install on Android</h4>
+          <ol class="steps-numbered">
+            <li>
+              <strong>Download:</strong> Tap the <em>Download APK (v3.0.0)</em> button or scan the QR code from your phone.
+            </li>
+            <li>
+              <strong>Open:</strong> Tap the downloaded <code>app-release.apk</code> file in your Downloads.
+            </li>
+            <li>
+              <strong>Permit:</strong> If prompted with <em>"Install unknown apps"</em>, enable <strong>Allow from this source</strong>.
+            </li>
+            <li>
+              <strong>Launch:</strong> Tap <em>Install</em>, open Twilight, and begin listening with zero ads!
+            </li>
+          </ol>
         </div>
 
-        <div class="feature-card">
-          <div class="feature-icon">🔥</div>
-          <h3>Background Lockscreen Controls</h3>
-          <p>Plays continuously when your phone screen turns off or while using other apps, with native system media notification.</p>
+        <!-- Windows Guide -->
+        <div class="guide-box" id="install-windows">
+          <div class="guide-icon-tag windows-accent">Windows PC</div>
+          <h4>How to run on Windows 10 &amp; 11</h4>
+          <ol class="steps-numbered">
+            <li>
+              <strong>Download ZIP:</strong> Click <em>Download Windows (x64 ZIP)</em>.
+            </li>
+            <li>
+              <strong>Extract:</strong> Right-click the downloaded <code>.zip</code> file and choose <strong>Extract All...</strong>
+            </li>
+            <li>
+              <strong>Run:</strong> Open the extracted folder and double-click <code>melody_tube.exe</code>.
+            </li>
+            <li>
+              <strong>SmartScreen:</strong> If Windows Defender displays <em>"Windows protected your PC"</em>, click <strong>More info</strong> &rarr; <strong>Run anyway</strong>.
+            </li>
+          </ol>
         </div>
 
-        <div class="feature-card">
-          <div class="feature-icon">☁️</div>
-          <h3>Firebase Cloud Sync</h3>
-          <p>Sign up in seconds to backup your favorite songs, customized playlists, and history safely across all your phones and computers.</p>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">📥</div>
-          <h3>Offline High-Bitrate Downloads</h3>
-          <p>Save unlimited tracks in high-quality 256 kbps AAC format with complete cover artwork for offline trips and flights.</p>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">📻</div>
-          <h3>Smart Radio Autoplay</h3>
-          <p>When your queue ends, Twilight automatically finds and cues similar trending tracks for non-stop infinite listening.</p>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">🎛️</div>
-          <h3>Equalizer & Sleep Timer</h3>
-          <p>Spotify-style sleep timers, audio playback speed control (0.5x to 2.0x), and preset sound tuning.</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- Hosting & Deployment Badge Guide -->
-    <section class="section hosting-section">
-      <div class="section-header">
-        <span class="section-tag">Deploy Anywhere</span>
-        <h2 class="section-title">Ready for Vercel, Netlify & GitHub Pages</h2>
-        <p class="section-subtitle">This landing platform and web music player can be hosted on your own custom domain in 1-click.</p>
-      </div>
-
-      <div class="hosting-grid">
-        <div class="hosting-card">
-          <div class="host-logo vercel-logo">▲ Vercel</div>
-          <p>Zero-config deployment with included <code>vercel.json</code>. Connect your custom domain with automatic SSL.</p>
-          <span class="host-badge">vercel.json Included</span>
-        </div>
-        <div class="hosting-card">
-          <div class="host-logo netlify-logo">◆ Netlify</div>
-          <p>Deploy with continuous git updates via <code>netlify.toml</code>. Free CDN and global edge routing.</p>
-          <span class="host-badge">netlify.toml Included</span>
-        </div>
-        <div class="hosting-card">
-          <div class="host-logo github-logo">● GitHub Pages</div>
-          <p>Automated deployment via GitHub Actions workflow directly to <code>hasibcore.github.io/Twilight</code>.</p>
-          <span class="host-badge">Workflow Ready</span>
+        <!-- iOS Guide -->
+        <div class="guide-box" id="install-ios">
+          <div class="guide-icon-tag apple-accent">iOS / iPhone</div>
+          <h4>How to install on iOS</h4>
+          <ol class="steps-numbered">
+            <li>
+              <strong>Instant PWA (Recommended):</strong> Open this page in Safari, tap the <strong>Share</strong> button (square with arrow) &rarr; select <strong>Add to Home Screen</strong>.
+            </li>
+            <li>
+              <strong>Sideloading (AltStore):</strong> Download <code>Twilight-iOS-v2.4.0.ipa</code>, open AltStore on your phone, tap <strong>(+)</strong>, and install the IPA.
+            </li>
+            <li>
+              <strong>Sideloadly / TrollStore:</strong> Connect iPhone via USB, drag the IPA into Sideloadly, enter your Apple ID, and click Start.
+            </li>
+          </ol>
         </div>
       </div>
     </section>
 
-    <!-- FAQ Section -->
-    <section id="faq" class="section faq-section">
-      <div class="section-header">
-        <span class="section-tag">Questions & Answers</span>
-        <h2 class="section-title">Frequently Asked Questions</h2>
+    <!-- FAQ Accordion -->
+    <section id="faq" class="section-container faq-section">
+      <div class="section-heading text-center">
+        <span class="section-eyebrow">Got Questions?</span>
+        <h2 class="section-main-title">Frequently Asked Questions</h2>
       </div>
 
-      <div class="faq-container">
+      <div class="faq-stack">
         <details class="faq-item" open>
-          <summary>How do I install the Android APK?</summary>
-          <p>1. Tap the "Download APK" button above.<br>
-             2. Open the downloaded <code>app-release.apk</code> file from your downloads.<br>
-             3. If prompted, enable "Install unknown apps" for your browser.<br>
-             4. Tap "Install" and enjoy unlimited ad-free music!</p>
+          <summary>Is Twilight Music really free with zero advertisements?</summary>
+          <div class="faq-answer">
+            Yes! Twilight Music is 100% free and open-source under the MIT license. There are no subscriptions, no ads, and no premium paywalls. Audio streams are direct and unthrottled.
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>Where can I download the Android APK?</summary>
+          <div class="faq-answer">
+            You can download the compiled <code>app-release.apk</code> directly from the Android card on this page or from the <a href="https://github.com/hasibcore/Twilight-Music/releases/tag/v3.5.2" target="_blank">official GitHub Releases</a>. You can also scan the QR code to download it directly onto your phone.
+          </div>
         </details>
 
         <details class="faq-item">
           <summary>How do I run Twilight on Windows PC?</summary>
-          <p>1. Download the <code>Twilight-Windows-x64.zip</code> archive.<br>
-             2. Extract the ZIP folder anywhere on your computer.<br>
-             3. Double-click <code>melody_tube.exe</code> to run. (If Windows Defender SmartScreen shows "Unknown Publisher", click <i>More info</i> &rarr; <i>Run anyway</i>).</p>
+          <div class="faq-answer">
+            Download the Windows x64 ZIP package, extract it to any folder, and double-click <code>melody_tube.exe</code>. It is a portable build that does not modify your registry or require administrative rights.
+          </div>
         </details>
 
         <details class="faq-item">
-          <summary>How do I install on iOS (iPhone / iPad)?</summary>
-          <p>You can sideload the <code>Twilight-iOS.ipa</code> package using popular tools like AltStore, Sideloadly, or TrollStore. Alternatively, open this website in Safari and tap <i>Share &rarr; Add to Home Screen</i> to use the zero-install PWA version.</p>
+          <summary>Can I sync my playlists and favorites between devices?</summary>
+          <div class="faq-answer">
+            Yes! Twilight includes Firebase cloud synchronization. Simply register with your email or Google account, and your saved tracks, custom playlists, and history will sync across all your phones and computers.
+          </div>
         </details>
 
         <details class="faq-item">
-          <summary>Is Twilight really free with zero ads?</summary>
-          <p>Yes! Twilight is 100% open source and ad-free. Audio is streamed directly from unthrottled endpoints without interstitial commercials.</p>
+          <summary>Where is the GitHub repository and source code?</summary>
+          <div class="faq-answer">
+            The complete source code is available at <a href="https://github.com/hasibcore/Twilight-Music" target="_blank">https://github.com/hasibcore/Twilight-Music</a>. You can clone it, submit issues, or fork it anytime!
+          </div>
         </details>
       </div>
     </section>
   </main>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="footer-container">
-      <div class="footer-left">
-        <p class="footer-brand">Twilight Music • Open Source Project</p>
-        <p class="footer-copy">Maintained by <a href="https://github.com/hasibcore" target="_blank">@hasibcore</a> • Built with Flutter</p>
+  <!-- Mobile QR Code Glass Modal -->
+  <div class="modal-backdrop" id="qrModalBackdrop" onclick="closeQrModal()">
+    <div class="modal-dialog" onclick="event.stopPropagation()">
+      <button class="modal-close-btn" onclick="closeQrModal()">✕</button>
+      <div class="modal-header">
+        <span class="modal-badge">📱 Direct Phone Scan</span>
+        <h3 id="modalQrTitle">Scan to Download on Phone</h3>
+        <p>Point your smartphone camera at the QR code below to download the APK directly.</p>
       </div>
-      <div class="footer-right">
-        <a href="https://github.com/hasibcore/Twilight" target="_blank">Repository</a>
-        <a href="#downloads">Downloads</a>
-        <a href="https://github.com/hasibcore/Twilight/issues" target="_blank">Report Issue</a>
+      <div class="modal-qr-frame">
+        <canvas id="qrCanvas" width="220" height="220"></canvas>
+      </div>
+      <div class="modal-copy-row">
+        <input type="text" id="qrDirectUrlInput" readonly value="https://github.com/hasibcore/Twilight-Music/releases/download/v3.5.2/Twilight-Android-v3.5.2.apk">
+        <button class="btn-copy-link" onclick="copyDirectQrUrl()">Copy URL</button>
+      </div>
+      <p class="modal-caption">Works on native Android &amp; iOS camera apps without third-party scanners.</p>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-hub" id="toastHub"></div>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container footer-container">
+      <div class="footer-brand-info">
+        <div class="footer-logo">
+          <img src="/assets/logo.png" alt="Twilight" width="22" height="22" onerror="this.style.display='none'">
+          <span class="footer-title">Twilight Music</span>
+        </div>
+        <p class="footer-tagline">
+          Crafted with care by <a href="https://github.com/hasibcore" target="_blank" rel="noopener noreferrer">@hasibcore</a> • Built on Flutter &amp; React.
+        </p>
+      </div>
+
+      <div class="footer-links-group">
+        <a href="https://github.com/hasibcore/Twilight-Music" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/hasibcore/Twilight-Music/releases" target="_blank" rel="noopener noreferrer">Releases</a>
+        <a href="https://github.com/hasibcore/Twilight-Music/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="/">Web Player</a>
       </div>
     </div>
   </footer>
 
-  <script src="app.js"></script>
+    <script>
+/* ==========================================================================
+   Embedded Production Application Logic
+   ========================================================================== */
+// ==========================================================================
+// Twilight Music — High-End Modern Landing Experience & Audio Engine
+// ==========================================================================
+
+const GITHUB_REPO = 'hasibcore/Twilight-Music';
+const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO}`;
+
+// Sample Preview Playlist for the Floating Glass Audio Player
+const PREVIEW_TRACKS = [
+  {
+    title: 'Obak Bhalobasha',
+    artist: 'Warfaze • Coke Studio Bangla',
+    duration: '05:24',
+    durationSec: 324,
+    streamUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/d2/ac/fd/d2acfd00-a355-b90f-0617-407b09854edf/mzaf_4305828433436600036.plus.aac.p.m4a',
+  },
+  {
+    title: 'Shape of You',
+    artist: 'Ed Sheeran • ÷ (Divide)',
+    duration: '03:54',
+    durationSec: 234,
+    streamUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/44/c7/4f/44c74f0d-72dc-6143-d4d0-ba14d661ca0d/mzaf_9566898362556366703.plus.aac.p.m4a',
+  },
+  {
+    title: 'Bohemian Rhapsody',
+    artist: 'Queen • A Night at the Opera',
+    duration: '05:55',
+    durationSec: 355,
+    streamUrl: 'https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview221/v4/4b/83/09/4b8309c3-e3b2-10bd-ea80-ec017d832503/mzaf_9752264660400108875.plus.aac.p.m4a',
+  },
+];
+
+let currentTrackIdx = 0;
+let isAudioActive = false;
+let audioPlayerInstance = null;
+let playbackSeconds = 0;
+let trackInterval = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  fetchLiveGitHubStats();
+  detectVisitorPlatform();
+  initSegmentedTabs();
+  initFloatingAudioPlayer();
+  initWaveformVisualizer();
+});
+
+// 1. Fetch Live Dynamic GitHub Metrics & Release Data
+async function fetchLiveGitHubStats() {
+  try {
+    const res = await fetch(GITHUB_API_URL, { signal: AbortSignal.timeout(4000) });
+    if (res.ok) {
+      const data = await res.json();
+      const stars = data.stargazers_count ?? 12;
+      const forks = data.forks_count ?? 4;
+
+      const starCounters = [
+        document.getElementById('navStarCounter'),
+        document.getElementById('metricStarsLive'),
+      ];
+      starCounters.forEach((el) => {
+        if (el) el.textContent = `★ ${stars}`;
+      });
+
+      const forkEl = document.getElementById('metricForksLive');
+      if (forkEl) forkEl.textContent = String(forks);
+    }
+  } catch (e) {
+    // Fallback gracefully
+  }
+
+  try {
+    const relRes = await fetch(`${GITHUB_API_URL}/releases`, { signal: AbortSignal.timeout(4500) });
+    if (relRes.ok) {
+      const releases = await relRes.json();
+      if (Array.isArray(releases) && releases.length > 0) {
+        const latest = releases[0];
+        const tag = latest.tag_name || 'v3.0.0';
+
+        const tagBadges = [
+          document.getElementById('headerVersionTag'),
+          document.getElementById('metricReleaseLive'),
+        ];
+        tagBadges.forEach((el) => {
+          if (el) el.textContent = tag;
+        });
+
+        // Compute total download count
+        let totalCount = 0;
+        releases.forEach((r) => {
+          if (Array.isArray(r.assets)) {
+            r.assets.forEach((a) => {
+              totalCount += Number(a.download_count || 0);
+            });
+          }
+        });
+
+        if (totalCount > 0) {
+          const formatted = totalCount >= 1000
+            ? `${(totalCount / 1000).toFixed(1)}k+`
+            : `${totalCount}+`;
+
+          const counter = document.getElementById('heroDownloadsCounter');
+          if (counter) counter.textContent = formatted;
+        }
+      }
+    }
+  } catch (e) {
+    // Fallback gracefully
+  }
+}
+
+// 2. Intelligent OS Detection & Smart Hero Button Adaptation
+function detectVisitorPlatform() {
+  const ua = navigator.userAgent || navigator.vendor || window.opera || '';
+  const platform = navigator.platform || '';
+
+  const labelEl = document.getElementById('smartBtnLabel');
+  const subEl = document.getElementById('smartBtnSub');
+  const btnEl = document.getElementById('heroSmartDownloadBtn');
+
+  let targetUrl = '#downloads';
+
+  if (/android/i.test(ua)) {
+    targetUrl = 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.5.2/Twilight-Android-v3.5.2.apk';
+    highlightPlatformCard('card-android');
+    if (labelEl) labelEl.textContent = 'Download for Android (APK)';
+    if (subEl) subEl.textContent = 'Free APK • v3.0.0 Official';
+  } else if (/iPad|iPhone|iPod/.test(ua) && !window.MSStream) {
+    targetUrl = 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.0.0/Twilight-iOS-v3.0.0.ipa';
+    highlightPlatformCard('card-ios');
+    if (labelEl) labelEl.textContent = 'Download for iOS (IPA)';
+    if (subEl) subEl.textContent = 'IPA Sideload & Web PWA';
+  } else if (/Win/i.test(platform) || /Windows/i.test(ua)) {
+    targetUrl = 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.0.0/Twilight-Windows-x64-v3.0.0.zip';
+    highlightPlatformCard('card-windows');
+    if (labelEl) labelEl.textContent = 'Download for Windows (x64)';
+    if (subEl) subEl.textContent = 'Portable Standalone ZIP & EXE';
+  } else if (/Mac/i.test(platform)) {
+    targetUrl = '/';
+    highlightPlatformCard('card-web');
+    if (labelEl) labelEl.textContent = 'Launch Instant Web Player';
+    if (subEl) subEl.textContent = 'Zero Install • Works in Safari';
+  } else {
+    highlightPlatformCard('card-android');
+  }
+
+  if (btnEl && targetUrl !== '#downloads') {
+    btnEl.href = targetUrl;
+    if (targetUrl.endsWith('.apk') || targetUrl.endsWith('.zip') || targetUrl.endsWith('.ipa')) {
+      btnEl.setAttribute('download', '');
+    }
+  }
+}
+
+function highlightPlatformCard(cardId) {
+  const card = document.getElementById(cardId);
+  if (card) {
+    card.classList.add('target-highlight');
+  }
+}
+
+// 3. Segmented Platform Filter Tabs
+function initSegmentedTabs() {
+  const buttons = document.querySelectorAll('.seg-btn');
+  const cards = document.querySelectorAll('.platform-card');
+
+  buttons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      buttons.forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const filter = btn.getAttribute('data-filter');
+
+      cards.forEach((card) => {
+        if (filter === 'all') {
+          card.style.display = 'flex';
+        } else {
+          const cardPlatform = card.getAttribute('data-platform');
+          if (cardPlatform === filter) {
+            card.style.display = 'flex';
+            card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          } else {
+            card.style.display = 'none';
+          }
+        }
+      });
+    });
+  });
+}
+
+// 4. Interactive Floating Glass Audio Player
+function initFloatingAudioPlayer() {
+  audioPlayerInstance = new Audio();
+  audioPlayerInstance.preload = 'none';
+
+  const playBtn = document.getElementById('ctrlPlayBtn');
+  const prevBtn = document.getElementById('ctrlPrevBtn');
+  const nextBtn = document.getElementById('ctrlNextBtn');
+  const playIcon = document.getElementById('playIconSvg');
+  const pauseIcon = document.getElementById('pauseIconSvg');
+  const disc = document.getElementById('heroAlbumDisc');
+  const trackTitle = document.getElementById('playerTrackTitle');
+  const trackArtist = document.getElementById('playerTrackArtist');
+  const statusText = document.getElementById('playerStatusText');
+  const progressFill = document.getElementById('playerProgressFill');
+  const currentTimeEl = document.getElementById('playerCurrentTime');
+  const totalTimeEl = document.getElementById('playerTotalTime');
+  const progressWrapper = document.getElementById('playerProgressWrapper');
+
+  function renderTrack() {
+    const track = PREVIEW_TRACKS[currentTrackIdx];
+    if (trackTitle) trackTitle.textContent = track.title;
+    if (trackArtist) trackArtist.textContent = track.artist;
+    if (totalTimeEl) totalTimeEl.textContent = track.duration;
+    playbackSeconds = 0;
+    if (progressFill) progressFill.style.width = '0%';
+    if (currentTimeEl) currentTimeEl.textContent = '0:00';
+  }
+
+  function play() {
+    const track = PREVIEW_TRACKS[currentTrackIdx];
+    isAudioActive = true;
+    if (playIcon) playIcon.style.display = 'none';
+    if (pauseIcon) pauseIcon.style.display = 'block';
+    if (disc) disc.style.animationPlayState = 'running';
+    if (statusText) statusText.textContent = 'Playing Live Stream';
+
+    try {
+      if (audioPlayerInstance.src !== track.streamUrl) {
+        audioPlayerInstance.src = track.streamUrl;
+      }
+      audioPlayerInstance.play().catch(() => {});
+    } catch {}
+
+    clearInterval(trackInterval);
+    trackInterval = setInterval(() => {
+      playbackSeconds += 1;
+      const totalSec = track.durationSec || 200;
+      const pct = Math.min(100, (playbackSeconds / totalSec) * 100);
+
+      if (progressFill) progressFill.style.width = `${pct}%`;
+
+      const mins = Math.floor(playbackSeconds / 60);
+      const secs = playbackSeconds % 60;
+      if (currentTimeEl) {
+        currentTimeEl.textContent = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+      }
+
+      if (playbackSeconds >= totalSec) {
+        skipNext();
+      }
+    }, 1000);
+  }
+
+  function pause() {
+    isAudioActive = false;
+    if (playIcon) playIcon.style.display = 'block';
+    if (pauseIcon) pauseIcon.style.display = 'none';
+    if (disc) disc.style.animationPlayState = 'paused';
+    if (statusText) statusText.textContent = 'Paused';
+    if (audioPlayerInstance) audioPlayerInstance.pause();
+    clearInterval(trackInterval);
+  }
+
+  function skipNext() {
+    currentTrackIdx = (currentTrackIdx + 1) % PREVIEW_TRACKS.length;
+    renderTrack();
+    if (isAudioActive) play();
+  }
+
+  function skipPrev() {
+    currentTrackIdx = (currentTrackIdx - 1 + PREVIEW_TRACKS.length) % PREVIEW_TRACKS.length;
+    renderTrack();
+    if (isAudioActive) play();
+  }
+
+  if (playBtn) {
+    playBtn.addEventListener('click', () => {
+      if (isAudioActive) pause();
+      else play();
+    });
+  }
+
+  if (nextBtn) nextBtn.addEventListener('click', skipNext);
+  if (prevBtn) prevBtn.addEventListener('click', skipPrev);
+
+  if (progressWrapper) {
+    progressWrapper.addEventListener('click', (e) => {
+      const rect = progressWrapper.getBoundingClientRect();
+      const pos = (e.clientX - rect.left) / rect.width;
+      const track = PREVIEW_TRACKS[currentTrackIdx];
+      playbackSeconds = Math.floor(pos * track.durationSec);
+      if (audioPlayerInstance && audioPlayerInstance.duration) {
+        audioPlayerInstance.currentTime = pos * audioPlayerInstance.duration;
+      }
+      if (progressFill) progressFill.style.width = `${pos * 100}%`;
+    });
+  }
+
+  renderTrack();
+}
+
+// 5. Canvas Waveform Audio Visualizer
+function initWaveformVisualizer() {
+  const canvas = document.getElementById('heroVisualizerCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+
+  const barCount = 38;
+  const barWidth = Math.floor(width / barCount) - 2;
+
+  let heights = Array.from({ length: barCount }, () => Math.random() * (height * 0.35) + 4);
+  let targets = Array.from({ length: barCount }, () => Math.random() * (height * 0.35) + 4);
+
+  function draw() {
+    ctx.clearRect(0, 0, width, height);
+
+    const multiplier = isAudioActive ? 0.95 : 0.22;
+
+    for (let i = 0; i < barCount; i++) {
+      heights[i] += (targets[i] - heights[i]) * 0.15;
+      if (Math.abs(targets[i] - heights[i]) < 1.2) {
+        targets[i] = (Math.random() * (height * multiplier)) + 3;
+      }
+
+      const barHeight = Math.max(2, heights[i]);
+      const x = i * (barWidth + 2);
+      const y = height - barHeight;
+
+      const grad = ctx.createLinearGradient(0, y, 0, height);
+      grad.addColorStop(0, '#EC4899');
+      grad.addColorStop(0.5, '#A855F7');
+      grad.addColorStop(1, '#6366F1');
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(x, y, barWidth, barHeight, 2);
+      ctx.fill();
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  draw();
+}
+
+// 6. Mobile QR Code Modal
+function triggerQrModal(url, title = 'Direct APK') {
+  const backdrop = document.getElementById('qrModalBackdrop');
+  const titleEl = document.getElementById('modalQrTitle');
+  const urlInput = document.getElementById('qrDirectUrlInput');
+  const canvas = document.getElementById('qrCanvas');
+
+  if (titleEl) titleEl.textContent = `Scan to Download ${title}`;
+  if (urlInput) urlInput.value = url;
+
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    const size = canvas.width;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, size, size);
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      ctx.drawImage(img, 10, 10, size - 20, size - 20);
+    };
+    img.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=4&data=${encodeURIComponent(url)}`;
+  }
+
+  if (backdrop) backdrop.classList.add('open');
+}
+
+function closeQrModal() {
+  const backdrop = document.getElementById('qrModalBackdrop');
+  if (backdrop) backdrop.classList.remove('open');
+}
+
+function copyDirectQrUrl() {
+  const input = document.getElementById('qrDirectUrlInput');
+  if (input) {
+    navigator.clipboard.writeText(input.value);
+    displayToast('✓ Download link copied to clipboard!');
+  }
+}
+
+// 7. Terminal Snippet Clipboard Copy
+function copyTerminalSnippet() {
+  const cmd = 'git clone https://github.com/hasibcore/Twilight-Music.git';
+  navigator.clipboard.writeText(cmd).then(() => {
+    const status = document.getElementById('copyBtnStatus');
+    if (status) {
+      status.textContent = 'Copied!';
+      setTimeout(() => {
+        status.textContent = 'Copy';
+      }, 2500);
+    }
+    displayToast('✓ Copied: git clone https://github.com/hasibcore/Twilight-Music.git');
+  }).catch(() => {
+    displayToast('Command copied');
+  });
+}
+
+function displayToast(msg) {
+  const hub = document.getElementById('toastHub');
+  if (!hub) return;
+
+  const toast = document.createElement('div');
+  toast.className = 'toast-msg';
+  toast.textContent = msg;
+
+  hub.appendChild(toast);
+
+  setTimeout(() => toast.classList.add('show'), 10);
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 260);
+  }, 3000);
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeQrModal();
+});
+
+  </script>
 </body>
 </html>

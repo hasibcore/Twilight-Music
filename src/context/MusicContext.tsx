@@ -275,13 +275,33 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Sleep Timer
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState<number | null>(null);
 
-  // User & Collections
-  const [user, setUser] = useState<UserProfile>({
-    uid: 'usr_hasibul_hasan',
-    email: 'gudhulibela031@gmail.com',
-    displayName: 'Hasibul Hasan',
-    photoURL: null,
-    isGuest: false,
+  // User & Collections — starts as Guest with Sign In / Register prompt; populates with real user profile on login
+  const [user, setUser] = useState<UserProfile>(() => {
+    try {
+      const saved = localStorage.getItem('twilight_user_profile');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          parsed.uid &&
+          parsed.uid !== 'usr_hasibul_hasan' &&
+          parsed.email !== 'gudhulibela031@gmail.com' &&
+          parsed.displayName !== 'Hasibul Hasan'
+        ) {
+          return parsed;
+        } else {
+          localStorage.removeItem('twilight_user_profile');
+        }
+      }
+    } catch {}
+    return {
+      uid: 'guest_local_user',
+      email: null,
+      displayName: 'Guest Listener',
+      photoURL: null,
+      isGuest: true,
+    };
   });
 
   const [favorites, setFavorites] = useState<Song[]>(() => {
@@ -400,6 +420,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const proactivePauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSkipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const hasInitializedStreamRef = useRef<boolean>(false);
   const isPrimingAudioRef = useRef<boolean>(false);
@@ -1437,18 +1458,32 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (cloudData.history) setHistory(cloudData.history);
         }
       } else {
-        setUser({
-          uid: 'usr_hasibul_hasan',
-          email: 'gudhulibela031@gmail.com',
-          displayName: 'Hasibul Hasan',
-          photoURL: null,
-          isGuest: false,
+        setUser((prev) => {
+          if (prev.isGuest && prev.uid === 'guest_local_user') return prev;
+          return {
+            uid: 'guest_local_user',
+            email: null,
+            displayName: 'Guest Listener',
+            photoURL: null,
+            isGuest: true,
+          };
         });
       }
     });
 
     return () => unsubscribe();
   }, []);
+
+  // Sync User Profile to LocalStorage
+  useEffect(() => {
+    try {
+      if (user.isGuest) {
+        localStorage.removeItem('twilight_user_profile');
+      } else {
+        localStorage.setItem('twilight_user_profile', JSON.stringify(user));
+      }
+    } catch {}
+  }, [user]);
 
   // Sync to LocalStorage & Cloud
   useEffect(() => {
@@ -1713,6 +1748,10 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       clearTimeout(proactivePauseTimerRef.current);
       proactivePauseTimerRef.current = null;
     }
+    if (autoSkipTimerRef.current) {
+      clearTimeout(autoSkipTimerRef.current);
+      autoSkipTimerRef.current = null;
+    }
     html5FallbackFnRef.current = null;
     prewarmedStreamRef.current = null;
     recoveryAttemptsRef.current = 0;
@@ -1724,6 +1763,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (ytPlayerRef.current && ytReadyRef.current) {
       try {
         ytPlayerRef.current.stopVideo();
+        ytPlayerRef.current.clearVideo?.();
       } catch {}
     }
 
@@ -1734,6 +1774,28 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       } catch {}
     }
     setIsPlaying(false);
+  };
+
+  // Auto-skip to the next available song in the queue if a track fails to resolve or play,
+  // preventing the user from ever getting permanently stuck on an unplayable track.
+  const scheduleAutoSkipOnDeadTrack = (triggerReqId: number) => {
+    if (autoSkipTimerRef.current) {
+      clearTimeout(autoSkipTimerRef.current);
+      autoSkipTimerRef.current = null;
+    }
+    const { queue: q } = stateRef.current;
+    if (q.length > 1) {
+      autoSkipTimerRef.current = setTimeout(() => {
+        autoSkipTimerRef.current = null;
+        if (
+          triggerReqId === playRequestIdRef.current &&
+          !stateRef.current.isPlaying &&
+          !intentionalPauseRef.current
+        ) {
+          (handlersRef.current?.handleNextSong || handleNextSong)();
+        }
+      }, 1500);
+    }
   };
 
   // Play a song with immediate optimistic UI update, explicit stopCurrentBeforeSwitch teardown,
@@ -1845,6 +1907,29 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ? options!.targetIndex!
         : activeQueue.findIndex((s) => s.id === normalizedSong.id);
       setCurrentIndex(idx !== -1 ? idx : 0);
+
+      // When a single song is selected (e.g. from Search), proactively fetch Smart Radio
+      // in the background to populate the Up Next queue with matching language/genre/band tracks
+      if (activeQueue.length === 1) {
+        const immediateFallbacks = MusicApi.getCategoryInstantFallback(normalizedSong);
+        if (immediateFallbacks.length > 0) {
+          setQueue([normalizedSong, ...immediateFallbacks]);
+        }
+        MusicApi.fetchSmartRadioQueue(normalizedSong)
+          .then((radioSongs) => {
+            if (
+              reqId === playRequestIdRef.current &&
+              radioSongs.length > 0 &&
+              stateRef.current.currentSong?.id === normalizedSong.id
+            ) {
+              const filteredRadio = radioSongs.filter((s) => s.id !== normalizedSong.id);
+              if (filteredRadio.length > 0) {
+                setQueue([normalizedSong, ...filteredRadio]);
+              }
+            }
+          })
+          .catch(() => {});
+      }
     } else if (hasValidTargetIdx) {
       setQueue(activeQueue);
       setCurrentIndex(options!.targetIndex!);
@@ -2000,6 +2085,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setIsRefreshingStream(false);
             setIsPlaying(false);
             setPlaybackError(skipYtFallback ? 'Tap Play to start audio' : 'Stream unavailable. Tap Retry.');
+            scheduleAutoSkipOnDeadTrack(reqId);
             return;
           }
         }
@@ -2197,6 +2283,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     setIsLoading(false);
                     setIsPlaying(false);
                     setPlaybackError('Stream unavailable. Tap Retry.');
+                    scheduleAutoSkipOnDeadTrack(reqId);
                   }
                 });
               return;
@@ -2205,6 +2292,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setIsPlaying(false);
             setIsLoading(false);
             setPlaybackError('Stream unavailable. Tap Retry.');
+            scheduleAutoSkipOnDeadTrack(reqId);
           });
       };
 
@@ -2365,6 +2453,10 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       clearTimeout(proactivePauseTimerRef.current);
       proactivePauseTimerRef.current = null;
     }
+    if (autoSkipTimerRef.current) {
+      clearTimeout(autoSkipTimerRef.current);
+      autoSkipTimerRef.current = null;
+    }
     stopSyntheticMelody();
     if (activeEngineRef.current === 'yt' && ytPlayerRef.current && ytReadyRef.current) {
       try {
@@ -2449,6 +2541,10 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (proactivePauseTimerRef.current) {
       clearTimeout(proactivePauseTimerRef.current);
       proactivePauseTimerRef.current = null;
+    }
+    if (autoSkipTimerRef.current) {
+      clearTimeout(autoSkipTimerRef.current);
+      autoSkipTimerRef.current = null;
     }
 
     // If the user paused during the 300ms debounce or initial stream resolution (before any engine initialized),
@@ -2902,8 +2998,38 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const handleNextSong = () => {
-    const { queue: q, currentIndex: idx, isShuffle: shuf } = stateRef.current;
+    const { queue: q, currentIndex: idx, isShuffle: shuf, currentSong: nowPlaying } = stateRef.current;
     if (q.length === 0) return;
+
+    const isAtOrNearEnd = idx >= q.length - 1;
+
+    // ===== Smart Radio Autoplay =====
+    // When reaching the end of the queue (or queue has ≤1 song),
+    // immediately transition to the matching category track (0ms synchronous gesture unlock)
+    // and asynchronously fetch smart radio in the background to expand the queue.
+    if (isAtOrNearEnd && nowPlaying) {
+      const categoryFallbacks = MusicApi.getCategoryInstantFallback(nowPlaying);
+      const nextCandidate = categoryFallbacks[0] || q[0];
+      const newQueue = categoryFallbacks.length > 0 ? categoryFallbacks : [nextCandidate];
+
+      // Play immediately within active user click stack — guarantees mobile autoplay unlock and 0ms UI response
+      playSong(nextCandidate, newQueue, { immediate: true, forceRestart: true, targetIndex: 0 });
+
+      // Extend the queue in background with full dynamic radio results
+      MusicApi.fetchSmartRadioQueue(nowPlaying)
+        .then((radioSongs) => {
+          if (radioSongs.length > 0) {
+            const filteredRadio = radioSongs.filter((s) => s.id !== nextCandidate.id);
+            if (filteredRadio.length > 0) {
+              setQueue([nextCandidate, ...filteredRadio]);
+            }
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
+    // Normal next within queue (not at end)
     let nextIdx = idx + 1;
     if (shuf && q.length > 1) {
       for (let i = 0; i < 5 && nextIdx === idx; i++) {

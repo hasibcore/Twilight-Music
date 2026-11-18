@@ -92,6 +92,162 @@ export const POPULAR_FEATURED_SONGS: Song[] = [
   },
 ];
 
+export const CURATED_BANGLA_BAND_SONGS: Song[] = [
+  {
+    id: 'XlNSOUfO-NA',
+    title: 'Icche Ghuri',
+    artist: 'Shironamhin',
+    channelId: 'Shironamhin',
+    thumbnailUrl: 'https://i.ytimg.com/vi/XlNSOUfO-NA/hqdefault.jpg',
+    durationSeconds: 287,
+    durationFormatted: '04:47',
+    viewCount: 15000000,
+  },
+  {
+    id: '8pgvTBikV9U',
+    title: 'Obak Bhalobasha',
+    artist: 'Warfaze',
+    channelId: 'CokeStudioBangla',
+    thumbnailUrl: 'https://i.ytimg.com/vi/8pgvTBikV9U/hqdefault.jpg',
+    durationSeconds: 409,
+    durationFormatted: '06:49',
+    viewCount: 25000000,
+  },
+  {
+    id: '60M4NlUuSD0',
+    title: 'Hashimukh',
+    artist: 'Shironamhin',
+    channelId: 'Shironamhin',
+    thumbnailUrl: 'https://i.ytimg.com/vi/60M4NlUuSD0/hqdefault.jpg',
+    durationSeconds: 336,
+    durationFormatted: '05:36',
+    viewCount: 22000000,
+  },
+  {
+    id: 'sFZPMjcsBoQ',
+    title: 'Bondho Janala',
+    artist: 'Shironamhin',
+    channelId: 'Shironamhin',
+    thumbnailUrl: 'https://i.ytimg.com/vi/sFZPMjcsBoQ/hqdefault.jpg',
+    durationSeconds: 242,
+    durationFormatted: '04:02',
+    viewCount: 18000000,
+  },
+  {
+    id: 'wsENMyoabFw',
+    title: 'Omimangshito',
+    artist: 'Mizan ft. Ahmed Razeeb',
+    channelId: 'G Series Music',
+    thumbnailUrl: 'https://i.ytimg.com/vi/wsENMyoabFw/hqdefault.jpg',
+    durationSeconds: 235,
+    durationFormatted: '03:55',
+    viewCount: 4500000,
+  },
+  {
+    id: 'GPJ6WxtUuBQ',
+    title: 'Pakhi',
+    artist: 'Shironamhin',
+    channelId: 'Shironamhin',
+    thumbnailUrl: 'https://i.ytimg.com/vi/GPJ6WxtUuBQ/hqdefault.jpg',
+    durationSeconds: 256,
+    durationFormatted: '04:16',
+    viewCount: 12000000,
+  },
+  {
+    id: 'l9o3eOf0AJ0',
+    title: 'Cafetaria',
+    artist: 'Shironamhin',
+    channelId: 'Shironamhin',
+    thumbnailUrl: 'https://i.ytimg.com/vi/l9o3eOf0AJ0/hqdefault.jpg',
+    durationSeconds: 259,
+    durationFormatted: '04:19',
+    viewCount: 10000000,
+  },
+  {
+    id: 'js_3-s2hqsd',
+    title: 'Anmone',
+    artist: 'Artcell',
+    channelId: 'Artcell',
+    thumbnailUrl: 'https://c.saavncdn.com/385/Neel-Bhalobasha-Bengali-2025-20250109100903-500x500.jpg',
+    durationSeconds: 307,
+    durationFormatted: '05:07',
+    viewCount: 9000000,
+  },
+  {
+    id: 'js_fOuybpG_',
+    title: 'Oniket Prantor',
+    artist: 'Artcell',
+    channelId: 'Artcell',
+    thumbnailUrl: 'https://c.saavncdn.com/865/Aniket-Prantor-Bengali-2006-20230316051320-500x500.jpg',
+    durationSeconds: 980,
+    durationFormatted: '16:20',
+    viewCount: 14000000,
+  },
+  {
+    id: 's8Qk0eMxsLA',
+    title: 'Dhushor Shomoy',
+    artist: 'Artcell',
+    channelId: 'Artcell',
+    thumbnailUrl: 'https://i.ytimg.com/vi/s8Qk0eMxsLA/hqdefault.jpg',
+    durationSeconds: 407,
+    durationFormatted: '06:47',
+    viewCount: 7500000,
+  },
+  {
+    id: 'NQp3cbSkqbo',
+    title: 'LEVEL FIVE - TUMI (Official Lyric Video)',
+    artist: 'LEVELFIVEtheband',
+    channelId: 'LEVELFIVEtheband',
+    thumbnailUrl: 'https://i.ytimg.com/vi/NQp3cbSkqbo/hqdefault.jpg',
+    durationSeconds: 239,
+    durationFormatted: '03:59',
+    viewCount: 11200000,
+  },
+];
+
+export const CURATED_HINDI_SONGS: Song[] = [
+  {
+    id: 'BddP6PYo2gs',
+    title: 'Kesariya',
+    artist: 'Arijit Singh, Pritam',
+    channelId: 'SonyMusicIndia',
+    thumbnailUrl: 'https://i.ytimg.com/vi/BddP6PYo2gs/hqdefault.jpg',
+    durationSeconds: 268,
+    durationFormatted: '04:28',
+    viewCount: 500000000,
+  },
+  {
+    id: 'IJq0cfTOvd8',
+    title: 'Tum Hi Ho',
+    artist: 'Arijit Singh',
+    channelId: 'TSeries',
+    thumbnailUrl: 'https://i.ytimg.com/vi/IJq0cfTOvd8/hqdefault.jpg',
+    durationSeconds: 262,
+    durationFormatted: '04:22',
+    viewCount: 800000000,
+  },
+  {
+    id: '284VoJ-4G_8',
+    title: 'Channa Mereya',
+    artist: 'Arijit Singh',
+    channelId: 'SonyMusicIndia',
+    thumbnailUrl: 'https://i.ytimg.com/vi/284VoJ-4G_8/hqdefault.jpg',
+    durationSeconds: 289,
+    durationFormatted: '04:49',
+    viewCount: 600000000,
+  },
+  {
+    id: 'gvyUuxdRdR4',
+    title: 'Raataan Lambiyan',
+    artist: 'Jubin Nautiyal, Asees Kaur',
+    channelId: 'SonyMusicIndia',
+    thumbnailUrl: 'https://i.ytimg.com/vi/gvyUuxdRdR4/hqdefault.jpg',
+    durationSeconds: 230,
+    durationFormatted: '03:50',
+    viewCount: 750000000,
+  },
+];
+
 export const CURATED_BENGALI_AND_GLOBAL_SONGS: Song[] = [
   {
     id: 'Qh_sxMN9UH8',
@@ -165,6 +321,26 @@ export const VERIFIED_DIRECT_STREAMS: Record<string, string> = {
   '8iuZrJumCLo': '/api/stream/8iuZrJumCLo?title=Amar%20Hiyar%20Majhe&artist=Iman%20Chakraborty&duration=327',
   rEGYM2DarbQ: '/api/stream/rEGYM2DarbQ?title=Amar%20Hiyar%20Majhe&artist=Jayati%20Chakraborty&duration=317',
   fJ9rUzIMcZQ: '/api/stream/fJ9rUzIMcZQ?title=Bohemian%20Rhapsody&artist=Queen&duration=355',
+  'XlNSOUfO-NA': '/api/stream/XlNSOUfO-NA?title=Icche%20Ghuri&artist=Shironamhin&duration=287',
+  hLb5UPeROkc: '/api/stream/XlNSOUfO-NA?title=Icche%20Ghuri&artist=Shironamhin&duration=287',
+  js_lDF3u96b: '/api/stream/XlNSOUfO-NA?title=Icche%20Ghuri&artist=Shironamhin&duration=287',
+  sFZPMjcsBoQ: '/api/stream/sFZPMjcsBoQ?title=Bondho%20Janala&artist=Shironamhin&duration=242',
+  '60M4NlUuSD0': '/api/stream/60M4NlUuSD0?title=Hashimukh&artist=Shironamhin&duration=336',
+  GPJ6WxtUuBQ: '/api/stream/GPJ6WxtUuBQ?title=Pakhi&artist=Shironamhin&duration=256',
+  js_ssDY7xnd: '/api/stream/GPJ6WxtUuBQ?title=Pakhi&artist=Shironamhin&duration=256',
+  l9o3eOf0AJ0: '/api/stream/l9o3eOf0AJ0?title=Cafetaria&artist=Shironamhin&duration=259',
+  js_meprHaFX: '/api/stream/l9o3eOf0AJ0?title=Cafetaria&artist=Shironamhin&duration=259',
+  'js_3-s2hqsd': '/api/stream/js_3-s2hqsd?title=Anmone&artist=Artcell&duration=307',
+  js_fOuybpG_: '/api/stream/js_fOuybpG_?title=Oniket%20Prantor&artist=Artcell&duration=980',
+  pUUZuINHba0: '/api/stream/js_fOuybpG_?title=Oniket%20Prantor&artist=Artcell&duration=980',
+  js_BQme9DJF: '/api/stream/s8Qk0eMxsLA?title=Dhushor%20Shomoy&artist=Artcell&duration=407',
+  s8Qk0eMxsLA: '/api/stream/s8Qk0eMxsLA?title=Dhushor%20Shomoy&artist=Artcell&duration=407',
+  wsENMyoabFw: '/api/stream/wsENMyoabFw?title=Omimangshito&artist=Mizan&duration=235',
+  sIkPfQKODGg: '/api/stream/wsENMyoabFw?title=Omimangshito&artist=Mizan&duration=235',
+  '51SvVPPwTFI': '/api/stream/wsENMyoabFw?title=Omimangshito&artist=Mizan&duration=235',
+  wltb62pGT10: '/api/stream/wsENMyoabFw?title=Omimangshito&artist=Mizan&duration=235',
+  js_1Xfub2IJ: '/api/stream/wsENMyoabFw?title=Omimangshito&artist=Mizan&duration=235',
+  F12UrLdCDDk: '/api/stream/F12UrLdCDDk?title=Kotodur&artist=Shironamhin&duration=240',
   kJQP7kiw5Fk: '/audio/kJQP7kiw5Fk.m4a',
   JGwWNGJdvx8: '/audio/JGwWNGJdvx8.m4a',
   '4NRXx6U8ABQ': '/audio/4NRXx6U8ABQ.m4a',
@@ -633,19 +809,82 @@ export class MusicApi {
     const rawLower = `${song.title || ''} ${song.artist || ''} ${primaryArtist}`.toLowerCase();
     const dur = song.durationSeconds || 0;
     const wantsSpecialVersion =
-      /\b(?:concert|live|anniversary|unplugged|acoustic|cover|remix|lofi|lo-fi|slowed|reverb|mashup|reprise|piano|guitar|fingerstyle|tribute|instrumental|karaoke|bgm)\b/i.test(
-        rawLower
+      /\b(?:cover|remix|lofi|lo-fi|slowed|reverb|mashup|reprise|piano|guitar|fingerstyle|tribute|instrumental|karaoke|bgm)\b/i.test(
+        titleLower
       );
+
+    if (
+      !wantsSpecialVersion &&
+      (titleLower === 'icche ghuri' || titleLower.includes('icche ghuri')) &&
+      rawLower.includes('shironamhin')
+    ) {
+      return '/api/stream/XlNSOUfO-NA?title=Icche%20Ghuri&artist=Shironamhin&duration=287';
+    }
+
+    if (
+      !wantsSpecialVersion &&
+      (titleLower === 'hashimukh' || titleLower === 'abar hashimukh' || titleLower.includes('hashimukh')) &&
+      rawLower.includes('shironamhin')
+    ) {
+      return '/api/stream/60M4NlUuSD0?title=Hashimukh&artist=Shironamhin&duration=336';
+    }
 
     if (
       !wantsSpecialVersion &&
       titleLower.includes('bondho janala') &&
       rawLower.includes('shironamhin') &&
       !titleLower.includes('bhalobasha') &&
-      !titleLower.includes('valobasha') &&
-      (dur === 0 || Math.abs(dur - 243) <= 22)
+      !titleLower.includes('valobasha')
     ) {
-      return '/api/stream/JirEG9LIJTU?title=Bondho%20Janala&artist=Shironamhin&duration=243';
+      return '/api/stream/sFZPMjcsBoQ?title=Bondho%20Janala&artist=Shironamhin&duration=242';
+    }
+
+    if (
+      !wantsSpecialVersion &&
+      (titleLower === 'pakhi' || titleLower.includes('pakhi')) &&
+      rawLower.includes('shironamhin')
+    ) {
+      return 'https://aac.saavncdn.com/720/7427d48dd875e1346f5469b76808f0a9_320.mp4';
+    }
+
+    if (
+      !wantsSpecialVersion &&
+      (titleLower === 'cafetaria' || titleLower.includes('cafetaria')) &&
+      rawLower.includes('shironamhin')
+    ) {
+      return 'https://aac.saavncdn.com/720/cedb3c7eadacffc6d9f9207ab880c887_320.mp4';
+    }
+
+    if (
+      !wantsSpecialVersion &&
+      (titleLower === 'anmone' || titleLower.includes('anmone')) &&
+      rawLower.includes('artcell')
+    ) {
+      return 'https://aac.saavncdn.com/385/081d326c688c1476cbf2d0c240e71890_320.mp4';
+    }
+
+    if (
+      !wantsSpecialVersion &&
+      (titleLower === 'omimangshito' || titleLower.includes('omimangshito')) &&
+      (rawLower.includes('mizan') || rawLower.includes('razeeb') || rawLower.includes('g series'))
+    ) {
+      return 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4';
+    }
+
+    if (
+      !wantsSpecialVersion &&
+      (titleLower.includes('aniket prantor') || titleLower.includes('oniket prantor')) &&
+      rawLower.includes('artcell')
+    ) {
+      return 'https://aac.saavncdn.com/865/7e7b53bcbf1e22f821e8ff27d666be5b_320.mp4';
+    }
+
+    if (
+      !wantsSpecialVersion &&
+      titleLower.includes('dhushor shomoy') &&
+      rawLower.includes('artcell')
+    ) {
+      return 'https://aac.saavncdn.com/865/f3d8c00186344c17e7b7b4d98995303f_320.mp4';
     }
 
     if (
@@ -1226,5 +1465,87 @@ export class MusicApi {
 
   static getAudioStreamUrl(songId: string): string {
     return `/api/stream/${encodeURIComponent(songId)}`;
+  }
+
+  /**
+   * Smart Radio Queue — fetches related songs based on the current song's
+   * artist, title, language, and genre. Works like YouTube's "Up Next" autoplay.
+   * Returns songs similar in language/category (Bengali→Bengali, English→English, etc.)
+   */
+  static async fetchSmartRadioQueue(song: Song): Promise<Song[]> {
+    const cacheKey = `radio:${(song.artist || '').toLowerCase().trim()}|${song.id}`;
+    const cached = clientDynamicMixCache.get(cacheKey);
+    if (cached && Date.now() - cached.cachedAt < CLIENT_SEARCH_CACHE_TTL_MS && cached.songs.length > 0) {
+      return cached.songs;
+    }
+
+    const existing = inFlightClientDynamicMix.get(cacheKey);
+    if (existing) return existing;
+
+    const pending = (async (): Promise<Song[]> => {
+      try {
+        const params = new URLSearchParams({
+          title: song.title || '',
+          artist: song.artist || '',
+          currentId: song.id || '',
+        });
+        const res = await clientFetchWithRetry(
+          `/api/radio?${params.toString()}`,
+          { method: 'GET' },
+          { retries: 1, timeoutMs: 5000 }
+        );
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (Array.isArray(data.songs) && data.songs.length > 0) {
+            // Filter out the current song from radio results
+            const filtered = data.songs.filter((s: Song) => s.id !== song.id);
+            if (filtered.length > 0) {
+              clientDynamicMixCache.set(cacheKey, { songs: filtered, cachedAt: Date.now() });
+              return filtered;
+            }
+          }
+        }
+      } catch {
+        // fallback
+      }
+
+      // Fallback: search by artist name
+      const fallbackQuery = song.artist || song.title || '';
+      if (fallbackQuery) {
+        const direct = await MusicApi.searchSongsClientDirect(`${fallbackQuery} songs`);
+        const filtered = direct.filter((s) => s.id !== song.id);
+        if (filtered.length > 0) {
+          clientDynamicMixCache.set(cacheKey, { songs: filtered, cachedAt: Date.now() });
+          return filtered;
+        }
+      }
+      return MusicApi.getCategoryInstantFallback(song);
+    })().finally(() => {
+      if (inFlightClientDynamicMix.get(cacheKey) === pending) {
+        inFlightClientDynamicMix.delete(cacheKey);
+      }
+    });
+
+    inFlightClientDynamicMix.set(cacheKey, pending);
+    return pending;
+  }
+
+  static getCategoryInstantFallback(song: Song): Song[] {
+    const rawContext = `${song.title || ''} ${song.artist || ''}`.toLowerCase();
+    const isBengali =
+      /[\u0980-\u09FF]/.test(rawContext) ||
+      /\b(?:bangla|bengali|rabindra|sangeet|nazrul|warfaze|artcell|shironamhin|miles|nagar\s+baul|james|aurthohin|feedback|chirkutt|lalon|arnob|tahsan|habib|bappa|mizan|razeeb|level\s+five)\b/i.test(rawContext);
+    const isHindi =
+      /[\u0900-\u097F]/.test(rawContext) ||
+      /\b(?:hindi|bollywood|arijit|pritam|shreya|atif|jubin|neha|badshah|honey|sidhu|kk|sonu|sunidhi|armaan|darshan|stebin)\b/i.test(rawContext);
+
+    if (isBengali) {
+      return CURATED_BANGLA_BAND_SONGS.filter((s) => s.id !== song.id);
+    }
+    if (isHindi) {
+      return CURATED_HINDI_SONGS.filter((s) => s.id !== song.id);
+    }
+    return POPULAR_FEATURED_SONGS.filter((s) => s.id !== song.id);
   }
 }

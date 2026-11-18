@@ -38,15 +38,17 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ initialQuery = '', o
 
   // Refactored song selection & play handler:
   // - If selecting the song that is already actively playing, toggle play/pause without restarting
-  // - Otherwise delegate to selectAndPlaySong which immediately executes stopCurrentBeforeSwitch(),
-  //   updates optimistic UI state on tap (0ms), and debounces stream initialization by 300ms
+  // - Otherwise play ONLY the clicked song (queue = [song]) so that when it ends,
+  //   Smart Radio fetches related songs by artist/language/genre (like YouTube's autoplay)
+  //   instead of cycling through unrelated search results.
   const handleSelectAndPlaySong = useCallback(
-    (song: Song, queueContext: Song[]) => {
+    (song: Song, _queueContext: Song[]) => {
       if (currentSong?.id === song.id && (isPlaying || isLoading)) {
         pauseSong();
         return;
       }
-      selectAndPlaySong(song, queueContext);
+      // Set queue to only the clicked song — Smart Radio will auto-extend with related songs
+      selectAndPlaySong(song, [song]);
     },
     [currentSong?.id, isPlaying, isLoading, pauseSong, selectAndPlaySong]
   );
