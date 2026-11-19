@@ -54,7 +54,6 @@ app.get('/downloads/:filename', (req: Request, res: Response) => {
   }
   const GITHUB_DOWNLOADS: Record<string, string> = {
     'Twilight-Android-v3.6.0.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Android-v3.6.0.apk',
-    'Twilight-Android-v3.6.0.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Android-v3.6.0.apk',
     'app-release.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Android-v3.6.0.apk',
     'Twilight-Android-v3.0.0.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Android-v3.6.0.apk',
     'Twilight-Windows-x64.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Windows-x64-v3.6.0.zip',
