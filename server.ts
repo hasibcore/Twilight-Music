@@ -53,15 +53,15 @@ app.get('/downloads/:filename', (req: Request, res: Response) => {
     return res.download(localFile);
   }
   const GITHUB_DOWNLOADS: Record<string, string> = {
-    'Twilight-Android-v3.6.0.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Android-v3.6.0.apk',
-    'app-release.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Android-v3.6.0.apk',
-    'Twilight-Android-v3.0.0.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Android-v3.6.0.apk',
-    'Twilight-Windows-x64.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Windows-x64-v3.6.0.zip',
-    'Twilight-Windows-x64-v3.6.0.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Windows-x64-v3.6.0.zip',
-    'Twilight-Windows-x64-v3.0.0.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-Windows-x64-v3.6.0.zip',
-    'Twilight-iOS.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-iOS-v3.6.0.ipa',
-    'Twilight-iOS-v3.6.0.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-iOS-v3.6.0.ipa',
-    'Twilight-iOS-v3.0.0.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.0/Twilight-iOS-v3.6.0.ipa',
+    'Twilight-Android-v3.6.1.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Android-v3.6.1.apk',
+    'app-release.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Android-v3.6.1.apk',
+    'Twilight-Android-v3.0.0.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Android-v3.6.1.apk',
+    'Twilight-Windows-x64.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Windows-x64-v3.6.1.zip',
+    'Twilight-Windows-x64-v3.6.1.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Windows-x64-v3.6.1.zip',
+    'Twilight-Windows-x64-v3.0.0.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Windows-x64-v3.6.1.zip',
+    'Twilight-iOS.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-iOS-v3.6.1.ipa',
+    'Twilight-iOS-v3.6.1.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-iOS-v3.6.1.ipa',
+    'Twilight-iOS-v3.0.0.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-iOS-v3.6.1.ipa',
   };
   if (GITHUB_DOWNLOADS[filename]) {
     return res.redirect(302, GITHUB_DOWNLOADS[filename]);
@@ -3025,7 +3025,7 @@ app.get('/api/lyrics', async (req: Request, res: Response) => {
         cleanTitle
       )}&artist_name=${encodeURIComponent(cleanArtist)}`;
       const getRes = await fetch(getUrl, {
-        headers: { 'User-Agent': 'TwilightMusic/3.6.0' },
+        headers: { 'User-Agent': 'TwilightMusic/3.6.1' },
         signal: AbortSignal.timeout(3500),
       });
       if (getRes.ok) {
@@ -3056,7 +3056,7 @@ app.get('/api/lyrics', async (req: Request, res: Response) => {
     for (const q of searchQueries) {
       const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(q)}`;
       const searchRes = await fetch(searchUrl, {
-        headers: { 'User-Agent': 'TwilightMusic/3.6.0' },
+        headers: { 'User-Agent': 'TwilightMusic/3.6.1' },
         signal: AbortSignal.timeout(3500),
       });
       if (!searchRes.ok) continue;
@@ -3657,15 +3657,15 @@ function pushFullAppRepositoryToGitHub(cleanRepo: string, ghToken: string, tagNa
 // Release Metadata API Endpoint
 app.get('/api/release/info', (_req: Request, res: Response) => {
   res.json({
-    version: 'v3.6.0',
+    version: 'v3.6.1',
     legacyTag: 'v3.0.0',
-    buildNumber: 60,
+    buildNumber: 61,
     releaseDate: new Date().toISOString().slice(0, 10),
-    title: 'Twilight Music v3.6.0 â€” New Official Android APK, iOS IPA & Windows PC Release',
+    title: 'Twilight Music v3.6.1 â€” New Official Android APK, iOS IPA & Windows PC Release',
     highlights: [
       '100% Exact YouTube Video Audio Stream (videoId First): Prioritizes direct YouTube videoId streams across Android, iOS, Windows, and Web so live concerts, unplugged versions, and remixes always match YouTube',
       'Clean Click-to-Play Startup: Starts with currentSong = null so no track is pre-selected or shown in the player bar until clicked',
-      'Native Multi-Platform Releases: Automated CI/CD builds for Android APK (Twilight-Android-v3.6.0.apk), Apple iOS IPA (Twilight-iOS-v3.6.0.ipa), and Windows x64 ZIP (Twilight-Windows-x64-v3.6.0.zip)',
+      'Native Multi-Platform Releases: Automated CI/CD builds for Android APK (Twilight-Android-v3.6.1.apk), Apple iOS IPA (Twilight-iOS-v3.6.1.ipa), and Windows x64 ZIP (Twilight-Windows-x64-v3.6.1.zip)',
       'Pause/Resume & Stall Recovery: Proactive stream URL refresh after >3 min pause with exact playback position preservation and bounded retry recovery',
       'Uninterrupted Background Playback: Android WAKE_LOCK + FOREGROUND_SERVICE_MEDIA_PLAYBACK permissions, AudioSession interruption/becoming-noisy handlers, and ongoing notification persistence',
       'Offline Downloads Integrity: Real file verification, one-tap Re-download badge for missing/corrupted files, and local AudioSource.file playback',
