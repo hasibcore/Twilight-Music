@@ -39,8 +39,8 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
         {/* Profile Avatar Button */}
         <button
           onClick={() => onSelectTab('profile')}
-          title={user.isGuest ? 'Sign In / Account' : `${user.displayName || 'User'} (Profile)`}
-          className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border transition-all active:scale-95 flex items-center justify-center bg-slate-800 text-white font-bold text-sm ${
+          title="User Profile & Settings"
+          className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border transition-all active:scale-95 flex items-center justify-center bg-slate-500/50 text-white font-bold text-sm ${
             currentTab === 'profile'
               ? 'border-indigo-500 ring-2 ring-indigo-500/30'
               : 'border-white/15 hover:border-white/25'
@@ -48,10 +48,8 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
         >
           {user.photoURL ? (
             <img src={user.photoURL} alt={user.displayName || 'Profile'} className="w-full h-full object-cover" />
-          ) : !user.isGuest && user.displayName ? (
-            <span>{user.displayName.trim().charAt(0).toUpperCase()}</span>
           ) : (
-            <User className="w-4 h-4 sm:w-5 sm:h-5 text-slate-300" />
+            <span>{(user.displayName || 'H').trim().charAt(0).toUpperCase()}</span>
           )}
         </button>
       </div>

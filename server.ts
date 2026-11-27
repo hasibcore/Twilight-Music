@@ -11,6 +11,24 @@ import dns from 'node:dns';
 
 dns.setDefaultResultOrder('ipv4first');
 
+// Isolate @distube/ytdl-core debug artifacts outside the watched workspace so file writes/deletes never trigger dev-server restarts
+process.env.YTDL_NO_UPDATE = '1';
+const YTDL_DEBUG_DIR = path.join(os.tmpdir(), 'twilight-ytdl-debug');
+try {
+  fs.mkdirSync(YTDL_DEBUG_DIR, { recursive: true });
+} catch {}
+process.env.YTDL_DEBUG_PATH = YTDL_DEBUG_DIR;
+
+function cleanupYtdlDebugFiles(): void {
+  try {
+    for (const f of fs.readdirSync(YTDL_DEBUG_DIR)) {
+      if (f.endsWith('-watch.html') || f.endsWith('-player-script.js')) {
+        fs.unlinkSync(path.join(YTDL_DEBUG_DIR, f));
+      }
+    }
+  } catch {}
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -21,53 +39,10 @@ app.use(cors());
 app.use(express.json());
 
 // Serve static native app downloads & audio streams
-app.use('/landing', express.static(path.resolve(__dirname, 'landing')));
 app.use('/downloads', express.static(path.resolve(__dirname, 'landing/downloads')));
 app.use('/landing/downloads', express.static(path.resolve(__dirname, 'landing/downloads')));
 app.use('/assets', express.static(path.resolve(__dirname, 'assets')));
-app.use('/landing/assets', express.static(path.resolve(__dirname, 'landing/assets')));
 app.use('/audio', express.static(path.resolve(__dirname, 'public/audio')));
-
-// Explicit CSS and JS assets for public landing page
-app.get(['/styles.css', '/landing/styles.css', '*/styles.css', '/download/styles.css'], (_req: Request, res: Response) => {
-  res.setHeader('Content-Type', 'text/css; charset=utf-8');
-  res.sendFile(path.resolve(__dirname, 'landing', 'styles.css'));
-});
-
-app.get(['/app.js', '/landing/app.js', '*/app.js', '/download/app.js'], (_req: Request, res: Response) => {
-  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-  res.sendFile(path.resolve(__dirname, 'landing', 'app.js'));
-});
-
-// Direct Public Downloads & Landing Page Routes
-app.get(['/download', '/download/', '/downloads-hub', '/site', '/site/', '/downloads-page'], (_req: Request, res: Response) => {
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.sendFile(path.resolve(__dirname, 'landing', 'index.html'));
-});
-
-// Resilient direct binary download fallback: if binary is not on disk, 302 redirect to official GitHub Release
-app.get('/downloads/:filename', (req: Request, res: Response) => {
-  const filename = req.params.filename;
-  const localFile = path.resolve(__dirname, 'landing/downloads', filename);
-  if (fs.existsSync(localFile)) {
-    return res.download(localFile);
-  }
-  const GITHUB_DOWNLOADS: Record<string, string> = {
-    'Twilight-Android-v3.6.1.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Android-v3.6.1.apk',
-    'app-release.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Android-v3.6.1.apk',
-    'Twilight-Android-v3.0.0.apk': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Android-v3.6.1.apk',
-    'Twilight-Windows-x64.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Windows-x64-v3.6.1.zip',
-    'Twilight-Windows-x64-v3.6.1.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Windows-x64-v3.6.1.zip',
-    'Twilight-Windows-x64-v3.0.0.zip': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-Windows-x64-v3.6.1.zip',
-    'Twilight-iOS.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-iOS-v3.6.1.ipa',
-    'Twilight-iOS-v3.6.1.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-iOS-v3.6.1.ipa',
-    'Twilight-iOS-v3.0.0.ipa': 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.1/Twilight-iOS-v3.6.1.ipa',
-  };
-  if (GITHUB_DOWNLOADS[filename]) {
-    return res.redirect(302, GITHUB_DOWNLOADS[filename]);
-  }
-  return res.redirect(302, 'https://github.com/hasibcore/Twilight-Music/releases/latest');
-});
 
 // Predefined catalog for instant loading & resilience
 const FALLBACK_POPULAR = [
@@ -133,155 +108,49 @@ const FALLBACK_POPULAR = [
   },
 ];
 
-const FALLBACK_BANGLA_BAND = [
+// Verified local full-length studio masters (served directly from /audio/*.m4a)
+const CURATED_LOCAL_SEARCH_TRACKS = [
   {
-    id: 'XlNSOUfO-NA',
-    title: 'Icche Ghuri',
-    artist: 'Shironamhin',
-    channelId: 'Shironamhin',
-    thumbnailUrl: 'https://i.ytimg.com/vi/XlNSOUfO-NA/hqdefault.jpg',
-    durationSeconds: 287,
-    durationFormatted: '04:47',
+    id: 'NQp3cbSkqbo',
+    title: 'LEVEL FIVE - TUMI (Official Lyric Video)',
+    artist: 'LEVEL FIVE',
+    channelId: 'LEVELFIVEtheband',
+    thumbnailUrl: 'https://i.ytimg.com/vi/NQp3cbSkqbo/hqdefault.jpg',
+    durationSeconds: 239,
+    durationFormatted: '03:59',
     viewCount: 15000000,
+    audioUrl: '/audio/NQp3cbSkqbo.m4a',
   },
   {
-    id: '8pgvTBikV9U',
+    id: 'Qh_sxMN9UH8',
     title: 'Obak Bhalobasha',
     artist: 'Warfaze',
-    channelId: 'CokeStudioBangla',
-    thumbnailUrl: 'https://i.ytimg.com/vi/8pgvTBikV9U/hqdefault.jpg',
+    channelId: 'WarfazeOfficial',
+    thumbnailUrl: 'https://i.ytimg.com/vi/Qh_sxMN9UH8/hqdefault.jpg',
     durationSeconds: 409,
     durationFormatted: '06:49',
     viewCount: 25000000,
+    audioUrl: '/audio/Qh_sxMN9UH8.m4a',
   },
   {
-    id: '60M4NlUuSD0',
-    title: 'Hashimukh',
-    artist: 'Shironamhin',
-    channelId: 'Shironamhin',
-    thumbnailUrl: 'https://i.ytimg.com/vi/60M4NlUuSD0/hqdefault.jpg',
-    durationSeconds: 336,
-    durationFormatted: '05:36',
-    viewCount: 22000000,
-  },
-  {
-    id: 'sFZPMjcsBoQ',
-    title: 'Bondho Janala',
-    artist: 'Shironamhin',
-    channelId: 'Shironamhin',
-    thumbnailUrl: 'https://i.ytimg.com/vi/sFZPMjcsBoQ/hqdefault.jpg',
-    durationSeconds: 242,
-    durationFormatted: '04:02',
+    id: '8pgvTBikV9U',
+    title: 'Obak Bhalobasha | Coke Studio Bangla',
+    artist: 'Warfaze',
+    channelId: 'CokeStudioBangla',
+    thumbnailUrl: 'https://i.ytimg.com/vi/8pgvTBikV9U/hqdefault.jpg',
+    durationSeconds: 440,
+    durationFormatted: '07:20',
     viewCount: 18000000,
   },
-  {
-    id: 'wsENMyoabFw',
-    title: 'Omimangshito',
-    artist: 'Mizan ft. Ahmed Razeeb',
-    channelId: 'G Series Music',
-    thumbnailUrl: 'https://i.ytimg.com/vi/wsENMyoabFw/hqdefault.jpg',
-    durationSeconds: 235,
-    durationFormatted: '03:55',
-    viewCount: 4500000,
-  },
-  {
-    id: 'GPJ6WxtUuBQ',
-    title: 'Pakhi',
-    artist: 'Shironamhin',
-    channelId: 'Shironamhin',
-    thumbnailUrl: 'https://i.ytimg.com/vi/GPJ6WxtUuBQ/hqdefault.jpg',
-    durationSeconds: 256,
-    durationFormatted: '04:16',
-    viewCount: 12000000,
-  },
-  {
-    id: 'l9o3eOf0AJ0',
-    title: 'Cafetaria',
-    artist: 'Shironamhin',
-    channelId: 'Shironamhin',
-    thumbnailUrl: 'https://i.ytimg.com/vi/l9o3eOf0AJ0/hqdefault.jpg',
-    durationSeconds: 259,
-    durationFormatted: '04:19',
-    viewCount: 10000000,
-  },
-  {
-    id: 'js_3-s2hqsd',
-    title: 'Anmone',
-    artist: 'Artcell',
-    channelId: 'Artcell',
-    thumbnailUrl: 'https://c.saavncdn.com/385/Neel-Bhalobasha-Bengali-2025-20250109100903-500x500.jpg',
-    durationSeconds: 307,
-    durationFormatted: '05:07',
-    viewCount: 9000000,
-  },
-  {
-    id: 'js_fOuybpG_',
-    title: 'Oniket Prantor',
-    artist: 'Artcell',
-    channelId: 'Artcell',
-    thumbnailUrl: 'https://c.saavncdn.com/865/Aniket-Prantor-Bengali-2006-20230316051320-500x500.jpg',
-    durationSeconds: 980,
-    durationFormatted: '16:20',
-    viewCount: 14000000,
-  },
-  {
-    id: 's8Qk0eMxsLA',
-    title: 'Dhushor Shomoy',
-    artist: 'Artcell',
-    channelId: 'Artcell',
-    thumbnailUrl: 'https://i.ytimg.com/vi/s8Qk0eMxsLA/hqdefault.jpg',
-    durationSeconds: 407,
-    durationFormatted: '06:47',
-    viewCount: 7500000,
-  },
 ];
-
-const FALLBACK_HINDI = [
-  {
-    id: 'BddP6PYo2gs',
-    title: 'Kesariya',
-    artist: 'Arijit Singh, Pritam',
-    channelId: 'SonyMusicIndia',
-    thumbnailUrl: 'https://i.ytimg.com/vi/BddP6PYo2gs/hqdefault.jpg',
-    durationSeconds: 268,
-    durationFormatted: '04:28',
-    viewCount: 500000000,
-  },
-  {
-    id: 'IJq0cfTOvd8',
-    title: 'Tum Hi Ho',
-    artist: 'Arijit Singh',
-    channelId: 'TSeries',
-    thumbnailUrl: 'https://i.ytimg.com/vi/IJq0cfTOvd8/hqdefault.jpg',
-    durationSeconds: 262,
-    durationFormatted: '04:22',
-    viewCount: 800000000,
-  },
-  {
-    id: '284VoJ-4G_8',
-    title: 'Channa Mereya',
-    artist: 'Arijit Singh',
-    channelId: 'SonyMusicIndia',
-    thumbnailUrl: 'https://i.ytimg.com/vi/284VoJ-4G_8/hqdefault.jpg',
-    durationSeconds: 289,
-    durationFormatted: '04:49',
-    viewCount: 600000000,
-  },
-  {
-    id: 'gvyUuxdRdR4',
-    title: 'Raataan Lambiyan',
-    artist: 'Jubin Nautiyal, Asees Kaur',
-    channelId: 'SonyMusicIndia',
-    thumbnailUrl: 'https://i.ytimg.com/vi/gvyUuxdRdR4/hqdefault.jpg',
-    durationSeconds: 230,
-    durationFormatted: '03:50',
-    viewCount: 750000000,
-  },
-];
+const CURATED_LOCAL_IDS = new Set([
+  ...CURATED_LOCAL_SEARCH_TRACKS.map((s) => s.id),
+  ...FALLBACK_POPULAR.map((s) => s.id),
+]);
 
 // Cache canonical song metadata (title, artist, durationSeconds) by videoId for exact-track resolution
 const songMetaCache = new Map<string, { title: string; artist: string; durationSeconds?: number }>();
-for (const s of [...FALLBACK_POPULAR, ...FALLBACK_BANGLA_BAND, ...FALLBACK_HINDI]) {
+for (const s of [...FALLBACK_POPULAR, ...CURATED_LOCAL_SEARCH_TRACKS]) {
   songMetaCache.set(s.id, { title: s.title, artist: s.artist, durationSeconds: s.durationSeconds });
 }
 
@@ -342,7 +211,10 @@ function logStreamDiagnostic(
   if (typeof entry.attempt === 'number') parts.push(`attempt=${entry.attempt}`);
   if (typeof entry.bytesSent === 'number') parts.push(`bytes=${entry.bytesSent}`);
   const line = `${tag} ${message}${parts.length ? ` (${parts.join(', ')})` : ''}`;
-  if (level === 'error' || level === 'warn') console.info(line, entry.detail || '');
+  // Keep diagnostics in streamDiagnosticsBuffer (viewable via /api/diagnostics/stream) without flooding console as Backend Errors
+  if (level === 'error' && !stage.startsWith('client:') && category !== 'proxy_exhausted') {
+    console.info(line, entry.detail || '');
+  }
   return entry;
 }
 
@@ -360,6 +232,7 @@ interface FetchRetryOptions {
   timeoutMs?: number;
   baseDelayMs?: number;
   signal?: AbortSignal;
+  headersTimeoutOnly?: boolean;
 }
 
 async function fetchWithRetry(
@@ -371,6 +244,7 @@ async function fetchWithRetry(
   const timeoutMs = options.timeoutMs ?? 4000;
   const baseDelayMs = options.baseDelayMs ?? 220;
   const externalSignal = options.signal;
+  const headersTimeoutOnly = Boolean(options.headersTimeoutOnly);
   const label = safeUrlLabel(url);
 
   let lastError: unknown;
@@ -379,28 +253,41 @@ async function fetchWithRetry(
       throw externalSignal.reason || new DOMException('Aborted', 'AbortError');
     }
 
-    const connectAbortController = new AbortController();
-    let connectTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      connectAbortController.abort(new DOMException('Connection timeout', 'TimeoutError'));
-    }, timeoutMs);
-
+    const attemptController = new AbortController();
     const onExternalAbort = () => {
-      connectAbortController.abort(externalSignal?.reason);
+      try {
+        attemptController.abort(externalSignal?.reason || new DOMException('Aborted', 'AbortError'));
+      } catch {}
     };
     if (externalSignal) {
       externalSignal.addEventListener('abort', onExternalAbort, { once: true });
     }
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      timeoutHandle = null;
+      try {
+        attemptController.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+      } catch {}
+    }, timeoutMs);
 
-    try {
-      const res = await fetch(url, { ...init, signal: connectAbortController.signal });
-      if (connectTimer) {
-        clearTimeout(connectTimer);
-        connectTimer = null;
+    const clearHeaderTimeout = () => {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
       }
+    };
+    const cleanupListeners = () => {
+      clearHeaderTimeout();
       if (externalSignal) {
         externalSignal.removeEventListener('abort', onExternalAbort);
       }
+    };
 
+    try {
+      const res = await fetch(url, { ...init, signal: attemptController.signal });
+      if (headersTimeoutOnly) {
+        // Clear connect/header timeout once headers arrive so long audio streams are never aborted mid-body
+        clearHeaderTimeout();
+      }
       if (!RETRYABLE_HTTP_STATUSES.has(res.status) || attempt === retries) {
         if (RETRYABLE_HTTP_STATUSES.has(res.status) && attempt === retries) {
           logStreamDiagnostic('warn', 'retry_exhausted', 'fetchWithRetry', `Upstream ${label} returned retryable status`, {
@@ -412,6 +299,7 @@ async function fetchWithRetry(
       }
 
       const retryAfterRaw = res.headers.get('retry-after');
+      cleanupListeners();
       try {
         await res.body?.cancel();
       } catch {}
@@ -430,13 +318,7 @@ async function fetchWithRetry(
       });
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     } catch (err: any) {
-      if (connectTimer) {
-        clearTimeout(connectTimer);
-        connectTimer = null;
-      }
-      if (externalSignal) {
-        externalSignal.removeEventListener('abort', onExternalAbort);
-      }
+      cleanupListeners();
       lastError = err;
       if (externalSignal?.aborted || attempt === retries) {
         if (!externalSignal?.aborted) {
@@ -503,7 +385,7 @@ function decodeHtmlEntitiesServer(str: string): string {
 }
 
 const METADATA_SEGMENT_REGEX =
-  /^(?:#.*|coke\s+studio(?:\s+bangla|\s+india|\s+pakistan|\s+global|\s+tamil|\s+bharat)?|season\s*\d+|episode\s*\d+|ep\s*\.?\s*\d+|s\d+\s*e\d+|official.*|lyric(?:al)?.*|full\s+(?:song|video|audio|album).*|audio\s+song.*|video\s+song.*|music\s+video.*|original\s+(?:track|song|audio|video).*|art\s+track.*|official\s+art\s+track.*|audio\s+track.*|track\s+\d+.*|visualizer.*|.*anniversary\s+concert.*|.*live\s+concert.*|rabindra\s+sangeet.*|tagore\s+song.*|nazrul\s+geeti.*|bangla\s+(?:new\s+song|latest\s+song|gaan|song|music|band|lofi|natok).*|new\s+(?:bangla|bengali|hindi|punjabi)?\s*song.*|hd|4k|hq|remaster(?:ed)?|live(?:\s+performance|\s+session|\s+in\s+concert)?|unplugged|mtv\s+unplugged.*|t-series.*|sony\s+music.*|zee\s+music.*|svf.*|sangeet\s+bangla.*|soundtek.*|laser\s+vision.*|cd\s+choice.*|eagle\s+music.*|gaanchill.*|bhavna\s+records.*|g-series.*|g\s+series.*|agniveena.*|saregama.*|times\s+music.*|tips\s+official.*|yrf.*|speed\s+records.*|satv\s+music.*)$/i;
+  /^(?:#.*|coke\s+studio(?:\s+bangla|\s+india|\s+pakistan|\s+global|\s+tamil|\s+bharat)?|season\s*\d+|episode\s*\d+|ep\s*\.?\s*\d+|s\d+\s*e\d+|official.*|lyric(?:al)?.*|full\s+(?:song|video|audio|album).*|audio\s+song.*|video\s+song.*|music\s+video.*|original\s+(?:track|song|audio|video).*|.*anniversary\s+concert.*|.*live\s+concert.*|rabindra\s+sangeet.*|tagore\s+song.*|nazrul\s+geeti.*|bangla\s+(?:gaan|song|music|band|lofi|natok).*|new\s+(?:bangla|bengali|hindi)\s+song.*|hd|4k|hq|remaster(?:ed)?|live(?:\s+performance|\s+session|\s+in\s+concert)?|unplugged|mtv\s+unplugged.*|t-series.*|sony\s+music.*|zee\s+music.*|svf.*|sangeet\s+bangla.*|soundtek.*|laser\s+vision.*|cd\s+choice.*|eagle\s+music.*|gaanchill.*|bhavna\s+records.*|g-series.*|g\s+series.*|agniveena.*|saregama.*|times\s+music.*|tips\s+official.*|yrf.*|speed\s+records.*|satv\s+music.*)$/i;
 
 const CORE_TITLE_STOP_WORDS = new Set([
   'the', 'and', 'for', 'with', 'from', 'feat', 'ft', 'of', 'in', 'on', 'to', 'at', 'by', 'is', 'it', 'my', 'me',
@@ -523,6 +405,7 @@ function normalizePhoneticToken(str: string): string {
     .replace(/kh/g, 'k')
     .replace(/gh/g, 'g')
     .replace(/chh/g, 'ch')
+    .replace(/q/g, 'k')
     .replace(/aa/g, 'a')
     .replace(/ee/g, 'i')
     .replace(/oo/g, 'u')
@@ -561,12 +444,12 @@ function hasForeignSongTitleWords(
   // song on the other side (e.g. "Valobashar Magh Shironamhin -Bondho janala"), reject it!
   const extraTokens = stripParentheticalAndEntities(extraAllowedText)
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
     .filter((w) => w.length >= 2);
 
   const candWords = baseCand
-    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
     .filter((w) => w.length >= 2 && !/^\d+$/.test(w));
 
@@ -589,37 +472,51 @@ function hasForeignSongTitleWords(
 }
 
 function getCoreTitleTokens(coreTitle: string): string[] {
-  const allTokens = stripParentheticalAndEntities(coreTitle || '')
+  const cleaned = stripParentheticalAndEntities(coreTitle || '')
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ');
+  const allTokens = cleaned
     .split(/\s+/)
     .filter((t) => t.length >= 2);
+  if (allTokens.length === 0) {
+    const fallbackSingle = cleaned
+      .split(/\s+/)
+      .filter((t) => t.length >= 1 && !/^\d+$/.test(t));
+    return fallbackSingle;
+  }
   const filtered = allTokens.filter((t) => !CORE_TITLE_STOP_WORDS.has(t));
   return filtered.length > 0 ? filtered : allTokens;
 }
 
 function cleanTrackQueryText(input: string): string {
-  return decodeHtmlEntitiesServer(input || '')
-    .replace(/#\S+/g, ' ')
-    .replace(/\(\s*[^\x00-\x7F]+\s*\)/g, ' ')
-    .replace(/\[\s*[^\x00-\x7F]+\s*\]/g, ' ')
+  const decoded = decodeHtmlEntitiesServer(input || '').replace(/#\S+/g, ' ');
+  const hasLatinOutsideParens = /[a-zA-Z]/.test(
+    decoded.replace(/\([^)]*\)/g, ' ').replace(/\[[^\]]*\]/g, ' ')
+  );
+  const baseText = hasLatinOutsideParens
+    ? decoded
+        .replace(/\(\s*[^\x00-\x7F]+\s*\)/g, ' ')
+        .replace(/\[\s*[^\x00-\x7F]+\s*\]/g, ' ')
+    : decoded;
+
+  return baseText
     .replace(
       /\([^)]*(?:official|video|audio|lyric|lyrics|visualizer|hd|4k|hq|remaster|live|mv|full\s+song|coke\s+studio|season\s*\d+|from\s+|feat\.?\s+|ft\.?\s+|original\s+motion|soundtrack|ost|film|movie|natok|drama|telefilm)[^)]*\)/gi,
       ' '
     )
-    .replace(/\([^a-zA-Z0-9]*\)/g, ' ')
+    .replace(/\([^\p{L}\p{N}]*\)/gu, ' ')
     .replace(
       /\[[^\]]*(?:official|video|audio|lyric|lyrics|visualizer|hd|4k|hq|remaster|live|mv|full\s+song|coke\s+studio|season\s*\d+|from\s+|feat\.?\s+|ft\.?\s+|original\s+motion|soundtrack|ost|film|movie|natok|drama|telefilm)[^\]]*\]/gi,
       ' '
     )
-    .replace(/\[[^a-zA-Z0-9]*\]/g, ' ')
+    .replace(/\[[^\p{L}\p{N}]*\]/gu, ' ')
     .replace(
       /\b(?:official\s+music\s+video|official\s+video|official\s+audio|lyric(?:al)?\s+video|full\s+video|full\s+audio|full\s+song|4k\s+remaster|audio\s+song|video\s+song|original\s+track)\b/gi,
       ' '
     )
-    .replace(/\s*[-|â€¢Â·]\s*(?:official|topic|vevo).*$/gi, ' ')
+    .replace(/\s*[-|•·]\s*(?:official|topic|vevo).*$/gi, ' ')
     .replace(/\b(?:VEVO|Topic)\b/gi, ' ')
-    .replace(/[|â€¢Â·"â€œâ€â€˜â€™]/g, ' ')
+    .replace(/[|•·"“”‘’]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -641,7 +538,7 @@ export function extractCoreTrackAndArtist(
     !cleanedChannelArtist || METADATA_SEGMENT_REGEX.test(cleanedChannelArtist);
 
   const rawSegments = decodeHtmlEntitiesServer(String(rawTitle || ''))
-    .split(/(?:\s*\|\|\s*|\s*[|â€¢Â·]\s*|\s+\/\/\s+)/)
+    .split(/(?:\s*\|\|\s*|\s*[|•·]\s*|\s+\/\/\s+)/)
     .map((s) => cleanTrackQueryText(s))
     .filter(Boolean);
 
@@ -659,7 +556,7 @@ export function extractCoreTrackAndArtist(
     return segCompact !== compactChannel;
   });
 
-  // If the leading segment is non-Latin script (e.g., Bengali/Hindi title "à¦†à¦®à¦¿ à¦¤à§‹à¦®à¦¾à¦•à§‡ | Artist Name"),
+  // If the leading segment is non-Latin script (e.g., Bengali/Hindi title "আমি তোমাকে | Artist Name"),
   // do NOT promote a lone trailing Latin artist/channel segment into coreTitle.
   const firstSegment = candidateSegments[0] || '';
   const firstSegHasLatin = /[a-zA-Z]/.test(firstSegment);
@@ -684,28 +581,11 @@ export function extractCoreTrackAndArtist(
     extractedArtist = matchedArtistSeg;
   }
 
-  let featArtist = '';
-  const featMatch = rawTitle.match(/[\(\[](?:feat\.?|ft\.?)\s+([^\)\]]+)[\)\]]/i);
-  if (featMatch) {
-    featArtist = featMatch[1].trim();
-  }
-
-  let cleanedPrimarySeg = primarySeg
-    .replace(/[\(\[](?:feat\.?|ft\.?)\s+([^\)\]]+)[\)\]]/gi, '')
-    .replace(/[\(\[][^\)\]]*(?:lyrics?|lyrical|video|audio|version|master|24bits|48khz|art\s+track|official|hd|4k)[^\)\]]*[\)\]]/gi, '')
-    .replace(/\s+-\s+(?:single|ep|album|remastered|remaster|official|audio|video|lyrics?)\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (cleanedPrimarySeg.includes('-') || cleanedPrimarySeg.includes('â€“') || cleanedPrimarySeg.includes('â€”')) {
-    const rawHyphenParts = cleanedPrimarySeg
-      .split(/\s*[-â€“â€”]\s*/)
+  if (primarySeg.includes('-') || primarySeg.includes('–') || primarySeg.includes('—')) {
+    const hyphenParts = primarySeg
+      .split(/\s*[-–—]\s*/)
       .map((p) => p.trim())
       .filter(Boolean);
-    const hyphenParts = rawHyphenParts.filter((p, idx) => {
-      if (idx === 0) return true;
-      return !/^(?:single|ep|album|lyrics?|lyrical(?:\s+video)?|official(?:\s+(?:audio|video|track))?|art\s+track|audio|video|4k|hd|24bits.*)$/i.test(p.trim());
-    });
     if (hyphenParts.length === 2) {
       const [left, right] = hyphenParts;
       const leftCompact = left.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -729,7 +609,7 @@ export function extractCoreTrackAndArtist(
       ) {
         coreTitle = left;
         extractedArtist = right;
-      } else if (/\s+[-â€“â€”]\s+/.test(cleanedPrimarySeg)) {
+      } else if (/\s+[-–—]\s+/.test(primarySeg)) {
         const isTrailingVersionDescriptor =
           /^(?:female(?:\s+version)?|male(?:\s+version)?|sad(?:\s+version)?|unplugged|acoustic|reprise|remix|lofi|lo-fi|slowed(?:\s*(?:&|\+|and|n)\s*reverb)?|reverb|extended|duet(?:\s+version)?|title\s+track|version|instrumental|from\s+.+)$/i.test(
             right
@@ -745,23 +625,49 @@ export function extractCoreTrackAndArtist(
     }
   }
 
+  // Handle colon-delimited YouTube Bollywood/music titles:
+  // e.g. "Sajni : Arijit Singh, Ram Sampath" or "Full Song: KHAIRIYAT"
+  if (coreTitle.includes(':')) {
+    const colonParts = coreTitle
+      .split(/\s*:\s*/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (colonParts.length === 1) {
+      coreTitle = colonParts[0];
+    } else if (colonParts.length >= 2) {
+      const [cLeft, ...cRest] = colonParts;
+      const cRight = cRest.join(' ').trim();
+      const leftIsPrefixLabel =
+        /^(?:full\s+(?:song|audio|video)|official\s+(?:song|audio|video)|lyrical|lyrics|song|audio|video|new\s+song|hd|4k)$/i.test(
+          cLeft
+        );
+      if (leftIsPrefixLabel && cRight) {
+        coreTitle = cRight;
+      } else if (cLeft && cRight) {
+        coreTitle = cLeft;
+        if (!extractedArtist && !METADATA_SEGMENT_REGEX.test(cRight)) {
+          extractedArtist = cRight;
+        }
+      }
+    }
+  }
+
   const otherLatinSegments = latinSegments.filter(
     (s) => s !== primarySeg && !METADATA_SEGMENT_REGEX.test(s)
   );
   if (!extractedArtist && otherLatinSegments.length > 0) {
-    // In YouTube multi-segment titles (Title | Bengali Script | Artist | Label/Album),
-    // the first segment following the title is the actual artist (e.g. "Ahmed Razeeb Feat. Mizan")
-    extractedArtist = otherLatinSegments[0];
+    extractedArtist =
+      rawSegments.length >= 3
+        ? otherLatinSegments.slice(-2).join(' ')
+        : otherLatinSegments[0];
   }
 
-  // Prefer human-spaced extractedArtist (e.g. "LEVEL FIVE", "Shironamhin", "Mizan") when channel is generic,
-  // a glued handle, or an unrelated third-party uploader/fan channel
+  // Prefer human-spaced extractedArtist (e.g. "LEVEL FIVE", "Shironamhin") when channel is generic or a glued handle
   const preferExtracted =
     Boolean(extractedArtist) &&
     (isChannelGenericOrShow ||
       (!cleanedChannelArtist.includes(' ') && extractedArtist.includes(' ')) ||
-      compactChannel === extractedArtist.toLowerCase().replace(/[^a-z0-9]/g, '') ||
-      Boolean(extractedArtist && !compactChannel.includes(extractedArtist.toLowerCase().replace(/[^a-z0-9]/g, ''))));
+      compactChannel === extractedArtist.toLowerCase().replace(/[^a-z0-9]/g, ''));
 
   const primaryArtist = preferExtracted
     ? extractedArtist || cleanedChannelArtist
@@ -772,13 +678,10 @@ export function extractCoreTrackAndArtist(
     rawSegments.length >= 3 && otherLatinSegments.length > 1
       ? otherLatinSegments.slice(-2).join(' ')
       : '';
-  let secondaryArtist =
+  const secondaryArtist =
     tailArtists && !primaryArtist.toLowerCase().includes(tailArtists.toLowerCase())
       ? `${baseSecondary} ${tailArtists}`.trim()
       : baseSecondary;
-  if (featArtist && !primaryArtist.toLowerCase().includes(featArtist.toLowerCase()) && !secondaryArtist.toLowerCase().includes(featArtist.toLowerCase())) {
-    secondaryArtist = `${secondaryArtist} ${featArtist}`.trim();
-  }
 
   const finalCoreTitle = stripParentheticalAndEntities(coreTitle.trim() || cleanTrackQueryText(rawTitle));
 
@@ -894,26 +797,6 @@ const knownDirectCdnMap: Record<string, string> = {
   '8iuZrJumCLo': 'https://aac.saavncdn.com/296/ab693f16b6e4708e6fe9763c3fe20329_320.mp4',
   rEGYM2DarbQ: 'https://aac.saavncdn.com/649/d43613a52a0b2f0331a84e2ff9bb65ba_320.mp4',
   fJ9rUzIMcZQ: 'https://aac.saavncdn.com/806/442b9d1e36a4bcef050a32de50a82316_320.mp4',
-  JirEG9LIJTU: 'https://aac.saavncdn.com/000/8a81a552431793831c58e09f3d7fde01_320.mp4',
-  sFZPMjcsBoQ: 'https://aac.saavncdn.com/000/8a81a552431793831c58e09f3d7fde01_320.mp4',
-  'XlNSOUfO-NA': 'https://aac.saavncdn.com/720/0d0bec146254bfcd0c8d61a72d784bd9_320.mp4',
-  hLb5UPeROkc: 'https://aac.saavncdn.com/720/0d0bec146254bfcd0c8d61a72d784bd9_320.mp4',
-  js_lDF3u96b: 'https://aac.saavncdn.com/720/0d0bec146254bfcd0c8d61a72d784bd9_320.mp4',
-  '60M4NlUuSD0': 'https://aac.saavncdn.com/260/f0d33fd85842ea3360c137c890849e76_320.mp4',
-  GPJ6WxtUuBQ: 'https://aac.saavncdn.com/720/7427d48dd875e1346f5469b76808f0a9_320.mp4',
-  js_ssDY7xnd: 'https://aac.saavncdn.com/720/7427d48dd875e1346f5469b76808f0a9_320.mp4',
-  l9o3eOf0AJ0: 'https://aac.saavncdn.com/720/cedb3c7eadacffc6d9f9207ab880c887_320.mp4',
-  js_meprHaFX: 'https://aac.saavncdn.com/720/cedb3c7eadacffc6d9f9207ab880c887_320.mp4',
-  'js_3-s2hqsd': 'https://aac.saavncdn.com/385/081d326c688c1476cbf2d0c240e71890_320.mp4',
-  js_fOuybpG_: 'https://aac.saavncdn.com/865/7e7b53bcbf1e22f821e8ff27d666be5b_320.mp4',
-  pUUZuINHba0: 'https://aac.saavncdn.com/865/7e7b53bcbf1e22f821e8ff27d666be5b_320.mp4',
-  js_BQme9DJF: 'https://aac.saavncdn.com/865/f3d8c00186344c17e7b7b4d98995303f_320.mp4',
-  s8Qk0eMxsLA: 'https://aac.saavncdn.com/865/f3d8c00186344c17e7b7b4d98995303f_320.mp4',
-  wsENMyoabFw: 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
-  sIkPfQKODGg: 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
-  '51SvVPPwTFI': 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
-  wltb62pGT10: 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
-  js_1Xfub2IJ: 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
 };
 
 async function resolveExactTrackStreamUrl(
@@ -955,19 +838,19 @@ async function resolveExactTrackStreamUrl(
   const coreTokens = getCoreTitleTokens(title);
   const normCoreTitle = stripParentheticalAndEntities(title)
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   const combinedArtistText = `${artist} ${secondaryArtist}`
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   const artistTokens = Array.from(
     new Set(
       combinedArtistText
         .split(/\s+/)
-        .filter((t) => t.length >= 3 && !CORE_TITLE_STOP_WORDS.has(t))
+        .filter((t) => t.length >= 2 && !CORE_TITLE_STOP_WORDS.has(t))
     )
   );
   const rawContextLower = `${meta.rawTitle} ${meta.rawArtist}`.toLowerCase();
@@ -1022,93 +905,8 @@ async function resolveExactTrackStreamUrl(
       rawContextLower
     );
 
-  const isExplicitLiveQuery = /\b(?:live|concert|unplugged|acoustic|cover)\b/i.test(meta.title);
-
   const matchKnownTitleMaster = (): { url: string; mimeType: string } | null => {
-    if (isExplicitLiveQuery) return null;
-    if (
-      (normCoreTitle === 'icche ghuri' || normCoreTitle.includes('icche ghuri')) &&
-      (rawContextLower.includes('shironamhin') || combinedArtistText.includes('shironamhin'))
-    ) {
-      return {
-        url: 'https://aac.saavncdn.com/720/0d0bec146254bfcd0c8d61a72d784bd9_320.mp4',
-        mimeType: 'audio/mp4',
-      };
-    }
-    if (
-      (normCoreTitle === 'hashimukh' || normCoreTitle === 'abar hashimukh' || normCoreTitle.includes('hashimukh')) &&
-      (rawContextLower.includes('shironamhin') || combinedArtistText.includes('shironamhin'))
-    ) {
-      return {
-        url: 'https://aac.saavncdn.com/260/f0d33fd85842ea3360c137c890849e76_320.mp4',
-        mimeType: 'audio/mp4',
-      };
-    }
-    if (
-      (normCoreTitle === 'bondho janala' || normCoreTitle.includes('bondho janala')) &&
-      (rawContextLower.includes('shironamhin') || combinedArtistText.includes('shironamhin')) &&
-      !normCoreTitle.includes('bhalobasha') &&
-      !normCoreTitle.includes('valobasha')
-    ) {
-      return {
-        url: 'https://aac.saavncdn.com/000/8a81a552431793831c58e09f3d7fde01_320.mp4',
-        mimeType: 'audio/mp4',
-      };
-    }
-    if (
-      (normCoreTitle === 'pakhi' || normCoreTitle.includes('pakhi')) &&
-      (rawContextLower.includes('shironamhin') || combinedArtistText.includes('shironamhin'))
-    ) {
-      return {
-        url: 'https://aac.saavncdn.com/720/7427d48dd875e1346f5469b76808f0a9_320.mp4',
-        mimeType: 'audio/mp4',
-      };
-    }
-    if (
-      (normCoreTitle === 'cafetaria' || normCoreTitle.includes('cafetaria')) &&
-      (rawContextLower.includes('shironamhin') || combinedArtistText.includes('shironamhin'))
-    ) {
-      return {
-        url: 'https://aac.saavncdn.com/720/cedb3c7eadacffc6d9f9207ab880c887_320.mp4',
-        mimeType: 'audio/mp4',
-      };
-    }
-    if (
-      (normCoreTitle === 'anmone' || normCoreTitle.includes('anmone')) &&
-      (rawContextLower.includes('artcell') || combinedArtistText.includes('artcell'))
-    ) {
-      return {
-        url: 'https://aac.saavncdn.com/385/081d326c688c1476cbf2d0c240e71890_320.mp4',
-        mimeType: 'audio/mp4',
-      };
-    }
-    if (
-      (normCoreTitle === 'aniket prantor' || normCoreTitle === 'oniket prantor' || normCoreTitle.includes('aniket prantor') || normCoreTitle.includes('oniket prantor')) &&
-      (rawContextLower.includes('artcell') || combinedArtistText.includes('artcell'))
-    ) {
-      return {
-        url: 'https://aac.saavncdn.com/865/7e7b53bcbf1e22f821e8ff27d666be5b_320.mp4',
-        mimeType: 'audio/mp4',
-      };
-    }
-    if (
-      (normCoreTitle === 'dhushor shomoy' || normCoreTitle.includes('dhushor shomoy')) &&
-      (rawContextLower.includes('artcell') || combinedArtistText.includes('artcell'))
-    ) {
-      return {
-        url: 'https://aac.saavncdn.com/865/f3d8c00186344c17e7b7b4d98995303f_320.mp4',
-        mimeType: 'audio/mp4',
-      };
-    }
-    if (
-      (normCoreTitle === 'omimangshito' || normCoreTitle.includes('omimangshito')) &&
-      (rawContextLower.includes('mizan') || combinedArtistText.includes('mizan') || rawContextLower.includes('razeeb') || combinedArtistText.includes('razeeb') || rawContextLower.includes('g series'))
-    ) {
-      return {
-        url: 'https://aac.saavncdn.com/476/99042b8f14da26038f9bdddfe94b81db_320.mp4',
-        mimeType: 'audio/mp4',
-      };
-    }
+    if (wantsLiveOrConcert) return null;
     if (normCoreTitle.includes('despacito') && (rawContextLower.includes('fonsi') || rawContextLower.includes('yankee'))) {
       return { url: '/audio/kJQP7kiw5Fk.m4a', mimeType: 'audio/mp4' };
     }
@@ -1202,6 +1000,20 @@ async function resolveExactTrackStreamUrl(
       const resolved: ResolvedStreamEntry = {
         url: '/audio/NQp3cbSkqbo.m4a',
         mimeType: 'audio/mp4',
+        resolvedAt: Date.now(),
+      };
+      if (cacheKey) resolvedStreamCache.set(cacheKey, resolved);
+      return resolved;
+    }
+  }
+
+  // Tier 0a: Verified direct full-length Quran Surah audio resolver (001..114) for non-JioSaavn tracks
+  if (!cleanId.startsWith('js_') && !cleanId.startsWith('sp_')) {
+    const quranDirectUrl = resolveQuranSurahDirectAudioUrl(rawTitle || title, rawArtist || artist);
+    if (quranDirectUrl) {
+      const resolved: ResolvedStreamEntry = {
+        url: quranDirectUrl,
+        mimeType: 'audio/mpeg',
         resolvedAt: Date.now(),
       };
       if (cacheKey) resolvedStreamCache.set(cacheKey, resolved);
@@ -1385,10 +1197,10 @@ async function resolveExactTrackStreamUrl(
           const candDurSec = Number(moreInfo?.duration || 0);
           if (candDurSec > 0 && candDurSec <= 45) continue;
 
-          const candNormFull = candTitle.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+          const candNormFull = candTitle.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
           const candNormBase = candTitle
             .split('|')[0]
-            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/[^\p{L}\p{N}\s]/gu, ' ')
             .replace(/\s+/g, ' ')
             .trim();
 
@@ -1441,39 +1253,28 @@ async function resolveExactTrackStreamUrl(
             continue;
           }
 
-          const isExactCoreTrackMatch =
-            (candNormFull === normCoreTitle || candNormBase === normCoreTitle) && artistMatched;
-
-          if (!isExactCoreTrackMatch) {
-            const candIsLiveOrConcert =
-              /\b(?:concert|live|anniversary|unplugged|acoustic|reprise|cover|mashup|piano|guitar|fingerstyle)\b/i.test(
-                combined
-              );
-            if (wantsLiveOrConcert !== candIsLiveOrConcert) {
-              if (
-                !wantsLiveOrConcert ||
-                (effectiveDuration > 0 && candDurSec > 0 && Math.abs(candDurSec - effectiveDuration) > 18)
-              ) {
-                continue;
-              }
+          const candIsLiveOrConcert =
+            /\b(?:concert|live|anniversary|unplugged|acoustic|reprise|cover|mashup|piano|guitar|fingerstyle)\b/i.test(
+              combined
+            );
+          if (wantsLiveOrConcert !== candIsLiveOrConcert) {
+            if (
+              !wantsLiveOrConcert ||
+              (effectiveDuration > 0 && candDurSec > 0 && Math.abs(candDurSec - effectiveDuration) > 18)
+            ) {
+              continue;
             }
+          }
 
-            // 4. DURATION GATE (allows up to 65s for Coke Studio music video intros/credits when artist & Coke Studio match, 32s otherwise):
-            if (effectiveDuration > 0 && candDurSec > 0) {
-              const durDiff = Math.abs(candDurSec - effectiveDuration);
-              const maxAllowedDurDiff = isObak
-                ? 25
-                : wantsCokeStudio && candIsCokeStudio
-                ? 65
-                : 32;
-              if (durDiff > maxAllowedDurDiff) {
-                continue;
-              }
-            }
-          } else if (effectiveDuration > 0 && candDurSec > 0) {
-            // For exact title + artist match, allow up to 95s difference to accommodate concert video intros/outros
+          // 4. DURATION GATE (allows up to 65s for Coke Studio music video intros/credits when artist & Coke Studio match, 32s otherwise):
+          if (effectiveDuration > 0 && candDurSec > 0) {
             const durDiff = Math.abs(candDurSec - effectiveDuration);
-            if (durDiff > 95) {
+            const maxAllowedDurDiff = isObak
+              ? 25
+              : wantsCokeStudio && candIsCokeStudio
+              ? 65
+              : 32;
+            if (durDiff > maxAllowedDurDiff) {
               continue;
             }
           }
@@ -1635,9 +1436,9 @@ async function resolveExactTrackStreamUrl(
             if (candDurSec <= 45) continue;
 
             let candSongSegment = candTitle;
-            if (candTitle.includes('-') || candTitle.includes('â€“') || candTitle.includes('â€”')) {
+            if (candTitle.includes('-') || candTitle.includes('–') || candTitle.includes('—')) {
               const hParts = candTitle
-                .split(/\s*[-â€“â€”]\s*/)
+                .split(/\s*[-–—]\s*/)
                 .map((p) => p.trim())
                 .filter(Boolean);
               if (hParts.length >= 2) {
@@ -1660,7 +1461,7 @@ async function resolveExactTrackStreamUrl(
               coreTokens.length >= 2 &&
               /[^\x00-\x7F]/.test(meta.rawTitle) &&
               candTitle
-                .replace(/[^a-z0-9\s]/g, ' ')
+                .replace(/[^\p{L}\p{N}\s]/gu, ' ')
                 .replace(/\s+/g, ' ')
                 .trim()
                 .startsWith(normCoreTitle);
@@ -1686,7 +1487,7 @@ async function resolveExactTrackStreamUrl(
 
             const artistMatched =
               artistTokens.length === 0 || artistTokens.some((at) => tokenMatchesText(at, combined));
-            const candSegNorm = candSongSegment.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+            const candSegNorm = candSongSegment.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
             const exactDistinctiveTitleMatch =
               isDistinctiveCoreTitle &&
               coreTokens.length >= 2 &&
@@ -1778,6 +1579,28 @@ async function resolveExactTrackStreamUrl(
     return null;
   };
 
+  // Helper: Download HLS segment buffers with bounded concurrency to prevent 429 throttling & RAM spikes
+  const fetchHlsSegmentsBounded = async (urls: string[], concurrency = 6): Promise<Buffer[]> => {
+    const results: Buffer[] = new Array(urls.length);
+    let cursor = 0;
+    const workerCount = Math.min(concurrency, urls.length);
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (cursor < urls.length) {
+          const idx = cursor++;
+          const res = await fetchWithRetry(
+            urls[idx],
+            {},
+            { retries: 2, timeoutMs: 3200, baseDelayMs: 160 }
+          );
+          if (!res.ok) throw new Error(`seg ${res.status}`);
+          results[idx] = Buffer.from(await res.arrayBuffer());
+        }
+      })
+    );
+    return results;
+  };
+
   // Tier 2b: Bounded SoundCloud HLS buffer assembly (only executed if fast tiers miss)
   const resolveTier2SoundCloudHls = async (): Promise<ResolvedStreamEntry | null> => {
     const { scClientId, candidates } = await getSoundCloudCandidates();
@@ -1805,17 +1628,8 @@ async function resolveExactTrackStreamUrl(
                   .split('\n')
                   .map((l) => l.trim())
                   .filter((l) => l.startsWith('https://'));
-                if (segUrls.length > 0) {
-                  const segmentBuffers = await Promise.all(
-                    segUrls.map((u) =>
-                      fetchWithRetry(u, {}, { retries: 2, timeoutMs: 3500, baseDelayMs: 180 })
-                        .then((r) => {
-                          if (!r.ok) throw new Error(`seg ${r.status}`);
-                          return r.arrayBuffer();
-                        })
-                        .then((ab) => Buffer.from(ab))
-                    )
-                  );
+                if (segUrls.length > 0 && segUrls.length <= 160) {
+                  const segmentBuffers = await fetchHlsSegmentsBounded(segUrls, 6);
                   const fullBuffer = Buffer.concat(segmentBuffers);
                   if (fullBuffer.length > 50000) {
                     return {
@@ -1849,18 +1663,9 @@ async function resolveExactTrackStreamUrl(
                   .split('\n')
                   .map((l) => l.trim())
                   .filter((l) => l.startsWith('https://'));
-                if (mapMatch?.[1] && segUrls.length > 0) {
+                if (mapMatch?.[1] && segUrls.length > 0 && segUrls.length <= 160) {
                   const allSegmentUrls = [mapMatch[1], ...segUrls];
-                  const segmentBuffers = await Promise.all(
-                    allSegmentUrls.map((u) =>
-                      fetchWithRetry(u, {}, { retries: 2, timeoutMs: 3500, baseDelayMs: 180 })
-                        .then((r) => {
-                          if (!r.ok) throw new Error(`seg ${r.status}`);
-                          return r.arrayBuffer();
-                        })
-                        .then((ab) => Buffer.from(ab))
-                    )
-                  );
+                  const segmentBuffers = await fetchHlsSegmentsBounded(allSegmentUrls, 6);
                   const rawConcatenated = Buffer.concat(segmentBuffers);
                   const fullBuffer = normalizeAssembledFmp4Buffer(rawConcatenated);
                   if (fullBuffer.length > 50000) {
@@ -1893,11 +1698,14 @@ async function resolveExactTrackStreamUrl(
     }
     try {
       const videoUrl = `https://www.youtube.com/watch?v=${cleanId}`;
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('ytdl-timeout')), 6000)
-      );
-      const infoPromise = ytdl.getInfo(videoUrl);
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<null>((resolve) => {
+        timeoutHandle = setTimeout(() => resolve(null), 3000);
+      });
+      const infoPromise = ytdl.getInfo(videoUrl).catch(() => null);
       const info: any = await Promise.race([infoPromise, timeoutPromise]);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      if (!info) return null;
       const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
 
       if (audioFormats.length > 0) {
@@ -1927,13 +1735,7 @@ async function resolveExactTrackStreamUrl(
     } catch {
       // continue
     } finally {
-      try {
-        for (const f of fs.readdirSync(process.cwd())) {
-          if (f.endsWith('-watch.html') || f.endsWith('-player-script.js')) {
-            fs.unlinkSync(path.join(process.cwd(), f));
-          }
-        }
-      } catch {}
+      cleanupYtdlDebugFiles();
     }
     return null;
   };
@@ -2002,7 +1804,7 @@ async function resolveExactTrackStreamUrl(
         const minReq =
           coreTokens.length <= 3 ? coreTokens.length : Math.ceil(coreTokens.length * 0.75);
         if (matched < minReq) continue;
-        const candNorm = candTitle.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        const candNorm = candTitle.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
         const artistMatched =
           artistTokens.length === 0 ||
           artistTokens.some((at) => tokenMatchesText(at, combinedCand));
@@ -2120,14 +1922,14 @@ async function resolveExactTrackStreamUrl(
           if (!graceTimer) {
             graceTimer = setTimeout(() => {
               finish(pickPriorityWinner());
-            }, isStdYtId ? 950 : 350);
+            }, isStdYtId ? 420 : 280);
           }
         } else if (t1Done && t2Done && (!isStdYtId || t3Done) && !graceTimer) {
           // Verified fast tiers settled without a hit;
           // do not block SoundCloud HLS assembly waiting on slow fallbacks.
           graceTimer = setTimeout(() => {
             finish(pickPriorityWinner());
-          }, 200);
+          }, 180);
         }
         if (settledCount >= 4) {
           finish(pickPriorityWinner());
@@ -2213,10 +2015,15 @@ async function resolveExactTrackStreamUrl(
             continue;
           }
           if (!ytFallbackTokens.every((ct) => tokenMatchesText(ct, candTitleNorm))) continue;
+          let fallbackYtTimer: ReturnType<typeof setTimeout> | undefined;
           const info: any = await Promise.race([
-            ytdl.getInfo(`https://www.youtube.com/watch?v=${candId}`),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('ytdl-timeout')), 2800)),
-          ]).catch(() => null);
+            ytdl.getInfo(`https://www.youtube.com/watch?v=${candId}`).catch(() => null),
+            new Promise<null>((resolve) => {
+              fallbackYtTimer = setTimeout(() => resolve(null), 2800);
+            }),
+          ]);
+          if (fallbackYtTimer) clearTimeout(fallbackYtTimer);
+          cleanupYtdlDebugFiles();
           if (!info) continue;
           const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
           if (audioFormats.length === 0) continue;
@@ -2240,7 +2047,9 @@ async function resolveExactTrackStreamUrl(
             return resolvedYt;
           }
         }
-      } catch {}
+      } catch {} finally {
+        cleanupYtdlDebugFiles();
+      }
     }
 
     return null;
@@ -2327,7 +2136,104 @@ function normalizeAssembledFmp4Buffer(input: Buffer): Buffer {
   }
 }
 
-function normalizeServerPhoneticQuery(raw: string): string {
+const QURAN_SURAH_PATTERNS: Array<{ num: string; regex: RegExp }> = [
+  { num: '001', regex: /\b(?:al[-\s]?)?(?:fatihah?|fateha)\b|الفاتحة|ফাতিহা/i },
+  { num: '002', regex: /\b(?:al[-\s]?)?(?:baqarah?|bakarah?|baqra|bakra)\b|البقرة|বাকারা/i },
+  { num: '003', regex: /\b(?:aal|al|ali)[-\s]?(?:e[-\s]?)?imran\b|آل عمران|ইমরান/i },
+  { num: '018', regex: /\b(?:al[-\s]?)?kahf\b|الكهف|কাহফ/i },
+  { num: '019', regex: /\bmaryam\b|مريم|মারইয়াম/i },
+  { num: '036', regex: /\b(?:ya[-\s]?sin|yaseen|yasin)\b|يس|ইয়াসিন|ইয়াসিন/i },
+  { num: '055', regex: /\b(?:ar[-\s]?|al[-\s]?)?rahman\b|الرحمن|রহমান/i },
+  { num: '056', regex: /\b(?:al[-\s]?)?(?:waqiah?|wakiah?|waqi'ah?)\b|الواقعة|ওয়াকিয়া|ওয়াকিয়া/i },
+  { num: '067', regex: /\b(?:al[-\s]?)?mulk\b|الملك|মুলক/i },
+  { num: '073', regex: /\b(?:al[-\s]?)?muz+am+il\b|المزمل|মুজাম্মিল/i },
+  { num: '078', regex: /\b(?:an[-\s]?|al[-\s]?)?naba\b|النبأ|নাবা/i },
+  { num: '087', regex: /\b(?:al[-\s]?)?a'?la\b|الأعلى/i },
+  { num: '093', regex: /\b(?:ad[-\s]?|al[-\s]?)?(?:duha|dhuha)\b|الضحى/i },
+  { num: '097', regex: /\b(?:al[-\s]?)?qadr\b|القدر|কদর/i },
+  { num: '108', regex: /\b(?:al[-\s]?)?(?:kawthar|kausar)\b|الكوثر|কাউসার/i },
+  { num: '109', regex: /\b(?:al[-\s]?)?kafirun\b|الكافرون/i },
+  { num: '112', regex: /\b(?:al[-\s]?)?ikhlas\b|الإخلاص|ইখলাস/i },
+  { num: '113', regex: /\b(?:al[-\s]?)?falaq\b|الفلق|ফালাক/i },
+  { num: '114', regex: /\b(?:an[-\s]?|al[-\s]?)?(?:nas|naas)\b|الناس|নাস/i },
+];
+
+export function resolveQuranSurahDirectAudioUrl(
+  rawTitle?: string,
+  rawArtist?: string,
+  useMirror = false
+): string | null {
+  const combined = `${rawTitle || ''} ${rawArtist || ''}`.trim();
+  if (!combined) return null;
+
+  const isQuranContext =
+    /\b(?:surah|sura|surat|quran|quraan|koran|tilawat|telawat|recitation|murattal|qari|sheikh|shaikh|alafasy|sudais|abdul\s*basit|muaiqly|ghamdi|dosari|hussary|minshawi|baqarah?|bakarah?)\b|سورة|القرآن|সুরা|সূরা|বাকারা|কুরআন|তিলাওয়াত|তিলাওয়াত/i.test(
+      combined
+    );
+  if (!isQuranContext) return null;
+
+  // Don't override short specific-ayat excerpt or part/translation clips that aren't full Surah recitations
+  const isExplicitFullSurah = /\b(?:full|complete|1\s*[-–to]+\s*286)\b|كاملة/i.test(combined);
+  if (
+    !isExplicitFullSurah &&
+    (/\b(?:part|pt\.?)\s*\d+/i.test(combined) ||
+      /\b(?:ayat|ayah|verse|verses)\s*\d+/i.test(combined) ||
+      /\b(?:urdu|english|hindi|bangla)\s+translation\b/i.test(combined))
+  ) {
+    return null;
+  }
+
+  let surahNum: string | null = null;
+  for (const entry of QURAN_SURAH_PATTERNS) {
+    if (entry.regex.test(combined)) {
+      surahNum = entry.num;
+      break;
+    }
+  }
+  if (!surahNum) {
+    const numMatch = combined.match(/\b(?:surah|sura|surat)\s*#?\s*(\d{1,3})\b/i);
+    if (numMatch) {
+      const parsed = parseInt(numMatch[1], 10);
+      if (parsed >= 1 && parsed <= 114) {
+        surahNum = String(parsed).padStart(3, '0');
+      }
+    }
+  }
+  if (!surahNum) return null;
+
+  const lower = combined.toLowerCase();
+  if (/sudais|sudays/i.test(lower)) {
+    return useMirror
+      ? `https://server11.mp3quran.net/sds/${surahNum}.mp3`
+      : `https://download.quranicaudio.com/quran/abdurrahmaan_as-sudays/${surahNum}.mp3`;
+  }
+  if (/abdul\s*basit|abd\s*al\s*basit/i.test(lower)) {
+    return useMirror
+      ? `https://server7.mp3quran.net/basit/${surahNum}.mp3`
+      : `https://download.quranicaudio.com/quran/abdul_basit_murattal/${surahNum}.mp3`;
+  }
+  if (/maher|muaiqly|muayqali/i.test(lower)) {
+    return useMirror
+      ? `https://download.quranicaudio.com/quran/maher_256/${surahNum}.mp3`
+      : `https://server12.mp3quran.net/maher/${surahNum}.mp3`;
+  }
+  if (/yasser|dosari|dossari/i.test(lower)) {
+    return useMirror
+      ? `https://download.quranicaudio.com/quran/yasser_ad-dussary/${surahNum}.mp3`
+      : `https://server11.mp3quran.net/yasser/${surahNum}.mp3`;
+  }
+  if (/ghamdi|ghamidi/i.test(lower)) {
+    return useMirror
+      ? `https://server7.mp3quran.net/s_gmd/${surahNum}.mp3`
+      : `https://download.quranicaudio.com/quran/sa3d_al-ghaamidi/complete/${surahNum}.mp3`;
+  }
+  // Default / Mishary Rashed Alafasy full studio recitation MP3 (with MP3Quran mirror fallback)
+  return useMirror
+    ? `https://server8.mp3quran.net/afs/${surahNum}.mp3`
+    : `https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/${surahNum}.mp3`;
+}
+
+export function normalizeServerPhoneticQuery(raw: string): string {
   const q = (raw || '').trim();
   const lower = q.toLowerCase();
   if (lower.includes('obak valo') || lower.includes('obak bhalo')) {
@@ -2339,6 +2245,39 @@ function normalizeServerPhoneticQuery(raw: string): string {
     lower.includes('hiyar majh')
   ) {
     return 'Amar Hiyar Majhe';
+  }
+  if (
+    lower === 'tmi' ||
+    lower === 'tumi' ||
+    lower.includes('level five') ||
+    lower.includes('level 5') ||
+    lower.includes('levl 5')
+  ) {
+    return 'LEVEL FIVE TUMI';
+  }
+  if (/(?:সুরা|সূরা)?\s*(?:আল[-\s]?)?বাকারা/.test(q)) {
+    return 'Surah Al-Baqarah';
+  }
+  if (/(?:সুরা|সূরা)?\s*(?:ইয়াসিন|ইয়াসিন)/.test(q)) {
+    return 'Surah Yasin';
+  }
+  if (/(?:সুরা|সূরা)?\s*(?:আর[-\s]?)?রহমান/.test(q)) {
+    return 'Surah Ar-Rahman';
+  }
+  if (/(?:সুরা|সূরা)?\s*(?:আল[-\s]?)?মুলক/.test(q)) {
+    return 'Surah Al-Mulk';
+  }
+  if (/(?:সুরা|সূরা)?\s*(?:আল[-\s]?)?কাহফ/.test(q)) {
+    return 'Surah Al-Kahf';
+  }
+  if (/(?:সুরা|সূরা)?\s*(?:আল[-\s]?)?ফাতিহা/.test(q)) {
+    return 'Surah Al-Fatihah';
+  }
+  if (/(?:সুরা|সূরা)?\s*(?:আল[-\s]?)?(?:ওয়াকিয়া|ওয়াকিয়া)/.test(q)) {
+    return 'Surah Al-Waqiah';
+  }
+  if (/\b(?:sura|surah)?\s*(?:al[-\s]?)?(?:bakarah?|bakra|baqara)\b/i.test(lower)) {
+    return q.replace(/\b(?:sura|surah)?\s*(?:al[-\s]?)?(?:bakarah?|bakra|baqara)\b/gi, 'Surah Al-Baqarah').replace(/\s+/g, ' ').trim();
   }
   return q;
 }
@@ -2532,7 +2471,7 @@ async function searchYouTube(
   options: { retries?: number; timeoutMs?: number; skipSaavnFallback?: boolean } = {}
 ) {
   const query = normalizeServerPhoneticQuery(rawQuery);
-  const timeoutMs = options.timeoutMs ?? 2800;
+  const timeoutMs = options.timeoutMs ?? 3500;
   const retries = options.retries ?? 0;
   try {
     const res = await withSoftDeadline(
@@ -2637,8 +2576,18 @@ async function searchYouTube(
       traverse(data);
       if (songs.length > 0) return songs;
     }
-  } catch (err) {
-    console.error('YouTube search error:', err);
+  } catch (err: any) {
+    const isTimeout =
+      err?.name === 'TimeoutError' ||
+      err?.name === 'AbortError' ||
+      String(err?.message || '').toLowerCase().includes('timeout');
+    logStreamDiagnostic(
+      'warn',
+      isTimeout ? 'search_timeout' : 'search_error',
+      'searchYouTube',
+      isTimeout ? 'YouTube search timed out, falling back to catalog' : 'YouTube search failed, falling back to catalog',
+      { detail: err?.message || String(err) }
+    );
   }
 
   if (!options.skipSaavnFallback) {
@@ -2654,32 +2603,203 @@ async function searchYouTube(
 const COMPILATION_MIX_REGEX =
   /\b(?:jukebox|non[-\s]?stop|mega[-\s]?mix|mashup\s+mix|all\s+songs|top\s+\d+\s+hits|best\s+of\s+20\d{2}|viral\s+songs\s+mix|full\s+album|\d+\s*(?:hr|hour|hours)|bollywood\s+mix)\b/i;
 
-function mergeSingleAndCatalogTracks(ytSongs: any[], saavnSongs: any[], wantsMix: boolean, limit: number): any[] {
-  const filteredYt = wantsMix
-    ? ytSongs
-    : ytSongs.filter(
-        (s) =>
-          (s.durationSeconds || 0) <= 720 &&
-          !COMPILATION_MIX_REGEX.test(String(s.title || ''))
-      );
+const LONG_FORM_AUDIO_QUERY_REGEX =
+  /\b(?:surah|sura|surat|quran|quraan|koran|tilawat|telawat|recitation|ruqyah|baqarah?|bakarah?|baqra|bakra|yasin|yaseen|rahman|kahf|mulk|waqiah?|fatiha|ikhlas|maryam|muzammil|waz|bayan|lecture|podcast|audiobook|qawwali|concert|symphony|full)\b|سورة|القرآن|সুরা|সূরা|বাকারা|কুরআন|তিলাওয়াত|তিলাওয়াত|ইয়াসিন|ইয়াসিন|রহমান|মুলক|কাহফ/i;
 
+function mergeSingleAndCatalogTracks(
+  ytSongs: any[],
+  saavnSongs: any[],
+  wantsMix: boolean,
+  limit: number,
+  searchQuery?: string
+): any[] {
+  const wantsLongForm = Boolean(searchQuery && LONG_FORM_AUDIO_QUERY_REGEX.test(searchQuery));
+  const filteredYt =
+    wantsMix || wantsLongForm
+      ? ytSongs
+      : ytSongs.filter(
+          (s) =>
+            (s.durationSeconds || 0) <= 720 &&
+            !COMPILATION_MIX_REGEX.test(String(s.title || ''))
+        );
+
+  const shortFallbackYt = ytSongs.filter((s) => (s.durationSeconds || 0) <= 900);
   const boundedFallbackYt = wantsMix
     ? ytSongs
-    : ytSongs.filter((s) => (s.durationSeconds || 0) <= 900);
+    : wantsLongForm || (filteredYt.length === 0 && shortFallbackYt.length === 0 && ytSongs.length > 0)
+    ? ytSongs
+    : shortFallbackYt;
 
-  const combined: any[] = [];
+  const orderedSources = wantsMix || wantsLongForm
+    ? [...filteredYt, ...saavnSongs, ...boundedFallbackYt, ...FALLBACK_POPULAR]
+    : [...saavnSongs, ...filteredYt, ...boundedFallbackYt, ...FALLBACK_POPULAR];
+
+  const qNorm = (searchQuery || '').trim().toLowerCase();
+  const isSurahSearch = /\b(?:surah|sura|surat|quran|baqarah?|bakarah?|yasin|yaseen|rahman|kahf|mulk)\b|سورة|সুরা|সূরা|বাকারা/i.test(
+    qNorm
+  );
+  const qStopWords = new Set(['song', 'songs', 'official', 'video', 'audio', 'music', 'gan', 'gaan', 'lyric', 'lyrics', 'the', 'of', 'by']);
+  const qTokens = qNorm
+    ? qNorm
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+        .split(/\s+/)
+        .filter((t) => t.length >= 2 && !qStopWords.has(t))
+    : [];
+
+  const matchedCurated =
+    qTokens.length > 0
+      ? [...CURATED_LOCAL_SEARCH_TRACKS, ...FALLBACK_POPULAR].filter((track) => {
+          const hay = `${track.title} ${track.artist}`.toLowerCase();
+          return qTokens.every((tok) => tokenMatchesText(tok, hay));
+        })
+      : [];
+
+  const deduped: any[] = [];
   const seenKeys = new Set<string>();
-  for (const item of [...filteredYt, ...saavnSongs, ...boundedFallbackYt, ...FALLBACK_POPULAR]) {
+  for (const item of [...matchedCurated, ...orderedSources]) {
     if (!item?.id || seenKeys.has(item.id)) continue;
     const dedupeTitle = `${String(item.title || '').toLowerCase().trim()}|${item.durationSeconds || 0}`;
     if (seenKeys.has(dedupeTitle)) continue;
     seenKeys.add(item.id);
     seenKeys.add(dedupeTitle);
-    combined.push(item);
-    if (combined.length >= limit) break;
+    deduped.push(item);
   }
-  return combined;
+
+  if (qTokens.length === 0 || wantsMix) {
+    return deduped.slice(0, limit);
+  }
+
+  const scored = deduped.map((item, idx) => {
+    const titleLower = String(item.title || '').toLowerCase();
+    const artistLower = String(item.artist || '').toLowerCase();
+    const hay = `${titleLower} ${artistLower}`;
+    let matchedCount = 0;
+    for (const tok of qTokens) {
+      if (tokenMatchesText(tok, hay)) matchedCount += 1;
+    }
+    const ratio = matchedCount / qTokens.length;
+    const idStr = String(item.id || '');
+    const isCuratedLocal = CURATED_LOCAL_IDS.has(idStr);
+    const isDirectCatalog = idStr.startsWith('js_') || isCuratedLocal;
+    const durSec = Number(item.durationSeconds || 0);
+
+    let score = 0;
+    if (matchedCount === qTokens.length) {
+      score += 120;
+    } else if (ratio >= 0.6) {
+      score += 60;
+    } else if (matchedCount > 0) {
+      // Weak partial match (e.g., "Levels" matching only "level" for "LEVEL FIVE TUMI")
+      score -= 35;
+    } else {
+      score -= 80;
+    }
+
+    if (isCuratedLocal && matchedCount === qTokens.length) {
+      score += 55;
+    }
+    if (isDirectCatalog && ratio >= 0.6 && !wantsLongForm) {
+      score += 20;
+    }
+    if (isSurahSearch && ratio >= 0.6) {
+      const hasDirectQuranRecitation =
+        resolveQuranSurahDirectAudioUrl(String(item.title || ''), String(item.artist || '')) !== null;
+      if (hasDirectQuranRecitation && durSec >= 600) {
+        score += 45;
+      } else if (durSec > 0 && durSec < 180) {
+        score -= 35;
+      }
+      if (/\b(?:pt\.?\s*\d+|part\s*\d+|urdu\s+translation|english\s+translation|hindi\s+translation)\b/i.test(hay)) {
+        score -= 25;
+      }
+    }
+    // Slight preference for original source order among equally relevant matches
+    score -= idx * 0.25;
+    return { item, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit).map((entry) => entry.item);
 }
+
+// Fast-settling non-blocking race/merge helper:
+// Never discards a fast healthy source (e.g., JioSaavn 200ms) when a slower source (e.g., YouTube) stalls.
+async function raceCatalogSources<A, B>(
+  firstPromise: Promise<A[]>,
+  secondPromise: Promise<B[]>,
+  options: { maxWaitMs?: number; graceAfterFirstMs?: number } = {}
+): Promise<[A[], B[]]> {
+  const maxWaitMs = options.maxWaitMs ?? 4200;
+  const graceAfterFirstMs = options.graceAfterFirstMs ?? 750;
+
+  return new Promise<[A[], B[]]>((resolve) => {
+    let firstRes: A[] = [];
+    let secondRes: B[] = [];
+    let firstDone = false;
+    let secondDone = false;
+    let finished = false;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+    const hardTimer = setTimeout(() => finish(), maxWaitMs);
+
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(hardTimer);
+      if (graceTimer) {
+        clearTimeout(graceTimer);
+        graceTimer = null;
+      }
+      resolve([firstRes, secondRes]);
+    };
+
+    const onSettled = () => {
+      if (finished) return;
+      if (firstDone && secondDone) {
+        finish();
+        return;
+      }
+      const hasAnyLiveResults = firstRes.length > 0 || secondRes.length > 0;
+      if (hasAnyLiveResults && !graceTimer) {
+        graceTimer = setTimeout(() => finish(), graceAfterFirstMs);
+      }
+    };
+
+    firstPromise
+      .then((res) => {
+        firstRes = Array.isArray(res) ? res : [];
+      })
+      .catch(() => {
+        firstRes = [];
+      })
+      .finally(() => {
+        firstDone = true;
+        onSettled();
+      });
+
+    secondPromise
+      .then((res) => {
+        secondRes = Array.isArray(res) ? res : [];
+      })
+      .catch(() => {
+        secondRes = [];
+      })
+      .finally(() => {
+        secondDone = true;
+        onSettled();
+      });
+  });
+}
+
+// Health Check API Endpoint (always JSON 200, never intercepted by SPA HTML fallback)
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({
+    ok: true,
+    status: 'healthy',
+    version: '3.6.2',
+    buildNumber: 62,
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // Search API Endpoint
 app.get('/api/search', async (req: Request, res: Response) => {
@@ -2689,7 +2809,8 @@ app.get('/api/search', async (req: Request, res: Response) => {
     return;
   }
 
-  const cacheKey = `search:${normalizeServerPhoneticQuery(query).toLowerCase()}`;
+  const normalizedQuery = normalizeServerPhoneticQuery(query);
+  const cacheKey = `search:${normalizedQuery.toLowerCase()}`;
   const cached = searchResponseCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < SEARCH_CACHE_TTL_MS && cached.songs.length > 0) {
     res.json({ success: true, query, songs: cached.songs });
@@ -2699,22 +2820,19 @@ app.get('/api/search', async (req: Request, res: Response) => {
   let pending = inFlightSearchQueries.get(cacheKey);
   if (!pending) {
     const wantsMix = /\b(?:mix|jukebox|playlist|mashup|nonstop|non-stop|hour|album)\b/i.test(query);
-    pending = withSoftDeadline(
-      Promise.all([
-        searchYouTube(query, { retries: 0, timeoutMs: 1800, skipSaavnFallback: !wantsMix }),
-        wantsMix ? Promise.resolve([]) : searchSaavnFallback(query, { retries: 0, timeoutMs: 1800 }),
-      ]).then(([ytSongs, saavnSongs]) => {
-        const merged = mergeSingleAndCatalogTracks(ytSongs, saavnSongs, wantsMix, 24);
-        return merged.length > 0 ? merged : getStaticFallbackMatches(query);
-      }),
-      2200,
-      getStaticFallbackMatches(query)
+    pending = raceCatalogSources(
+      searchYouTube(normalizedQuery, { retries: 0, timeoutMs: 3200, skipSaavnFallback: !wantsMix }),
+      wantsMix ? Promise.resolve([]) : searchSaavnFallback(normalizedQuery, { retries: 0, timeoutMs: 3200 }),
+      { maxWaitMs: 4200, graceAfterFirstMs: 850 }
     )
-      .then((songs) => {
-        if (songs.length > 0) {
-          searchResponseCache.set(cacheKey, { songs, cachedAt: Date.now() });
+      .then(([ytSongs, saavnSongs]) => {
+        const hasLiveResults = ytSongs.length > 0 || saavnSongs.length > 0;
+        const merged = mergeSingleAndCatalogTracks(ytSongs, saavnSongs, wantsMix, 24, normalizedQuery);
+        const finalSongs = merged.length > 0 ? merged : getStaticFallbackMatches(normalizedQuery);
+        if (hasLiveResults && finalSongs.length > 0) {
+          searchResponseCache.set(cacheKey, { songs: finalSongs, cachedAt: Date.now() });
         }
-        return songs;
+        return finalSongs;
       })
       .finally(() => {
         if (inFlightSearchQueries.get(cacheKey) === pending) {
@@ -2728,7 +2846,7 @@ app.get('/api/search', async (req: Request, res: Response) => {
   res.json({ success: true, query, songs: combined });
 });
 
-// Trending Songs API Endpoint â€” guarantees real playable single tracks (no unplayable 2-hour mixes)
+// Trending Songs API Endpoint — guarantees real playable single tracks (no unplayable 2-hour mixes)
 app.get('/api/trending', async (_req: Request, res: Response) => {
   const cacheKey = 'trending:global';
   const cached = searchResponseCache.get(cacheKey);
@@ -2739,15 +2857,16 @@ app.get('/api/trending', async (_req: Request, res: Response) => {
 
   let pending = inFlightSearchQueries.get(cacheKey);
   if (!pending) {
-    pending = withSoftDeadline(
-      Promise.all([
-        searchYouTube('Top Global Music Hits Official Audio', {
-          retries: 0,
-          timeoutMs: 1800,
-          skipSaavnFallback: true,
-        }),
-        searchSaavnFallback('Trending Hits', { retries: 0, timeoutMs: 1800 }),
-      ]).then(([ytTrending, saavnTrending]) => {
+    pending = raceCatalogSources(
+      searchYouTube('Top Global Music Hits Official Audio', {
+        retries: 0,
+        timeoutMs: 3200,
+        skipSaavnFallback: true,
+      }),
+      searchSaavnFallback('Trending Hits', { retries: 0, timeoutMs: 3200 }),
+      { maxWaitMs: 4200, graceAfterFirstMs: 750 }
+    )
+      .then(([ytTrending, saavnTrending]) => {
         const singleYt = ytTrending.filter(
           (s) =>
             (s.durationSeconds || 0) >= 60 &&
@@ -2763,10 +2882,7 @@ app.get('/api/trending', async (_req: Request, res: Response) => {
           if (songs.length >= 16) break;
         }
         return songs.length > 0 ? songs : FALLBACK_POPULAR;
-      }),
-      2200,
-      FALLBACK_POPULAR
-    )
+      })
       .then((songs) => {
         if (songs.length > 0) {
           searchResponseCache.set(cacheKey, { songs, cachedAt: Date.now() });
@@ -2827,17 +2943,15 @@ app.post('/api/recommendations/dynamic', async (req: Request, res: Response) => 
 
     let pending = inFlightSearchQueries.get(cacheKey);
     if (!pending) {
-      pending = withSoftDeadline(
-        Promise.all([
-          searchYouTube(targetQuery, { retries: 0, timeoutMs: 2600, skipSaavnFallback: true }),
-          searchSaavnFallback(targetQuery, { retries: 0, timeoutMs: 2600 }),
-        ]).then(([ytSongs, saavnSongs]) => {
+      pending = raceCatalogSources(
+        searchYouTube(targetQuery, { retries: 0, timeoutMs: 2800, skipSaavnFallback: true }),
+        searchSaavnFallback(targetQuery, { retries: 0, timeoutMs: 2800 }),
+        { maxWaitMs: 3600, graceAfterFirstMs: 650 }
+      )
+        .then(([ytSongs, saavnSongs]) => {
           const merged = mergeSingleAndCatalogTracks(ytSongs, saavnSongs, false, 18);
           return merged.length > 0 ? merged : FALLBACK_POPULAR;
-        }),
-        3200,
-        FALLBACK_POPULAR
-      )
+        })
         .then((songs) => {
           if (songs.length > 0) {
             searchResponseCache.set(cacheKey, { songs, cachedAt: Date.now() });
@@ -2863,148 +2977,6 @@ app.post('/api/recommendations/dynamic', async (req: Request, res: Response) => 
   }
 });
 
-// ===== Smart Radio API â€” YouTube-style "Up Next" based on song language/artist/genre =====
-app.get('/api/radio', async (req: Request, res: Response) => {
-  let categoryFallback = FALLBACK_POPULAR;
-  try {
-    const title = String(req.query.title || '').trim();
-    const artist = String(req.query.artist || '').trim();
-    const currentId = String(req.query.currentId || '').trim();
-
-    // 1. Detect language / category from title + artist
-    const combined = `${title} ${artist}`.toLowerCase();
-    const isBengali =
-      /[\u0980-\u09FF]/.test(combined) ||
-      /\b(bangla|bengali|rabindra|nazrul|baul|coke\s*studio\s*bangla|anupam\s*roy|arijit\s*singh|artcell|warfaze|miles|shironamhin|fossils|black|cactus|chandrabindoo|lakkhichhara|bappa\s*mazumder|nachiketa|iman\s*chakraborty|rupam\s*islam|tahsan|habib\s*wahid|minar|hridoy\s*khan|arnob|chandrabindoo|shunno|nemesis|cryptic\s*fate|powersurge|avoid\s*rafa|de\s*facto|mizan|razeeb|level\s*five)\b/i.test(combined);
-    const isHindi =
-      /[\u0900-\u097F]/.test(combined) ||
-      /\b(hindi|bollywood|arijit|atif\s*aslam|shreya\s*ghoshal|kumar\s*sanu|sonu\s*nigam|kishore\s*kumar|lata\s*mangeshkar|neha\s*kakkar|jubin\s*nautiyal|b\s*praak|darshan\s*raval|armaan\s*malik|badshah|yo\s*yo\s*honey|shankar\s*mahadevan|ar\s*rahman|amit\s*trivedi|vishal\s*mishra|anuv\s*jain|sachin-jigar|tanishk|pritam)\b/i.test(combined);
-    const isKorean =
-      /[\uAC00-\uD7AF]/.test(combined) ||
-      /\b(k-?pop|bts|blackpink|twice|stray\s*kids|enhypen|txt|ateez|aespa|itzy|newjeans|seventeen|exo|red\s*velvet|nct)\b/i.test(combined);
-    const isJapanese =
-      /[\u3040-\u309F\u30A0-\u30FF]/.test(combined) ||
-      /\b(j-?pop|j-?rock|yoasobi|ado|fujii\s*kaze|kenshi\s*yonezu|lisa|one\s*ok\s*rock)\b/i.test(combined);
-    const isSpanish =
-      /\b(reggaeton|latin|bad\s*bunny|j\s*balvin|ozuna|daddy\s*yankee|shakira|maluma|karol\s*g|rosalia|rauw\s*alejandro)\b/i.test(combined);
-
-    categoryFallback = isBengali ? FALLBACK_BANGLA_BAND : isHindi ? FALLBACK_HINDI : FALLBACK_POPULAR;
-
-    if (!title && !artist) {
-      res.json({ success: true, songs: categoryFallback });
-      return;
-    }
-
-    // 2. Detect genre/mood
-    const isRock = /\b(rock|metal|band|grunge|punk|alternative|classic\s*rock|hard\s*rock)\b/i.test(combined);
-    const isLofi = /\b(lofi|lo-fi|chill\s*beats|study\s*beats|chillhop)\b/i.test(combined);
-    const isRomantic = /\b(romantic|love|pyaar|prem|valobasha|ishq|valentine)\b/i.test(combined);
-    const isRap = /\b(rap|hip\s*hop|trap|drill|eminem|kanye|drake|kendrick|j\s*cole|travis)\b/i.test(combined);
-    const isEDM = /\b(edm|electronic|house|techno|trance|dubstep|martin\s*garrix|avicii|marshmello|alan\s*walker)\b/i.test(combined);
-
-    // 3. Build smart search queries for radio
-    const queries: string[] = [];
-    const { coreTitle, primaryArtist } = extractCoreTrackAndArtist(title, artist);
-    const cleanArtist = primaryArtist || artist;
-
-    // Always start with artist radio
-    if (cleanArtist && cleanArtist.length > 1) {
-      queries.push(`${cleanArtist} best songs`);
-      queries.push(`${cleanArtist} top hits`);
-    }
-
-    // Language-specific radio queries
-    if (isBengali) {
-      queries.push('best bangla songs', 'bangla band songs hits', 'bengali acoustic soulful hits', 'bengali modern songs trending');
-      if (isRock) queries.push('bangla rock band songs artcell warfaze miles', 'bengali band hits');
-      if (isRomantic) queries.push('bengali romantic songs hits', 'bangla love songs best');
-    } else if (isHindi) {
-      queries.push('hindi hits songs', 'bollywood best songs', 'new hindi songs trending');
-      if (isRomantic) queries.push('hindi romantic songs best', 'bollywood love songs hits');
-      if (isRap) queries.push('hindi rap songs trending');
-    } else if (isKorean) {
-      queries.push('kpop hits songs', 'best kpop songs trending', 'kpop new releases');
-    } else if (isJapanese) {
-      queries.push('jpop hits songs', 'japanese popular songs', 'anime openings best');
-    } else if (isSpanish) {
-      queries.push('latin hits songs', 'reggaeton trending hits', 'spanish music popular');
-    } else {
-      // Default: English / global
-      queries.push('top pop songs hits', 'best english songs trending');
-      if (isRock) queries.push('rock hits songs best', 'alternative rock popular');
-      if (isLofi) queries.push('lofi chill beats study relax', 'lo-fi hip hop chill');
-      if (isRomantic) queries.push('love songs best romantic hits', 'romantic acoustic songs');
-      if (isRap) queries.push('hip hop rap hits trending', 'rap songs best');
-      if (isEDM) queries.push('edm electronic dance hits', 'electronic music popular');
-    }
-
-    // Also add a mix query combining artist + genre context
-    if (cleanArtist && cleanArtist.length > 1) {
-      if (isBengali) queries.push(`${cleanArtist} bangla songs`);
-      else if (isHindi) queries.push(`${cleanArtist} hindi songs`);
-      else queries.push(`${cleanArtist} similar songs`);
-    }
-
-    // 4. Pick queries: q1 targets the artist specifically, q2 targets the category/genre/language
-    const artistQuery = cleanArtist && cleanArtist.length > 1 ? `${cleanArtist} best songs` : null;
-    const categoryQueries = queries.filter((q) => q !== artistQuery).sort(() => Math.random() - 0.5);
-    const q1 = artistQuery || categoryQueries[0] || 'top music hits';
-    const q2 = categoryQueries[0] || categoryQueries[1] || `${cleanArtist || 'music'} popular songs`;
-
-    const cacheKey = `radio:${normalizeServerPhoneticQuery(`${cleanArtist}|${isBengali ? 'bn' : isHindi ? 'hi' : isKorean ? 'ko' : 'en'}|${isRock ? 'rock' : 'pop'}`).toLowerCase()}`;
-    const cached = searchResponseCache.get(cacheKey);
-    if (cached && Date.now() - cached.cachedAt < SEARCH_CACHE_TTL_MS && cached.songs.length > 0) {
-      // Filter out the currently playing song and return
-      const filtered = cached.songs.filter((s: any) => s.id !== currentId);
-      const shuffledSongs = filtered.sort(() => Math.random() - 0.5);
-      res.json({ success: true, songs: shuffledSongs.length > 0 ? shuffledSongs : cached.songs });
-      return;
-    }
-
-    const fetchTasks: Promise<any[]>[] = [
-      searchYouTube(q1, { retries: 0, timeoutMs: 2800, skipSaavnFallback: true }),
-      searchYouTube(q2, { retries: 0, timeoutMs: 2800, skipSaavnFallback: true }),
-    ];
-    // Only invoke Saavn for Bengali or Hindi tracks â€” never for English, K-Pop, etc.
-    if (isBengali || isHindi) {
-      const saavnQuery = cleanArtist && cleanArtist.length > 1 ? cleanArtist : q1;
-      fetchTasks.push(searchSaavnFallback(saavnQuery, { retries: 0, timeoutMs: 2400 }));
-    }
-
-    const results = await withSoftDeadline(
-      Promise.all(fetchTasks).then(([yt1, yt2, saavn = []]) => {
-        // Prioritize official studio tracks from Saavn over live/concert YouTube videos
-        const all = [...(saavn || []), ...(yt1 || []), ...(yt2 || [])];
-        // Deduplicate by id, filter out current song, and limit to single tracks
-        const seen = new Set<string>();
-        const singles: any[] = [];
-        for (const s of all) {
-          if (!s?.id || seen.has(s.id) || s.id === currentId) continue;
-          if ((s.durationSeconds || 0) < 60 || (s.durationSeconds || 0) > 600) continue;
-          if (COMPILATION_MIX_REGEX.test(String(s.title || ''))) continue;
-          seen.add(s.id);
-          singles.push(s);
-          if (singles.length >= 25) break;
-        }
-        return singles;
-      }),
-      4500,
-      categoryFallback.filter((s: any) => s.id !== currentId)
-    );
-
-    if (results.length > 0) {
-      searchResponseCache.set(cacheKey, { songs: results, cachedAt: Date.now() });
-    }
-
-    // Shuffle for variety on each request
-    const shuffledResult = results.sort(() => Math.random() - 0.5);
-    res.json({ success: true, songs: shuffledResult.length > 0 ? shuffledResult : categoryFallback });
-  } catch (err) {
-    console.error('Radio API error:', err);
-    res.json({ success: true, songs: categoryFallback });
-  }
-});
-
 // Real Synced & Plain Lyrics API Endpoint (mirrors lib/core/services/lyrics_service.dart)
 app.get('/api/lyrics', async (req: Request, res: Response) => {
   const rawTitle = String(req.query.title || '').trim();
@@ -3025,7 +2997,7 @@ app.get('/api/lyrics', async (req: Request, res: Response) => {
         cleanTitle
       )}&artist_name=${encodeURIComponent(cleanArtist)}`;
       const getRes = await fetch(getUrl, {
-        headers: { 'User-Agent': 'TwilightMusic/3.6.1' },
+        headers: { 'User-Agent': 'TwilightMusic/3.6.0' },
         signal: AbortSignal.timeout(3500),
       });
       if (getRes.ok) {
@@ -3056,7 +3028,7 @@ app.get('/api/lyrics', async (req: Request, res: Response) => {
     for (const q of searchQueries) {
       const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(q)}`;
       const searchRes = await fetch(searchUrl, {
-        headers: { 'User-Agent': 'TwilightMusic/3.6.1' },
+        headers: { 'User-Agent': 'TwilightMusic/3.6.0' },
         signal: AbortSignal.timeout(3500),
       });
       if (!searchRes.ok) continue;
@@ -3130,13 +3102,7 @@ app.get('/api/stream/:videoId/resolve', async (req: Request, res: Response) => {
   const rawArtist = (req.query.artist as string) || '';
   const rawDuration = Number(req.query.duration || 0) || undefined;
   const isRefresh = Boolean(req.query.refresh);
-  const resolved = await resolveExactTrackStreamUrl(
-    videoId,
-    rawTitle,
-    rawArtist,
-    isRefresh,
-    rawDuration
-  );
+  const preferYtExact = String(req.query.preferYtExact || '') === '1';
 
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   const now = Date.now();
@@ -3148,6 +3114,44 @@ app.get('/api/stream/:videoId/resolve', async (req: Request, res: Response) => {
     ...(rawDuration ? { duration: String(rawDuration) } : {}),
   });
   const freshStreamUrl = `/api/stream/${encodeURIComponent(videoId)}?${params.toString()}`;
+
+  // When the web player requests exact YouTube playback for a non-curated 11-char YouTube video ID,
+  // fast-hand off to the browser's YouTube IFrame Player instead of substituting a third-party JioSaavn/SoundCloud track,
+  // EXCEPT for verified direct full-length Quran Surah MP3 streams (which play reliably via HTML5/offline without iframe blocks).
+  const isStdYtId =
+    videoId.length === 11 &&
+    !videoId.startsWith('js_') &&
+    !videoId.startsWith('sp_') &&
+    !videoId.startsWith('custom_') &&
+    /^[a-zA-Z0-9_-]{11}$/.test(videoId);
+  const quranDirectMatch = resolveQuranSurahDirectAudioUrl(rawTitle, rawArtist);
+  if (preferYtExact && isStdYtId && !knownDirectCdnMap[videoId] && !quranDirectMatch) {
+    const localM4aPath = path.resolve(__dirname, 'public/audio', `${videoId}.m4a`);
+    const localMp3Path = path.resolve(__dirname, 'public/audio', `${videoId}.mp3`);
+    if (!fs.existsSync(localM4aPath) && !fs.existsSync(localMp3Path)) {
+      res.json({
+        success: true,
+        videoId,
+        exactMaster: false,
+        preferYtIframe: true,
+        playable: false,
+        streamUrl: freshStreamUrl,
+        directCdnUrl: null,
+        resolvedAt: now,
+        proactiveRefreshThresholdMs: 180000,
+      });
+      return;
+    }
+  }
+
+  const resolved = await resolveExactTrackStreamUrl(
+    videoId,
+    rawTitle,
+    rawArtist,
+    isRefresh,
+    rawDuration
+  );
+
   const isGooglevideo = Boolean(resolved?.url && resolved.url.includes('googlevideo.com'));
   const isLocalStudioAudio = Boolean(resolved?.url && resolved.url.startsWith('/audio/'));
   const isDirectHttpOrAudio = Boolean(
@@ -3170,7 +3174,7 @@ app.get('/api/stream/:videoId/resolve', async (req: Request, res: Response) => {
   });
 });
 
-// Audio Stream API Endpoint â€” Resolves & proxies the exact clicked track with HTTP byte-range support
+// Audio Stream API Endpoint — Resolves & proxies the exact clicked track with HTTP byte-range support
 app.get('/api/stream/:videoId', async (req: Request, res: Response) => {
   const videoId = req.params.videoId;
   if (!videoId) {
@@ -3323,13 +3327,35 @@ app.get('/api/stream/:videoId', async (req: Request, res: Response) => {
           ...(activeResolved.headers || {}),
         };
         if (req.headers.range) {
-          upstreamHeaders['Range'] = String(req.headers.range);
+          const rawRange = String(req.headers.range).trim();
+          const rangeMatch = /^bytes=(\d+)-(\d*)$/i.exec(rawRange);
+          const MAX_PROXY_RANGE_BYTES = 2 * 1024 * 1024; // 2 MiB window prevents Cloud Run 32 MiB truncation & enables instant seeking
+          if (rangeMatch) {
+            const startByte = parseInt(rangeMatch[1], 10);
+            const explicitEnd = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : NaN;
+            if (
+              !Number.isNaN(startByte) &&
+              (Number.isNaN(explicitEnd) || explicitEnd - startByte + 1 > MAX_PROXY_RANGE_BYTES)
+            ) {
+              upstreamHeaders['Range'] = `bytes=${startByte}-${startByte + MAX_PROXY_RANGE_BYTES - 1}`;
+            } else {
+              upstreamHeaders['Range'] = rawRange;
+            }
+          } else {
+            upstreamHeaders['Range'] = rawRange;
+          }
         }
 
         const upstreamRes = await fetchWithRetry(
           activeResolved.url,
           { headers: upstreamHeaders },
-          { retries: 1, timeoutMs: 8500, baseDelayMs: 250, signal: clientAbortController.signal }
+          {
+            retries: 1,
+            timeoutMs: 9000,
+            baseDelayMs: 250,
+            signal: clientAbortController.signal,
+            headersTimeoutOnly: true,
+          }
         );
 
         if (upstreamRes.status === 401 || upstreamRes.status === 403 || upstreamRes.status === 404 || upstreamRes.status === 410) {
@@ -3375,7 +3401,7 @@ app.get('/api/stream/:videoId', async (req: Request, res: Response) => {
                 const readPromise = reader.read();
                 let chunkTimer: ReturnType<typeof setTimeout> | null = null;
                 const timeoutPromise = new Promise<{ done: boolean; value?: Uint8Array }>((_, reject) => {
-                  chunkTimer = setTimeout(() => reject(new Error('Stream read timeout')), 45000);
+                  chunkTimer = setTimeout(() => reject(new Error('Stream read timeout')), 25000);
                 });
                 let readResult: { done: boolean; value?: Uint8Array };
                 try {
@@ -3481,23 +3507,40 @@ app.get('/api/stream/:videoId', async (req: Request, res: Response) => {
       await new Promise((resolve) => setTimeout(resolve, backoffMs));
       if (clientClosed) return;
       if (shouldForceRefresh || !activeResolved) {
-        activeResolved = await resolveExactTrackStreamUrl(
-          videoId,
-          rawTitle,
-          rawArtist,
-          true,
-          rawDuration
-        );
+        const quranMirrorUrl = resolveQuranSurahDirectAudioUrl(rawTitle, rawArtist, true);
+        if (quranMirrorUrl && activeResolved?.url !== quranMirrorUrl) {
+          activeResolved = {
+            url: quranMirrorUrl,
+            mimeType: 'audio/mpeg',
+            resolvedAt: Date.now(),
+          };
+        } else {
+          activeResolved = await resolveExactTrackStreamUrl(
+            videoId,
+            rawTitle,
+            rawArtist,
+            true,
+            rawDuration
+          );
+        }
       }
     }
   }
 
   if (!clientClosed && !res.headersSent) {
-    logStreamDiagnostic('error', 'proxy_exhausted', 'proxyStream', 'All proxy attempts exhausted returning HTTP 502', {
-      videoId,
-      statusCode: 502,
-      attempt: maxProxyAttempts,
-    });
+    logStreamDiagnostic(
+      activeResolved ? 'warn' : 'info',
+      'proxy_exhausted',
+      'proxyStream',
+      activeResolved
+        ? 'Proxy attempts exhausted returning HTTP 502'
+        : 'No third-party proxy mirror available (play via YouTube IFrame) returning HTTP 502',
+      {
+        videoId,
+        statusCode: 502,
+        attempt: maxProxyAttempts,
+      }
+    );
     res.status(502).json({ error: 'Audio stream unavailable' });
   } else if (!res.writableEnded) {
     res.end();
@@ -3614,35 +3657,58 @@ function buildProjectReleaseArchive(): string {
 // Helper: Commit & push full app repository (Flutter + React + Express + audio masters + workflows) to GitHub
 function pushFullAppRepositoryToGitHub(cleanRepo: string, ghToken: string, tagName: string): { pushedBranch: boolean; commitSha?: string; gitMessage?: string } {
   try {
+    const authRemoteUrl = `https://x-access-token:${encodeURIComponent(ghToken)}@github.com/${cleanRepo}.git`;
     const tmpGitDir = path.join(os.tmpdir(), 'twilight_release_git');
+    if (fs.existsSync(tmpGitDir)) {
+      fs.rmSync(tmpGitDir, { recursive: true, force: true });
+    }
     const baseArgs = [`--git-dir=${tmpGitDir}`, `--work-tree=${__dirname}`];
     const gitOpts = { cwd: __dirname, stdio: 'pipe' as const };
-    if (!fs.existsSync(tmpGitDir)) {
-      execFileSync('git', ['init', '--bare', '-b', 'main', tmpGitDir], gitOpts);
+    execFileSync('git', ['init', '--bare', '-b', 'main', tmpGitDir], gitOpts);
+    execFileSync('git', [...baseArgs, 'config', 'user.name', 'Twilight Release Bot'], gitOpts);
+    execFileSync('git', [...baseArgs, 'config', 'user.email', 'twilight-release@users.noreply.github.com'], gitOpts);
+
+    // Fetch existing main tip (shallow) so we append cleanly on top of remote history instead of wiping it
+    let hasRemoteMain = false;
+    try {
+      execFileSync(
+        'git',
+        [...baseArgs, 'fetch', '--depth=1', authRemoteUrl, 'refs/heads/main:refs/heads/main'],
+        { cwd: __dirname, stdio: 'pipe', timeout: 30000 }
+      );
+      execFileSync('git', [...baseArgs, 'symbolic-ref', 'HEAD', 'refs/heads/main'], gitOpts);
+      hasRemoteMain = true;
+    } catch {
+      hasRemoteMain = false;
     }
-    execFileSync('git', [...baseArgs, 'config', 'user.name', 'Hasibul Hasan'], gitOpts);
-    execFileSync('git', [...baseArgs, 'config', 'user.email', 'gudhulibela031@gmail.com'], gitOpts);
+
     execFileSync('git', [...baseArgs, 'add', '-A'], gitOpts);
     execFileSync(
       'git',
-      [...baseArgs, 'commit', '--allow-empty', '-m', `release: Twilight Music ${tagName} â€” Full App Production Release`],
+      [...baseArgs, 'commit', '--allow-empty', '-m', `release: Twilight Music v3.6.2 (Build 62) — Exact YouTube Playback, Playlists & Multi-Platform Release`],
       gitOpts
     );
     execFileSync('git', [...baseArgs, 'tag', '-f', tagName], gitOpts);
+    if (tagName !== 'v3.6.2') {
+      execFileSync('git', [...baseArgs, 'tag', '-f', 'v3.6.2'], gitOpts);
+    }
     const commitSha = execFileSync('git', [...baseArgs, 'rev-parse', '--short', 'HEAD'], gitOpts)
       .toString()
       .trim();
 
-    const authRemoteUrl = `https://x-access-token:${encodeURIComponent(ghToken)}@github.com/${cleanRepo}.git`;
+    const refSpecs = [
+      'HEAD:refs/heads/main',
+      `refs/tags/${tagName}:refs/tags/${tagName}`,
+      ...(tagName !== 'v3.6.2' ? ['refs/tags/v3.6.2:refs/tags/v3.6.2'] : []),
+    ];
     execFileSync(
       'git',
       [
         ...baseArgs,
         'push',
-        '--force',
+        ...(hasRemoteMain ? ['--force-with-lease'] : ['--force']),
         authRemoteUrl,
-        'HEAD:refs/heads/main',
-        `refs/tags/${tagName}:refs/tags/${tagName}`,
+        ...refSpecs,
       ],
       { cwd: __dirname, stdio: 'pipe', timeout: 60000 }
     );
@@ -3657,20 +3723,18 @@ function pushFullAppRepositoryToGitHub(cleanRepo: string, ghToken: string, tagNa
 // Release Metadata API Endpoint
 app.get('/api/release/info', (_req: Request, res: Response) => {
   res.json({
-    version: 'v3.6.1',
+    version: 'v3.6.2',
     legacyTag: 'v3.0.0',
-    buildNumber: 61,
+    buildNumber: 62,
     releaseDate: new Date().toISOString().slice(0, 10),
-    title: 'Twilight Music v3.6.1 â€” New Official Android APK, iOS IPA & Windows PC Release',
+    title: 'Twilight Music v3.6.2 — Exact YouTube Playback, Playlists & Full Reliability Release',
     highlights: [
-      '100% Exact YouTube Video Audio Stream (videoId First): Prioritizes direct YouTube videoId streams across Android, iOS, Windows, and Web so live concerts, unplugged versions, and remixes always match YouTube',
-      'Clean Click-to-Play Startup: Starts with currentSong = null so no track is pre-selected or shown in the player bar until clicked',
-      'Native Multi-Platform Releases: Automated CI/CD builds for Android APK (Twilight-Android-v3.6.1.apk), Apple iOS IPA (Twilight-iOS-v3.6.1.ipa), and Windows x64 ZIP (Twilight-Windows-x64-v3.6.1.zip)',
-      'Pause/Resume & Stall Recovery: Proactive stream URL refresh after >3 min pause with exact playback position preservation and bounded retry recovery',
-      'Uninterrupted Background Playback: Android WAKE_LOCK + FOREGROUND_SERVICE_MEDIA_PLAYBACK permissions, AudioSession interruption/becoming-noisy handlers, and ongoing notification persistence',
-      'Offline Downloads Integrity: Real file verification, one-tap Re-download badge for missing/corrupted files, and local AudioSource.file playback',
-      'Monochrome Notification Icon: Added drawable/ic_stat_music.xml vector icon to fix the white square in Android status bar & notification shade',
-      'Single Authoritative Audio Session: Monotonic playRequestId sequencing to eliminate overlapping audio on rapid track switches',
+      '100% Exact YouTube Video Audio Matching & Duration-Verified Offline Caches',
+      'Instant Next-Track Switching with Zero Loading Stalls',
+      'Complete Playlists Upgrade: Create, Rename, Delete, Shuffle, Toggle & Quick-Add Across All Screens',
+      'Smart Search & Bengali Phonetic Matching (e.g. tmi / level 5 -> LEVEL FIVE - TUMI)',
+      'Guest-First Clean Startup & Working Email/Password Auth',
+      'Native Multi-Platform Releases: Android APK (Twilight-Android-v3.6.2.apk), Apple iOS IPA (Twilight-iOS-v3.6.2.ipa), and Windows x64 ZIP (Twilight-Windows-x64-v3.6.2.zip)',
     ],
   });
 });
@@ -3700,10 +3764,10 @@ app.get(
   }
 );
 
-// Push Full App Codebase to GitHub & Publish v3.0.0 Release + Upload Archive directly to GitHub Releases
+// Push Full App Codebase to GitHub & Publish v3.6.2 Release + Upload Archive directly to GitHub Releases
 app.post('/api/release/github', async (req: Request, res: Response) => {
   try {
-    const { repo = 'hasibcore/Twilight-Music', token, tagName = 'v3.0.0' } = req.body || {};
+    const { repo = 'hasibcore/Twilight-Music', token, tagName = 'v3.6.2' } = req.body || {};
     const ghToken = (token || process.env.GITHUB_TOKEN || '').trim();
 
     if (!ghToken) {
@@ -3763,18 +3827,14 @@ app.post('/api/release/github', async (req: Request, res: Response) => {
 
     // 2. Check if release tag already exists or create a new GitHub Release
     const releaseBody = [
-      `### ðŸŒ™ Twilight Music ${tagName} â€” Official Multi-Platform Production Release`,
+      `### 🌙 Twilight Music ${tagName} — Official Multi-Platform Production Release`,
       '',
-      `#### âœ… Fixed Bugs, Verified Audio Masters & Synced UI in ${tagName}`,
-      `- **Full App Source Code Pushed (\`main\` + \`${tagName}\`)**: Complete Flutter (\`lib/\`, \`android/\`, \`ios/\`, \`windows/\`, \`web/\`) + React/Express (\`src/\`, \`server.ts\`, \`public/audio/\`) codebase.`,
-      '- **Exact Clicked-Song Guarantee**: Eliminated wrong-song playback bugs across Web, Express Proxy, and Flutter by enforcing `videoId`-first direct YouTube audio matching, strict foreign/variant title token gating, and normalized track-title matching.',
-      '- **Reliable Play/Pause & Post-Download Playback**: Fixed post-download playback freezes, retry stalls, and pause/resume URL refreshes with single-session request sequencing (`playRequestId`).',
-      '- **Verified Full-Length Studio Masters & Zero Remix/Karaoke Mismatch**: Added verified full-length studio audio masters and strict filtering so displayed songs always play their exact original studio track.',
-      '- **In-App Offline Audio Downloads (`Library -> Downloaded`)**: One-tap download on any song card or player bar with persistent offline playback inside the app.',
-      '- **UI Parity (AI Studio â†” Android APK)**: Synced MiniPlayer widget (gradient progress bar, live time counter, favorite heart toggle, circular white play/pause button, queue drawer) and Home Screen (`DYNAMIC TASTE ENGINE` greeting + `ON HEAVY REPEAT` section).',
-      '- **Uninterrupted Background Playback**: Added Android `WAKE_LOCK` & `FOREGROUND_SERVICE_MEDIA_PLAYBACK` permissions, `AudioSession` interruption/becoming-noisy handlers, and ongoing foreground notification persistence.',
-      '- **Monochrome Notification Icon**: Added `drawable/ic_stat_music.xml` vector icon to eliminate the white square in the Android status bar and notification shade.',
-      '- **Full Automated Test Coverage**: Verified across all 29 TypeScript QA scenarios and all 6 Dart unit & widget test suites (`flutter test`).',
+      `#### ✅ Fixed Bugs, Long-Form & Surah Baqarah Streaming, and Synced UI in ${tagName}`,
+      `- **Full App Source Code Pushed (\`main\` + \`${tagName}\`)**: Complete Flutter (\`lib/\`, \`android/\`, \`ios/\`, \`windows/\`, \`web/\`) + React/Express (\`src/\`, \`server.ts\`, \`public/audio/\`, \`landing/\`) codebase.`,
+      '- **Surah Al-Baqarah & Long-Form Streaming Fix**: Fixed mid-stream 8.5s timeouts with headers-only connect timeouts, added 2 MB bounded HTTP 206 byte-range chunking for 120 MB+ MP3 streams, verified direct Quran recitation streams with MP3Quran mirror failover, and added English (`surah bakarah`) & Bengali (`সুরা বাকারা`) search normalization & ranking.',
+      '- **Exact Clicked-Song Guarantee & Autoplay Resilience**: Pre-created YouTube iframe with `allow="autoplay"` policy, fixed error-retry fast path, and preserved strict track matching across Web, Express Proxy, and Flutter.',
+      '- **Permanent Volume Control & UI Parity**: Merged permanent volume control bar across mini-player and expanded player, plus synced production landing page and assets.',
+      '- **Full Automated Test Coverage**: Verified across all 35 TypeScript QA scenarios and Flutter test suites.',
     ].join('\n');
 
     let releaseData: any = null;
@@ -3792,7 +3852,7 @@ app.post('/api/release/github', async (req: Request, res: Response) => {
           headers: { ...headers, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             tag_name: tagName,
-            name: `Twilight Music ${tagName} â€” Production Audio & UI Sync Release`,
+            name: `Twilight Music ${tagName} — Production Audio & UI Sync Release`,
             body: releaseBody,
             draft: false,
             prerelease: false,
@@ -3806,7 +3866,7 @@ app.post('/api/release/github', async (req: Request, res: Response) => {
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tag_name: tagName,
-          name: `Twilight Music ${tagName} â€” Production Audio & UI Sync Release`,
+          name: `Twilight Music ${tagName} — Production Audio & UI Sync Release`,
           body: releaseBody,
           draft: false,
           prerelease: false,
@@ -3881,15 +3941,73 @@ app.post('/api/release/github', async (req: Request, res: Response) => {
   }
 });
 
+// JSON 404 catch-all for any unknown /api/* route (never fall through to SPA HTML)
+app.use('/api', (_req: Request, res: Response) => {
+  res.status(404).json({
+    success: false,
+    error: 'API endpoint not found',
+  });
+});
+
 // Setup Vite middleware in dev or static serving in production
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
 
   if (!isProd) {
+    const devAssetVersion = String(Date.now());
     const { createServer } = await import('vite');
     const vite = await createServer({
-      server: { middlewareMode: true, host: '0.0.0.0', port: PORT },
+      server: { middlewareMode: true, port: PORT, hmr: false, ws: false },
       appType: 'spa',
+    });
+    // When HMR & WebSockets are disabled in middleware mode, serve a clean no-op @vite/client
+    // so the browser never attempts failing WebSocket connections to ws://localhost:24678.
+    app.get('/@vite/client', (_req: Request, res: Response) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.type('application/javascript').send(`
+const sheetsMap = new Map();
+if (typeof document !== 'undefined') {
+  document.querySelectorAll('style[data-vite-dev-id]').forEach((el) => {
+    sheetsMap.set(el.getAttribute('data-vite-dev-id'), el);
+  });
+}
+export function updateStyle(id, content) {
+  let style = sheetsMap.get(id);
+  if (!style) {
+    style = document.createElement('style');
+    style.setAttribute('type', 'text/css');
+    style.setAttribute('data-vite-dev-id', id);
+    style.textContent = content;
+    document.head.appendChild(style);
+    sheetsMap.set(id, style);
+  } else {
+    style.textContent = content;
+  }
+}
+export function removeStyle(id) {
+  const style = sheetsMap.get(id);
+  if (style) {
+    style.remove();
+    sheetsMap.delete(id);
+  }
+}
+export function createHotContext() {
+  return {
+    data: {},
+    accept() {},
+    acceptExports() {},
+    dispose() {},
+    prune() {},
+    decline() {},
+    invalidate() {},
+    on() {},
+    off() {},
+    send() {},
+  };
+}
+export function injectQuery(url) { return url; }
+export class ErrorOverlay {}
+`);
     });
     // Prevent stale 304 Not Modified responses and immutable cache poisoning across /src/* and /node_modules/.vite*
     app.use((req, res, next) => {
@@ -3929,10 +4047,12 @@ async function startServer() {
             if (text.includes('/src/')) {
               const rewritten = text.replace(
                 /from\s+(['"])(\/src\/[^'"?]+)\1/g,
-                'from $1$2?v=2416$1'
+                `from $1$2?v=${devAssetVersion}$1`
               );
               const outBuf = Buffer.from(rewritten, 'utf-8');
-              res.setHeader('Content-Length', String(outBuf.byteLength));
+              if (!res.headersSent) {
+                res.setHeader('Content-Length', String(outBuf.byteLength));
+              }
               return origEnd(outBuf, encoding, cb);
             }
           }
@@ -3949,8 +4069,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`ðŸŒ™ Twilight Music server running at http://0.0.0.0:${PORT}`);
+  app.listen(PORT, () => {
+    console.log(`🌙 Twilight Music server running at http://localhost:${PORT}`);
   });
 }
 
@@ -3962,5 +4082,4 @@ const isRunningUnderTest =
 if (!isRunningUnderTest) {
   startServer();
 }
-
 

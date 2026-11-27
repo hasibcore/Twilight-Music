@@ -1,14 +1,16 @@
 import React from 'react';
-import { Music2, Sparkles, Play, Pause, Loader2 } from 'lucide-react';
+import { Music2, Sparkles, Play, Pause, Loader2, Plus } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { POPULAR_FEATURED_SONGS } from '../services/musicApi';
+import { Song } from '../types';
 
 interface ExploreScreenProps {
   onSearchGenre: (genre: string) => void;
   onSelectArtist: (artist: string) => void;
+  onOpenPlaylistModal?: (song: Song) => void;
 }
 
-export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onSearchGenre }) => {
+export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onSearchGenre, onOpenPlaylistModal }) => {
   const { selectAndPlaySong, currentSong, isPlaying, isLoading } = useMusic();
 
   const genres = [
@@ -103,6 +105,19 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onSearchGenre }) =
                 <span className="text-xs text-slate-500 font-mono shrink-0">
                   {song.durationFormatted}
                 </span>
+                {onOpenPlaylistModal && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenPlaylistModal(song);
+                    }}
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-indigo-300 hover:bg-indigo-500/15 transition-colors shrink-0"
+                    title="Add to Playlist"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             );
           })}

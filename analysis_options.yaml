@@ -5,6 +5,10 @@ analyzer:
     todo: ignore
   exclude:
     - "**/*.g.dart"
+    - "node_modules/**"
+    - "dist/**"
+    - "build/**"
+    - ".aistudio/**"
 
 linter:
   rules:

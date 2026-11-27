@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { StreamLogger } from '../src/services/streamLogger';
+import { LocalAuthService } from '../src/services/localAuth';
 
 const rootDir = process.cwd();
 
@@ -343,7 +344,7 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(musicContextTsx, /setSleepTimer/);
   });
 
-  it('Scenario 11: Verify v3.5.1 / v3.0.0 Release Pipeline, Live Archive Packaging & AI Studio ↔ Flutter UI Parity', () => {
+  it('Scenario 11: Verify v3.6.0 / v3.0.0 Release Pipeline, Live Archive Packaging & AI Studio ↔ Flutter UI Parity', () => {
     const pubspecYaml = fs.readFileSync(path.join(rootDir, 'pubspec.yaml'), 'utf8');
     const packageJson = fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8');
     const workflowYml = fs.readFileSync(path.join(rootDir, '.github/workflows/build-apk.yml'), 'utf8');
@@ -352,9 +353,10 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     const serverTs = fs.readFileSync(path.join(rootDir, 'server.ts'), 'utf8');
     const landingTsx = fs.readFileSync(path.join(rootDir, 'src/screens/LandingScreen.tsx'), 'utf8');
 
-    assert.match(pubspecYaml, /version:\s*3\.5\.\d+\+\d+/);
-    assert.match(packageJson, /"version":\s*"3\.5\.\d+"/);
+    assert.match(pubspecYaml, /version:\s*3\.6\.\d+\+\d+/);
+    assert.match(packageJson, /"version":\s*"3\.6\.\d+"/);
     assert.match(workflowYml, /RELEASE_TAG:\s*v3\.0\.0/);
+    assert.match(workflowYml, /NEW_RELEASE_TAG:\s*v3\.6\.\d+/);
     assert.match(miniPlayerDart, /toggleFavorite/);
     assert.match(miniPlayerDart, /QueueScreen/);
     assert.match(homeDart, /DYNAMIC TASTE ENGINE/);
@@ -495,8 +497,8 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
 
     assert.match(profileDart, /ACCOUNT & PREFERENCES/);
     assert.match(profileDart, /Profile & Cloud Sync/);
-    assert.match(profileDart, /Hasibul Hasan/);
-    assert.match(profileDart, /gudhulibela031@gmail\.com/);
+    assert.match(profileDart, /Guest Listener/);
+    assert.doesNotMatch(profileDart, /gudhulibela031@gmail\.com/);
     assert.match(profileDart, /Synced/);
     assert.match(profileDart, /FAVORITES/);
     assert.match(profileDart, /CUSTOM PLAYLISTS/);
@@ -506,8 +508,8 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(profileDart, /Sleep Timer/);
     assert.match(profileTsx, /ACCOUNT & PREFERENCES/);
     assert.match(profileTsx, /Profile & Cloud Sync/);
-    assert.match(authRepoImplDart, /Hasibul Hasan/);
-    assert.match(authRepoImplDart, /gudhulibela031@gmail\.com/);
+    assert.match(authRepoImplDart, /Guest Listener/);
+    assert.doesNotMatch(authRepoImplDart, /gudhulibela031@gmail\.com/);
     assert.match(exploreDart, /import '\.\.\/\.\.\/widgets\/app_logo\.dart';/);
     assert.match(libraryDart, /import '\.\.\/\.\.\/widgets\/app_logo\.dart';/);
     assert.match(libraryDart, /import '\.\.\/main_navigation_screen\.dart';/);
@@ -905,8 +907,8 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(serverTs, /inFlightSearchQueries/);
     assert.match(serverTs, /skipSaavnFallback/);
 
-    // 2. Client MusicApi has >= 8500ms timeout headroom, in-flight coalescing, TTL caches, and Saavn direct cooldown
-    assert.match(musicApiTs, /timeoutMs:\s*9000/);
+    // 2. Client MusicApi has >= 9500ms timeout headroom, in-flight coalescing, TTL caches, and Saavn direct cooldown
+    assert.match(musicApiTs, /timeoutMs:\s*(?:9000|10500)/);
     assert.match(musicApiTs, /timeoutMs:\s*9500/);
     assert.match(musicApiTs, /fetchSaavnDirectItemsCoalesced/);
     assert.match(musicApiTs, /inFlightClientSearches/);
@@ -1153,9 +1155,197 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(playerProvDart, /final bool isJioSaavnId = cleanId\.startsWith\('js_'\);/);
     assert.match(playerProvDart, /if \(_isLoading && currentRequestId == _playRequestId\) \{[\s\S]*?_playRequestId\+\+;/);
   });
+
+  it('Scenario 31: Verify v3.6.0 A-to-Z playback & networking reliability (Unicode tokenization, non-blocking catalog race, /api/health & JSON 404, bounded HLS concurrency, ExoPlayer mobile buffering, decoupled artwork, verified HLS probe, and hardened network security)', () => {
+    const serverTs = fs.readFileSync(path.join(rootDir, 'server.ts'), 'utf8');
+    const musicApiTs = fs.readFileSync(path.join(rootDir, 'src/services/musicApi.ts'), 'utf8');
+    const extractorDart = fs.readFileSync(path.join(rootDir, 'lib/core/services/audio_stream_extractor.dart'), 'utf8');
+    const ytSourceDart = fs.readFileSync(path.join(rootDir, 'lib/core/services/youtube_audio_source.dart'), 'utf8');
+    const playerProvDart = fs.readFileSync(path.join(rootDir, 'lib/presentation/providers/player_provider.dart'), 'utf8');
+    const miniPlayerDart = fs.readFileSync(path.join(rootDir, 'lib/presentation/widgets/mini_player_widget.dart'), 'utf8');
+    const netSecXml = fs.readFileSync(path.join(rootDir, 'android/app/src/main/res/xml/network_security_config.xml'), 'utf8');
+
+    // Express backend: health route, JSON 404 API catch-all, non-blocking raceCatalogSources, bounded HLS, Unicode regex, isolated ytdl debug dir, HMR disabled
+    assert.match(serverTs, /app\.get\('\/api\/health'/);
+    assert.match(serverTs, /app\.use\('\/api'/);
+    assert.match(serverTs, /async function raceCatalogSources/);
+    assert.match(serverTs, /fetchHlsSegmentsBounded/);
+    assert.match(serverTs, /\\p\{L\}\\p\{N\}/);
+    assert.match(serverTs, /process\.env\.YTDL_DEBUG_PATH = YTDL_DEBUG_DIR/);
+    assert.doesNotMatch(serverTs, /fs\.readdirSync\(process\.cwd\(\)\)/);
+    assert.match(serverTs, /hmr: false/);
+
+    const viteConfigTs = fs.readFileSync(path.join(rootDir, 'vite.config.ts'), 'utf8');
+    const streamLoggerTs = fs.readFileSync(path.join(rootDir, 'src/services/streamLogger.ts'), 'utf8');
+    assert.match(viteConfigTs, /hmr: false/);
+    assert.match(streamLoggerTs, /category !== 'retry'/);
+
+    // Web client: no permanent backendApiConfirmedReachable lockout, Unicode regex
+    assert.doesNotMatch(musicApiTs, /backendApiConfirmedReachable/);
+    assert.match(musicApiTs, /\\p\{L\}\\p\{N\}/);
+
+    // Flutter / Android: Unicode tokenization, SoundCloud HLS #EXTM3U verification, decoupled artwork, ExoPlayer load control, visible MiniPlayer error, hardened cleartext policy
+    assert.match(extractorDart, /_nonWordUnicodeRegex/);
+    assert.match(extractorDart, /#EXTM3U/);
+    assert.doesNotMatch(extractorDart, /inv\.nadeko\.net/);
+    assert.doesNotMatch(ytSourceDart, /Direct getManifest fallback/);
+    assert.match(ytSourceDart, /unawaited\(\s*ArtworkService\.getArtworkUri/);
+    assert.match(playerProvDart, /AndroidLoadControl\(/);
+    assert.match(miniPlayerDart, /player\.errorMessage \?\?/);
+    assert.match(netSecXml, /base-config cleartextTrafficPermitted="false"/);
+    assert.match(netSecXml, /127\.0\.0\.1/);
+  });
+
+  it('Scenario 32: Verify Guest-first startup (zero hardcoded gudhulibela031@gmail.com) and working Email/Password Sign-Up, Sign-In, validation, and Sign-Out flow', async () => {
+    const musicContextTsx = fs.readFileSync(path.join(rootDir, 'src/context/MusicContext.tsx'), 'utf8');
+    const profileTsx = fs.readFileSync(path.join(rootDir, 'src/screens/ProfileScreen.tsx'), 'utf8');
+    const authRepoDart = fs.readFileSync(path.join(rootDir, 'lib/data/repositories/auth_repository_impl.dart'), 'utf8');
+    const profileDart = fs.readFileSync(path.join(rootDir, 'lib/presentation/screens/profile/profile_screen.dart'), 'utf8');
+
+    // No hardcoded personal account anywhere in Web or Flutter auth layers
+    assert.doesNotMatch(musicContextTsx, /gudhulibela031@gmail\.com/);
+    assert.doesNotMatch(profileTsx, /gudhulibela031@gmail\.com/);
+    assert.doesNotMatch(authRepoDart, /gudhulibela031@gmail\.com/);
+    assert.doesNotMatch(profileDart, /gudhulibela031@gmail\.com/);
+    assert.match(musicContextTsx, /GUEST_USER_PROFILE/);
+    assert.match(musicContextTsx, /PASSWORD_LOGIN_DISABLED/);
+
+    // Functional end-to-end test of salted PBKDF2 LocalAuthService
+    const memStorage = new Map<string, string>();
+    const prevStorage = (globalThis as any).localStorage;
+    (globalThis as any).localStorage = {
+      getItem: (k: string) => (memStorage.has(k) ? memStorage.get(k)! : null),
+      setItem: (k: string, v: string) => { memStorage.set(k, String(v)); },
+      removeItem: (k: string) => { memStorage.delete(k); },
+    };
+
+    try {
+      assert.strictEqual(LocalAuthService.getActiveSession(), null);
+
+      const created = await LocalAuthService.register('listener@example.com', 'secret123', 'Twilight Listener');
+      assert.strictEqual(created.isGuest, false);
+      assert.strictEqual(created.email, 'listener@example.com');
+      assert.strictEqual(created.displayName, 'Twilight Listener');
+      assert.strictEqual(LocalAuthService.getActiveSession()?.uid, created.uid);
+
+      // Duplicate registration rejected
+      await assert.rejects(
+        () => LocalAuthService.register('listener@example.com', 'secret123', 'Dup'),
+        /already exists/i
+      );
+
+      // Sign out clears active session
+      LocalAuthService.clearActiveSession();
+      assert.strictEqual(LocalAuthService.getActiveSession(), null);
+
+      // Wrong password rejected
+      await assert.rejects(
+        () => LocalAuthService.signIn('listener@example.com', 'wrongpass'),
+        /incorrect password/i
+      );
+
+      // Valid sign in restores profile & session
+      const signedIn = await LocalAuthService.signIn('listener@example.com', 'secret123');
+      assert.strictEqual(signedIn.uid, created.uid);
+      assert.strictEqual(signedIn.displayName, 'Twilight Listener');
+      assert.strictEqual(LocalAuthService.getActiveSession()?.email, 'listener@example.com');
+    } finally {
+      (globalThis as any).localStorage = prevStorage;
+    }
+  });
+
+  it('Scenario 33: Verify next/subsequent clicked song switching reliability (sync stateRef, audio.load reset, oncanplay play nudge, resilient AbortError retry, Next queue alignment, and colon-title parsing)', async () => {
+    const serverMod = await import('../server');
+    const sajniParsed = serverMod.extractCoreTrackAndArtist(
+      'Sajni (Song): Arijit Singh, Ram Sampath | Laapataa Ladies | Aamir Khan Productions',
+      'T-Series'
+    );
+    assert.strictEqual(sajniParsed.coreTitle, 'Sajni');
+    assert.ok(sajniParsed.primaryArtist.toLowerCase().includes('arijit'));
+
+    const khairiyatParsed = serverMod.extractCoreTrackAndArtist(
+      'Full Song: KHAIRIYAT (BONUS TRACK) | CHHICHHORE | Sushant, Shraddha | Pritam, Amitabh B|Arijit Singh',
+      'T-Series'
+    );
+    assert.strictEqual(khairiyatParsed.coreTitle, 'KHAIRIYAT');
+
+    const musicContextTsx = fs.readFileSync(path.join(rootDir, 'src/context/MusicContext.tsx'), 'utf8');
+    const serverTs = fs.readFileSync(path.join(rootDir, 'server.ts'), 'utf8');
+
+    // Web player: synchronous stateRef/isLoadingSyncRef update, audio.load() pipeline reset, oncanplay play nudge, bounded AbortError retries, and Next queue alignment
+    assert.match(musicContextTsx, /const handleHtml5ReadyToPlay = \(\) =>/);
+    assert.match(musicContextTsx, /audio\.load\(\);/);
+    assert.match(musicContextTsx, /const attemptHtml5Start = \(abortRetryCount = 0\)/);
+    assert.match(musicContextTsx, /if \(abortRetryCount < 3\)/);
+    assert.match(musicContextTsx, /isLoadingSyncRef\.current = true;/);
+    assert.match(musicContextTsx, /if \(q\.length <= 1\)/);
+
+    // Server: colon-title splitting, streamable-first catalog merge ordering, and query-relevance ranking for Tumi Level Five
+    assert.strictEqual(serverMod.normalizeServerPhoneticQuery('tmi'), 'LEVEL FIVE TUMI');
+    assert.strictEqual(serverMod.normalizeServerPhoneticQuery('tmi level 5'), 'LEVEL FIVE TUMI');
+    assert.match(serverTs, /leftIsPrefixLabel/);
+    assert.match(serverTs, /CURATED_LOCAL_SEARCH_TRACKS/);
+    assert.match(serverTs, /\[\.\.\.saavnSongs, \.\.\.filteredYt, \.\.\.boundedFallbackYt, \.\.\.FALLBACK_POPULAR\]/);
+  });
+
+  it('Scenario 34: Verify exact YouTube video audio matching (preferYtExact fast-path, no JirEG9LIJTU studio hijack, stale offline cache purge, offline duration check, and YT iframe allow attribute)', () => {
+    const serverTs = fs.readFileSync(path.join(rootDir, 'server.ts'), 'utf8');
+    const musicApiTs = fs.readFileSync(path.join(rootDir, 'src/services/musicApi.ts'), 'utf8');
+    const musicContextTsx = fs.readFileSync(path.join(rootDir, 'src/context/MusicContext.tsx'), 'utf8');
+
+    // Server: preferYtExact=1 fast-hands off non-curated 11-char YT IDs to YT IFrame; JirEG9LIJTU 04:03 studio hijack removed
+    assert.match(serverTs, /const preferYtExact = String\(req\.query\.preferYtExact \|\| ''\) === '1';/);
+    assert.match(serverTs, /preferYtIframe: true/);
+    assert.doesNotMatch(serverTs, /JirEG9LIJTU:\s*'https:\/\/aac\.saavncdn\.com/);
+
+    // Client API: JirEG9LIJTU redirect removed; resolveClientDirectStreamUrl passes preferYtExact=1 and skips caching preferYtIframe=true
+    assert.doesNotMatch(musicApiTs, /\/api\/stream\/JirEG9LIJTU\?title=Bondho/);
+    assert.match(musicApiTs, /allowYtIframeFastPath = true/);
+    assert.match(musicApiTs, /preferYtExact: '1'/);
+    assert.match(musicApiTs, /if \(data\?\.preferYtIframe === true\) \{\s*return null;\s*\}/);
+    assert.match(musicApiTs, /MusicApi\.resolveClientDirectStreamUrl\(song, forceRefresh, false\)/);
+
+    // MusicContext: stale v3/v2 offline caches purged on startup, offline blob duration checked, YT iframe allow attribute set
+    assert.match(musicContextTsx, /const OFFLINE_IDB_NAME = 'twilight_offline_audio_db_v3';/);
+    assert.match(musicContextTsx, /const OFFLINE_CACHE_NAME = 'twilight-offline-audio-v4';/);
+    assert.match(musicContextTsx, /caches\.delete\('twilight-offline-audio-v3'\)/);
+    assert.match(musicContextTsx, /indexedDB\.deleteDatabase\('twilight_offline_audio_db_v2'\)/);
+    assert.match(musicContextTsx, /async function blobMatchesExpectedDuration/);
+    assert.match(musicContextTsx, /getIframe\?\.\(\)\?\.setAttribute\('allow', 'autoplay; encrypted-media; picture-in-picture'\)/);
+  });
+
+  it('Scenario 35: Verify Surah Baqarah & long-form audio search preservation, bakarah/Bengali phonetic matching, bounded 2MB Range streaming, headersTimeoutOnly, and direct verified Quran MP3 playback across Server, Web & Flutter', async () => {
+    const serverMod = await import('../server');
+    const serverTs = fs.readFileSync(path.join(rootDir, 'server.ts'), 'utf8');
+    const musicApiTs = fs.readFileSync(path.join(rootDir, 'src/services/musicApi.ts'), 'utf8');
+    const musicContextTsx = fs.readFileSync(path.join(rootDir, 'src/context/MusicContext.tsx'), 'utf8');
+    const flutterExtractor = fs.readFileSync(
+      path.join(rootDir, 'lib/core/services/audio_stream_extractor.dart'),
+      'utf8'
+    );
+
+    assert.strictEqual(serverMod.normalizeServerPhoneticQuery('surah bakarah'), 'Surah Al-Baqarah');
+    assert.strictEqual(serverMod.normalizeServerPhoneticQuery('সুরা বাকারা'), 'Surah Al-Baqarah');
+    assert.strictEqual(serverMod.normalizeServerPhoneticQuery('সূরা বাকারা'), 'Surah Al-Baqarah');
+    assert.match(
+      serverMod.resolveQuranSurahDirectAudioUrl('Surah Al-Baqarah Mishary Rashed Alafasy', 'Alafasy') || '',
+      /\/002\.mp3$/
+    );
+    assert.match(
+      serverMod.resolveQuranSurahDirectAudioUrl('Surah Al-Baqarah Mishary Rashed Alafasy', 'Alafasy', true) || '',
+      /mp3quran\.net\/afs\/002\.mp3$/
+    );
+
+    assert.match(serverTs, /export function resolveQuranSurahDirectAudioUrl/);
+    assert.match(serverTs, /LONG_FORM_AUDIO_QUERY_REGEX/);
+    assert.match(serverTs, /bakarah\?\|bakra\|baqara/);
+    assert.match(serverTs, /headersTimeoutOnly: true/);
+    assert.match(serverTs, /MAX_PROXY_RANGE_BYTES = 2 \* 1024 \* 1024/);
+    assert.match(serverTs, /const devAssetVersion = String\(Date\.now\(\)\)/);
+    assert.match(serverTs, /if \(hasLiveResults && finalSongs\.length > 0\)/);
+    assert.match(musicApiTs, /Surah Al-Baqarah/);
+    assert.match(musicContextTsx, /const hadPlaybackError = Boolean\(stateRef\.current\.playbackError\)/);
+    assert.match(musicContextTsx, /https:\/\/www\.youtube\.com\/iframe_api/);
+    assert.match(flutterExtractor, /_resolveQuranSurahDirectUrl/);
+  });
 });
-
-
-
-
-

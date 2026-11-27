@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -203,13 +204,9 @@ class DownloadService {
       // 1. Check if already cached in verified progressive cache
       final tempDir = await getTemporaryDirectory();
       final v31CacheM4a = File('${tempDir.path}/twilight_v31_cache_$cleanId.m4a');
-      final v31CacheWebm = File('${tempDir.path}/twilight_v31_cache_$cleanId.webm');
       final v31DoneM4a = File('${tempDir.path}/twilight_v31_cache_$cleanId.m4a.done');
-      final v31DoneWebm = File('${tempDir.path}/twilight_v31_cache_$cleanId.webm.done');
       final cacheM4a = File('${tempDir.path}/twilight_cache_$cleanId.m4a');
-      final cacheWebm = File('${tempDir.path}/twilight_cache_$cleanId.webm');
       final doneM4a = File('${tempDir.path}/twilight_cache_$cleanId.m4a.done');
-      final doneWebm = File('${tempDir.path}/twilight_cache_$cleanId.webm.done');
 
       bool isValidBinaryAudioFile(File f) {
         try {

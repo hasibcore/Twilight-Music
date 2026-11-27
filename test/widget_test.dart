@@ -95,11 +95,11 @@ class _TestYouTubeRepo implements YouTubeRepository {
 class _TestAuthRepo implements AuthRepository {
   @override
   Future<UserProfile?> getCurrentUser() async => const UserProfile(
-        uid: 'usr_hasibul_hasan',
-        name: 'Hasibul Hasan',
-        email: 'gudhulibela031@gmail.com',
+        uid: 'guest_local_user',
+        name: 'Guest Listener',
+        email: '',
         avatarUrl: '',
-        isGuest: false,
+        isGuest: true,
       );
   @override
   Future<UserProfile> signInWithGoogle() async =>
@@ -112,7 +112,7 @@ class _TestAuthRepo implements AuthRepository {
       const UserProfile(uid: 'u1', name: 'Test', email: 't@t.com', avatarUrl: '');
   @override
   Future<UserProfile> signInAsGuest() async =>
-      const UserProfile(uid: 'usr_hasibul_hasan', name: 'Hasibul Hasan', email: 'gudhulibela031@gmail.com', avatarUrl: '', isGuest: false);
+      const UserProfile(uid: 'guest_local_user', name: 'Guest Listener', email: '', avatarUrl: '', isGuest: true);
   @override
   Future<void> signOut() async {}
 }

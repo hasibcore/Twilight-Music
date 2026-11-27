@@ -1,4 +1,4 @@
-import { getDriveAccessToken, auth, googleProvider, setDriveAccessToken } from './firebase';
+import { getDriveAccessToken, auth, googleDriveProvider, setDriveAccessToken } from './firebase';
 import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 
 export interface DriveUploadResult {
@@ -22,7 +22,7 @@ export class GoogleDriveService {
 
     try {
       // Request token via popup
-      const result = await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleDriveProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (!credential?.accessToken) {
         throw new Error('Could not obtain Google Drive access token from sign-in.');

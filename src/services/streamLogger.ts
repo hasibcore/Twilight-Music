@@ -73,15 +73,15 @@ class StreamLoggerService {
     if (!isOnline) contextParts.push('offline=true');
 
     const line = `${prefix} ${message}${contextParts.length ? ` (${contextParts.join(', ')})` : ''}`;
-    if (level === 'error' || level === 'warn') {
+    if (level === 'error') {
       console.info(line, entry.detail || '');
-    } else {
-      console.info(line);
     }
 
-    // Best-effort non-blocking reporting to backend diagnostics collector for warn/error network drops
+    // Best-effort non-blocking reporting to backend diagnostics collector for terminal error events only
+    // (transient self-healing retries stay in the local ring buffer and never trigger false Backend Error alerts)
     if (
-      (level === 'warn' || level === 'error') &&
+      level === 'error' &&
+      category !== 'retry' &&
       typeof window !== 'undefined' &&
       isOnline &&
       typeof fetch === 'function'

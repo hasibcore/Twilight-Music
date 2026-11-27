@@ -14,5 +14,8 @@ bun.lock
 *-watch.html
 *-player-script.js
 .flutter-plugins-dependencies
+ios/Flutter/ephemeral/
+windows/flutter/ephemeral/
 .vscode/
 .env
+

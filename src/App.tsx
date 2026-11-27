@@ -72,6 +72,7 @@ export const AppContent: React.FC = () => {
               <ExploreScreen
                 onSearchGenre={(genre) => handleOpenSearchWithQuery(genre)}
                 onSelectArtist={handleSelectArtist}
+                onOpenPlaylistModal={(song) => setPlaylistModalSong(song)}
               />
             ) : currentTab === 'search' ? (
               <SearchScreen
@@ -79,7 +80,7 @@ export const AppContent: React.FC = () => {
                 onOpenPlaylistModal={(song) => setPlaylistModalSong(song)}
               />
             ) : currentTab === 'library' ? (
-              <LibraryScreen />
+              <LibraryScreen onOpenPlaylistModal={(song) => setPlaylistModalSong(song)} />
             ) : currentTab === 'profile' ? (
               <ProfileScreen />
             ) : currentTab === 'landing' ? (

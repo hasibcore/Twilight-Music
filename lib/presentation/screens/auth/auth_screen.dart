@@ -121,7 +121,7 @@ class _AuthScreenState extends State<AuthScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              AppLogo(size: 68, showText: true),
+              const AppLogo(size: 68, showText: true),
               const SizedBox(height: 6),
               Text(
                 'Cloud Sync & Personalized Music Experience',

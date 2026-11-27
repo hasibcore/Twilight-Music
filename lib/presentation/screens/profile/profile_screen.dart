@@ -80,7 +80,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Sleep timer turned off.'),
-          duration: const Duration(seconds: 2),
+          duration: Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -209,7 +209,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         controller: nameController,
                         style: const TextStyle(color: Colors.white, fontSize: 14),
                         decoration: InputDecoration(
-                          hintText: 'Display Name (e.g. Hasibul Hasan)',
+                          hintText: 'Display Name',
                           hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
                           filled: true,
                           fillColor: Colors.white.withValues(alpha: 0.05),
@@ -228,7 +228,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       keyboardType: TextInputType.emailAddress,
                       style: const TextStyle(color: Colors.white, fontSize: 14),
                       decoration: InputDecoration(
-                        hintText: 'Email address (e.g. gudhulibela031@gmail.com)',
+                        hintText: 'Email address',
                         hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
                         filled: true,
                         fillColor: Colors.white.withValues(alpha: 0.05),
@@ -283,7 +283,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           if (isRegister) {
                             final name = nameController.text.trim().isNotEmpty
                                 ? nameController.text.trim()
-                                : 'Hasibul Hasan';
+                                : email.split('@').first;
                             ok = await auth.registerWithEmail(email, pass, name);
                           } else {
                             ok = await auth.signInWithEmail(email, pass);
@@ -339,22 +339,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final downloadProv = context.watch<DownloadProvider>();
     final user = auth.user;
 
-    // Direct 1-to-1 match with PC Web UI (image_f1da92f7.png)
-    final displayName = (user != null &&
-            user.name.isNotEmpty &&
-            !user.name.toLowerCase().contains('guest'))
+    final isGuestUser = user == null || user.isGuest || user.email.isEmpty;
+    final displayName = (!isGuestUser && user.name.isNotEmpty)
         ? user.name
-        : 'Hasibul Hasan';
-    final email = (user != null &&
-            user.email.isNotEmpty &&
-            !user.email.toLowerCase().contains('guest@'))
+        : 'Guest Listener';
+    final email = !isGuestUser
         ? user.email
-        : 'gudhulibela031@gmail.com';
-    final userInitial = displayName.trim().isNotEmpty ? displayName.trim()[0].toUpperCase() : 'H';
+        : 'Local session • Sign in to sync across devices';
+    final userInitial = displayName.trim().isNotEmpty ? displayName.trim()[0].toUpperCase() : 'G';
 
-    final favoritesCount = playlistProv.favorites.length >= 2 ? playlistProv.favorites.length : 2;
-    final playlistsCount = playlistProv.playlists.length >= 2 ? playlistProv.playlists.length : 2;
-    final downloadsCount = downloadProv.count >= 3 ? downloadProv.count : 3;
+    final favoritesCount = playlistProv.favorites.length;
+    final playlistsCount = playlistProv.playlists.length;
+    final downloadsCount = downloadProv.count;
 
     return Scaffold(
       backgroundColor: AppColors.backgroundDark,
@@ -377,7 +373,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  AppLogo(
+                  const AppLogo(
                     size: 38,
                     showText: true,
                     subtitle: 'MUSIC',
@@ -493,37 +489,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF10B981).withValues(alpha: 0.20),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: const Color(0xFF10B981).withValues(alpha: 0.40),
-                                  width: 1,
+                            if (!isGuestUser) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981).withValues(alpha: 0.20),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFF10B981).withValues(alpha: 0.40),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.check_circle_rounded,
+                                      size: 11,
+                                      color: Color(0xFF34D399),
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Synced',
+                                      style: TextStyle(
+                                        color: Color(0xFF34D399),
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.check_circle_rounded,
-                                    size: 11,
-                                    color: Color(0xFF34D399),
-                                  ),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    'Synced',
-                                    style: TextStyle(
-                                      color: Color(0xFF34D399),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                            ],
                           ],
                         ),
                         const SizedBox(height: 4),
@@ -541,31 +539,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(width: 8),
 
-                  // Action Button: Sign Out
+                  // Action Button: Sign In (when Guest) or Sign Out (when authenticated)
                   Material(
-                    color: Colors.white.withValues(alpha: 0.05),
+                    color: isGuestUser
+                        ? const Color(0xFF4F46E5)
+                        : Colors.white.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(16),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(16),
-                      onTap: () => _openAuthModal(context, auth),
+                      onTap: () => isGuestUser
+                          ? _openAuthModal(context, auth)
+                          : auth.signOut(),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.10),
+                            color: isGuestUser
+                                ? const Color(0xFF6366F1)
+                                : Colors.white.withValues(alpha: 0.10),
                             width: 1,
                           ),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.logout_rounded, size: 14, color: Color(0xFFCBD5E1)),
-                            SizedBox(width: 6),
+                            Icon(
+                              isGuestUser ? Icons.login_rounded : Icons.logout_rounded,
+                              size: 14,
+                              color: isGuestUser ? Colors.white : const Color(0xFFCBD5E1),
+                            ),
+                            const SizedBox(width: 6),
                             Text(
-                              'Sign Out',
+                              isGuestUser ? 'Sign In' : 'Sign Out',
                               style: TextStyle(
-                                color: Color(0xFFCBD5E1),
+                                color: isGuestUser ? Colors.white : const Color(0xFFCBD5E1),
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w700,
                               ),

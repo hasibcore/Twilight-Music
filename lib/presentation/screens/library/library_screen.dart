@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../widgets/song_card.dart';
 import '../playlist/create_playlist_dialog.dart';
 import '../playlist/playlist_detail_screen.dart';
-import '../../widgets/import_playlist_dialog.dart';
 import '../../widgets/app_logo.dart';
 import '../main_navigation_screen.dart';
 
@@ -39,6 +39,11 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     final playlistProv = context.watch<PlaylistProvider>();
     final downloadProv = context.watch<DownloadProvider>();
+    final authProv = context.watch<AuthProvider>();
+    final userName = authProv.user?.name ?? '';
+    final userInitial = userName.trim().isNotEmpty && !authProv.isGuest
+        ? userName.trim()[0].toUpperCase()
+        : 'G';
     final hasCurrentSong = context.select<PlayerProvider, bool>((p) => p.currentSong != null);
     final bottomPadding = hasCurrentSong ? 100.0 : 40.0;
 
@@ -68,7 +73,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      AppLogo(
+                      const AppLogo(
                         size: 38,
                         showText: true,
                         subtitle: 'MUSIC',
@@ -99,9 +104,9 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                                 ),
                               ),
                               alignment: Alignment.center,
-                              child: const Text(
-                                'H',
-                                style: TextStyle(
+                              child: Text(
+                                userInitial,
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,

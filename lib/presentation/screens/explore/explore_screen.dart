@@ -5,6 +5,7 @@ import '../../../domain/entities/song.dart';
 import '../../../domain/repositories/youtube_repository.dart';
 import '../../widgets/song_card.dart';
 import '../../widgets/import_playlist_dialog.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../../core/services/music_import_service.dart';
 import '../main_navigation_screen.dart';
@@ -105,6 +106,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   Widget build(BuildContext context) {
     final hasCurrentSong = context.select<PlayerProvider, bool>((p) => p.currentSong != null);
+    final authProv = context.watch<AuthProvider>();
+    final userName = authProv.user?.name ?? '';
+    final userInitial = userName.trim().isNotEmpty && !authProv.isGuest
+        ? userName.trim()[0].toUpperCase()
+        : 'G';
     final bottomPadding = hasCurrentSong ? 100.0 : 40.0;
 
     return Scaffold(
@@ -128,7 +134,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  AppLogo(
+                  const AppLogo(
                     size: 38,
                     showText: true,
                     subtitle: 'MUSIC',
@@ -154,9 +160,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                             ),
                           ),
                           alignment: Alignment.center,
-                          child: const Text(
-                            'H',
-                            style: TextStyle(
+                          child: Text(
+                            userInitial,
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 15,
                               fontWeight: FontWeight.w700,

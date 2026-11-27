@@ -135,7 +135,7 @@ class TwilightApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = context.watch<ThemeProvider>();
+    context.watch<ThemeProvider>();
 
     return MaterialApp(
       title: AppStrings.appName,
@@ -184,13 +184,13 @@ class _TwilightSplashGateState extends State<_TwilightSplashGate> {
             child: IgnorePointer(
               child: Container(
                 color: AppColors.backgroundDark,
-                child: Center(
+                child: const Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       AppLogo(size: 88, showText: false),
-                      const SizedBox(height: 20),
-                      const Text(
+                      SizedBox(height: 20),
+                      Text(
                         'Twilight',
                         style: TextStyle(
                           color: Colors.white,
@@ -200,8 +200,8 @@ class _TwilightSplashGateState extends State<_TwilightSplashGate> {
                           decoration: TextDecoration.none,
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      const Text(
+                      SizedBox(height: 6),
+                      Text(
                         'MUSIC STREAMING',
                         style: TextStyle(
                           color: Color(0xFF818CF8),

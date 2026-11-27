@@ -8,12 +8,18 @@ import {
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  updateProfile,
   fbSignOut,
   onAuthStateChanged,
   CloudSyncService,
   setDriveAccessToken,
 } from '../services/firebase';
 import { GoogleAuthProvider } from 'firebase/auth';
+import {
+  LocalAuthService,
+  GUEST_USER_PROFILE,
+  validateEmailAndPassword,
+} from '../services/localAuth';
 
 interface MusicContextType {
   currentSong: Song | null;
@@ -62,6 +68,7 @@ interface MusicContextType {
   toggleFavorite: (song: Song) => void;
   isFavorite: (id: string) => boolean;
   createPlaylist: (title: string, description?: string) => Playlist;
+  renamePlaylist: (playlistId: string, newTitle: string) => void;
   deletePlaylist: (playlistId: string) => void;
   addToPlaylist: (playlistId: string, song: Song) => void;
   removeFromPlaylist: (playlistId: string, songId: string) => void;
@@ -73,7 +80,7 @@ interface MusicContextType {
   // Auth
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (e: string, p: string) => Promise<void>;
-  registerWithEmail: (e: string, p: string) => Promise<void>;
+  registerWithEmail: (e: string, p: string, displayName?: string) => Promise<void>;
   signOut: () => Promise<void>;
   updateUser: (updates: Partial<UserProfile>) => void;
 }
@@ -93,7 +100,7 @@ export const PROACTIVE_PAUSE_REFRESH_MS = 3 * 60 * 1000; // 3 minutes (180,000ms
 export const STREAM_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes (300,000ms)
 export const SONG_SELECTION_DEBOUNCE_MS = 300; // 300ms debounce window for song selection
 
-const OFFLINE_IDB_NAME = 'twilight_offline_audio_db_v2';
+const OFFLINE_IDB_NAME = 'twilight_offline_audio_db_v3';
 const OFFLINE_IDB_STORE = 'audio_blobs';
 
 function openOfflineAudioDb(): Promise<IDBDatabase | null> {
@@ -180,6 +187,55 @@ async function isHealthyAudioBlob(blob: Blob | null | undefined): Promise<boolea
   } catch {
     return blob.size > 10000;
   }
+}
+
+async function blobMatchesExpectedDuration(
+  blob: Blob | null | undefined,
+  expectedDurationSec?: number
+): Promise<boolean> {
+  if (!blob) return false;
+  if (!expectedDurationSec || expectedDurationSec <= 45) return true;
+  if (typeof window === 'undefined' || typeof Audio === 'undefined' || typeof URL === 'undefined') {
+    return true;
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    let objectUrl = '';
+    const probe = new Audio();
+    probe.preload = 'metadata';
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      probe.onloadedmetadata = null;
+      probe.onerror = null;
+      try {
+        probe.src = '';
+      } catch {}
+      if (objectUrl) {
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch {}
+      }
+      resolve(ok);
+    };
+    const timer = setTimeout(() => finish(true), 2500);
+    probe.onloadedmetadata = () => {
+      const actualDur = probe.duration;
+      if (Number.isFinite(actualDur) && actualDur > 10) {
+        finish(Math.abs(actualDur - expectedDurationSec) <= 20);
+      } else {
+        finish(true);
+      }
+    };
+    probe.onerror = () => finish(false);
+    try {
+      objectUrl = URL.createObjectURL(blob);
+      probe.src = objectUrl;
+    } catch {
+      finish(true);
+    }
+  });
 }
 
 async function inferAudioMimeType(blob: Blob, fallback: string = 'audio/mp4'): Promise<string> {
@@ -275,33 +331,9 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Sleep Timer
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState<number | null>(null);
 
-  // User & Collections — starts as Guest with Sign In / Register prompt; populates with real user profile on login
+  // User & Collections — start as Guest Listener unless a real session is active
   const [user, setUser] = useState<UserProfile>(() => {
-    try {
-      const saved = localStorage.getItem('twilight_user_profile');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (
-          parsed &&
-          typeof parsed === 'object' &&
-          parsed.uid &&
-          parsed.uid !== 'usr_hasibul_hasan' &&
-          parsed.email !== 'gudhulibela031@gmail.com' &&
-          parsed.displayName !== 'Hasibul Hasan'
-        ) {
-          return parsed;
-        } else {
-          localStorage.removeItem('twilight_user_profile');
-        }
-      }
-    } catch {}
-    return {
-      uid: 'guest_local_user',
-      email: null,
-      displayName: 'Guest Listener',
-      photoURL: null,
-      isGuest: true,
-    };
+    return LocalAuthService.getActiveSession() ?? GUEST_USER_PROFILE;
   });
 
   const [favorites, setFavorites] = useState<Song[]>(() => {
@@ -420,7 +452,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const proactivePauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoSkipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const hasInitializedStreamRef = useRef<boolean>(false);
   const isPrimingAudioRef = useRef<boolean>(false);
@@ -474,7 +505,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, [currentSong, queue, currentIndex, isPlaying, isLoading, isRefreshingStream, playbackError, isRepeat, isShuffle, currentTime, volume, playbackSpeed]);
 
-  const OFFLINE_CACHE_NAME = 'twilight-offline-audio-v3';
+  const OFFLINE_CACHE_NAME = 'twilight-offline-audio-v4';
 
   const initialDownloadsRef = useRef<Song[]>(downloads);
 
@@ -485,10 +516,12 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if ('caches' in window) {
           await caches.delete('twilight-offline-audio-v1').catch(() => {});
           await caches.delete('twilight-offline-audio-v2').catch(() => {});
+          await caches.delete('twilight-offline-audio-v3').catch(() => {});
         }
         if (typeof indexedDB !== 'undefined') {
           try {
             indexedDB.deleteDatabase('twilight_offline_audio_db');
+            indexedDB.deleteDatabase('twilight_offline_audio_db_v2');
           } catch {}
         }
         const initialList = initialDownloadsRef.current;
@@ -503,13 +536,19 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               if (matched) {
                 const b = await matched.blob().catch(() => null);
                 if (b && (await isHealthyAudioBlob(b))) {
-                  return { ...song, offlineStatus: 'verified' as const };
+                  if (await blobMatchesExpectedDuration(b, song.durationSeconds)) {
+                    return { ...song, offlineStatus: 'verified' as const };
+                  }
                 }
                 await cache.delete(cacheKey).catch(() => {});
               }
             }
             const idbBlob = await getOfflineBlobFromIdb(song.id);
-            if (idbBlob && (await isHealthyAudioBlob(idbBlob))) {
+            if (
+              idbBlob &&
+              (await isHealthyAudioBlob(idbBlob)) &&
+              (await blobMatchesExpectedDuration(idbBlob, song.durationSeconds))
+            ) {
               if (cache) {
                 const safeMime = await inferAudioMimeType(idbBlob);
                 await cache
@@ -526,15 +565,30 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               await deleteOfflineBlobFromIdb(song.id).catch(() => {});
             }
 
-            // Background-cache the track into offline storage if online
+            // Background-cache the track into offline storage only when a downloadable direct/proxy stream is confirmed
             try {
+              const knownMaster = MusicApi.resolveKnownFullLengthMaster(song);
+              const availability =
+                knownMaster || song.audioUrl?.startsWith('/audio/')
+                  ? { playable: true, url: knownMaster || song.audioUrl || null }
+                  : await MusicApi.checkProxyStreamPlayable(song).catch(() => ({
+                      playable: false,
+                      url: null,
+                    }));
               const resolvedUrl =
-                (await MusicApi.resolveClientDirectStreamUrl(song)) ||
-                MusicApi.resolveKnownFullLengthMaster(song) ||
-                song.audioUrl ||
-                `/api/stream/${encodeURIComponent(song.id)}?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(song.artist)}`;
+                availability.url ||
+                knownMaster ||
+                (song.audioUrl?.startsWith('/audio/') ? song.audioUrl : null);
+              if (!availability.playable || !resolvedUrl) {
+                return { ...song, offlineStatus: 'missing' as const };
+              }
               const blob = await fetchAudioBlobWithRetry(resolvedUrl, 1, 8000);
-              if (blob && blob.size > 10000) {
+              if (
+                blob &&
+                blob.size > 10000 &&
+                (await isHealthyAudioBlob(blob)) &&
+                (await blobMatchesExpectedDuration(blob, song.durationSeconds))
+              ) {
                 if (cache) {
                   await cache.put(
                     cacheKey,
@@ -576,9 +630,17 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       container = document.createElement('div');
       container.id = 'twilight-yt-audio-container';
       container.style.cssText =
-        'position:fixed;right:0;bottom:0;width:200px;height:200px;opacity:0.001;pointer-events:none;z-index:-1;overflow:hidden;';
-      const inner = document.createElement('div');
+        'position:fixed;right:0;bottom:0;width:200px;height:200px;opacity:0.001;pointer-events:none;z-index:0;overflow:hidden;';
+      const inner = document.createElement('iframe');
       inner.id = 'twilight-yt-player';
+      inner.width = '200';
+      inner.height = '200';
+      inner.allow = 'autoplay; encrypted-media; picture-in-picture';
+      inner.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+      inner.setAttribute('frameborder', '0');
+      inner.src = `https://www.youtube.com/embed/?enablejsapi=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0&origin=${encodeURIComponent(
+        window.location.origin
+      )}`;
       container.appendChild(inner);
       document.body.appendChild(container);
     }
@@ -605,6 +667,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             onReady: (ev: any) => {
               ytReadyRef.current = true;
               try {
+                ev.target.getIframe?.()?.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
                 ev.target.setVolume(Math.round(stateRef.current.volume * 100));
                 ev.target.setPlaybackRate(stateRef.current.playbackSpeed);
               } catch {}
@@ -638,6 +701,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   resumeWatchdogRef.current = null;
                 }
                 recoveryAttemptsRef.current = 0;
+                isLoadingSyncRef.current = false;
+                isRefreshingSyncRef.current = false;
                 setPlaybackError(null);
                 setIsRefreshingStream(false);
                 setIsLoading(false);
@@ -840,7 +905,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       };
       if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
         const tag = document.createElement('script');
-        tag.src = 'https://youtube.com/iframe_api';
+        tag.src = 'https://www.youtube.com/iframe_api';
         tag.async = true;
         document.head.appendChild(tag);
       }
@@ -994,24 +1059,63 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     audio.onwaiting = () => armBufferWatchdog('waiting');
     audio.onstalled = () => armBufferWatchdog('stalled');
-    audio.oncanplay = () => {
+    const handleHtml5ReadyToPlay = () => {
       if (isPrimingAudioRef.current || activeEngineRef.current !== 'html5') return;
-      if (html5LoadWatchdogRef.current) {
-        clearTimeout(html5LoadWatchdogRef.current);
-        html5LoadWatchdogRef.current = null;
+      if (!intentionalPauseRef.current && audio.paused && hasInitializedStreamRef.current) {
+        const readyReqId = playRequestIdRef.current;
+        audio
+          .play()
+          .then(() => {
+            if (readyReqId !== playRequestIdRef.current || intentionalPauseRef.current) {
+              audio.pause();
+              return;
+            }
+            if (html5LoadWatchdogRef.current) {
+              clearTimeout(html5LoadWatchdogRef.current);
+              html5LoadWatchdogRef.current = null;
+            }
+            audioUnlockedRef.current = true;
+            isLoadingSyncRef.current = false;
+            isRefreshingSyncRef.current = false;
+            setPlaybackError(null);
+            setIsLoading(false);
+            setIsRefreshingStream(false);
+            setIsPlaying(true);
+          })
+          .catch((playErr: any) => {
+            if (readyReqId !== playRequestIdRef.current || intentionalPauseRef.current) return;
+            if (
+              playErr &&
+              (playErr.name === 'NotAllowedError' ||
+                String(playErr.message || '').includes('NotAllowedError'))
+            ) {
+              if (html5LoadWatchdogRef.current) {
+                clearTimeout(html5LoadWatchdogRef.current);
+                html5LoadWatchdogRef.current = null;
+              }
+              isLoadingSyncRef.current = false;
+              isRefreshingSyncRef.current = false;
+              setIsLoading(false);
+              setIsRefreshingStream(false);
+              setIsPlaying(false);
+              setPlaybackError('Tap Play to start audio');
+            }
+          });
+        return;
       }
-      setIsLoading(false);
-      setIsRefreshingStream(false);
-    };
-    audio.oncanplaythrough = () => {
-      if (isPrimingAudioRef.current || activeEngineRef.current !== 'html5') return;
-      if (html5LoadWatchdogRef.current) {
-        clearTimeout(html5LoadWatchdogRef.current);
-        html5LoadWatchdogRef.current = null;
+      if (!audio.paused) {
+        if (html5LoadWatchdogRef.current) {
+          clearTimeout(html5LoadWatchdogRef.current);
+          html5LoadWatchdogRef.current = null;
+        }
+        isLoadingSyncRef.current = false;
+        isRefreshingSyncRef.current = false;
+        setIsLoading(false);
+        setIsRefreshingStream(false);
       }
-      setIsLoading(false);
-      setIsRefreshingStream(false);
     };
+    audio.oncanplay = handleHtml5ReadyToPlay;
+    audio.oncanplaythrough = handleHtml5ReadyToPlay;
     audio.onplaying = () => {
       if (isPrimingAudioRef.current || activeEngineRef.current !== 'html5') return;
       if (intentionalPauseRef.current) {
@@ -1035,6 +1139,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       audioUnlockedRef.current = true;
       recoveryAttemptsRef.current = 0;
+      isLoadingSyncRef.current = false;
+      isRefreshingSyncRef.current = false;
       setPlaybackError(null);
       setIsRefreshingStream(false);
       setIsLoading(false);
@@ -1458,32 +1564,23 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (cloudData.history) setHistory(cloudData.history);
         }
       } else {
-        setUser((prev) => {
-          if (prev.isGuest && prev.uid === 'guest_local_user') return prev;
-          return {
-            uid: 'guest_local_user',
-            email: null,
-            displayName: 'Guest Listener',
-            photoURL: null,
-            isGuest: true,
-          };
-        });
+        const localSession = LocalAuthService.getActiveSession();
+        if (localSession) {
+          setUser(localSession);
+          const localCloudData = await CloudSyncService.loadUserData(localSession.uid);
+          if (localCloudData) {
+            if (localCloudData.favorites) setFavorites(localCloudData.favorites);
+            if (localCloudData.playlists) setPlaylists(localCloudData.playlists);
+            if (localCloudData.history) setHistory(localCloudData.history);
+          }
+        } else {
+          setUser(GUEST_USER_PROFILE);
+        }
       }
     });
 
     return () => unsubscribe();
   }, []);
-
-  // Sync User Profile to LocalStorage
-  useEffect(() => {
-    try {
-      if (user.isGuest) {
-        localStorage.removeItem('twilight_user_profile');
-      } else {
-        localStorage.setItem('twilight_user_profile', JSON.stringify(user));
-      }
-    } catch {}
-  }, [user]);
 
   // Sync to LocalStorage & Cloud
   useEffect(() => {
@@ -1699,6 +1796,9 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     audio.playbackRate = stateRef.current.playbackSpeed;
     audio.volume = stateRef.current.volume;
     audio.src = url;
+    try {
+      audio.load();
+    } catch {}
     if (safeSeek > 0 && audio.readyState >= 1) {
       try {
         audio.currentTime = safeSeek;
@@ -1748,10 +1848,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       clearTimeout(proactivePauseTimerRef.current);
       proactivePauseTimerRef.current = null;
     }
-    if (autoSkipTimerRef.current) {
-      clearTimeout(autoSkipTimerRef.current);
-      autoSkipTimerRef.current = null;
-    }
     html5FallbackFnRef.current = null;
     prewarmedStreamRef.current = null;
     recoveryAttemptsRef.current = 0;
@@ -1763,7 +1859,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (ytPlayerRef.current && ytReadyRef.current) {
       try {
         ytPlayerRef.current.stopVideo();
-        ytPlayerRef.current.clearVideo?.();
       } catch {}
     }
 
@@ -1774,28 +1869,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       } catch {}
     }
     setIsPlaying(false);
-  };
-
-  // Auto-skip to the next available song in the queue if a track fails to resolve or play,
-  // preventing the user from ever getting permanently stuck on an unplayable track.
-  const scheduleAutoSkipOnDeadTrack = (triggerReqId: number) => {
-    if (autoSkipTimerRef.current) {
-      clearTimeout(autoSkipTimerRef.current);
-      autoSkipTimerRef.current = null;
-    }
-    const { queue: q } = stateRef.current;
-    if (q.length > 1) {
-      autoSkipTimerRef.current = setTimeout(() => {
-        autoSkipTimerRef.current = null;
-        if (
-          triggerReqId === playRequestIdRef.current &&
-          !stateRef.current.isPlaying &&
-          !intentionalPauseRef.current
-        ) {
-          (handlersRef.current?.handleNextSong || handleNextSong)();
-        }
-      }, 1500);
-    }
   };
 
   // Play a song with immediate optimistic UI update, explicit stopCurrentBeforeSwitch teardown,
@@ -1811,10 +1884,11 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const isSameTrack =
       stateRef.current.currentSong?.id === normalizedSong.id ||
       stateRef.current.currentSong?.id === song.id;
+    const hadPlaybackError = Boolean(stateRef.current.playbackError);
     if (
       !options?.forceRestart &&
       isSameTrack &&
-      !stateRef.current.playbackError
+      !hadPlaybackError
     ) {
       if (
         stateRef.current.isPlaying ||
@@ -1887,13 +1961,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     }
 
-    // 2. Confirmed Decision 3: Update UI state immediately on tap (0ms latency) before debounce
-    setCurrentSong(normalizedSong);
-    setCurrentTime(0);
-    setDuration(normalizedSong.durationSeconds || 210);
-    setIsPlaying(true);
-    setIsLoading(true);
-
+    // 2. Confirmed Decision 3: Update UI state AND synchronous refs immediately on tap (0ms latency) before debounce
     const activeQueue = (newQueue && newQueue.length > 0 ? newQueue : stateRef.current.queue).map(
       normalizeTrackArtwork
     );
@@ -1901,48 +1969,46 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       options?.targetIndex !== undefined &&
       options.targetIndex >= 0 &&
       options.targetIndex < activeQueue.length;
+    let resolvedQueue = activeQueue;
+    let resolvedIndex = 0;
     if (newQueue && newQueue.length > 0) {
-      setQueue(activeQueue);
       const idx = hasValidTargetIdx
         ? options!.targetIndex!
         : activeQueue.findIndex((s) => s.id === normalizedSong.id);
-      setCurrentIndex(idx !== -1 ? idx : 0);
-
-      // When a single song is selected (e.g. from Search), proactively fetch Smart Radio
-      // in the background to populate the Up Next queue with matching language/genre/band tracks
-      if (activeQueue.length === 1) {
-        const immediateFallbacks = MusicApi.getCategoryInstantFallback(normalizedSong);
-        if (immediateFallbacks.length > 0) {
-          setQueue([normalizedSong, ...immediateFallbacks]);
-        }
-        MusicApi.fetchSmartRadioQueue(normalizedSong)
-          .then((radioSongs) => {
-            if (
-              reqId === playRequestIdRef.current &&
-              radioSongs.length > 0 &&
-              stateRef.current.currentSong?.id === normalizedSong.id
-            ) {
-              const filteredRadio = radioSongs.filter((s) => s.id !== normalizedSong.id);
-              if (filteredRadio.length > 0) {
-                setQueue([normalizedSong, ...filteredRadio]);
-              }
-            }
-          })
-          .catch(() => {});
-      }
+      resolvedIndex = idx !== -1 ? idx : 0;
     } else if (hasValidTargetIdx) {
-      setQueue(activeQueue);
-      setCurrentIndex(options!.targetIndex!);
+      resolvedIndex = options!.targetIndex!;
     } else {
       const existingIdx = activeQueue.findIndex((s) => s.id === normalizedSong.id);
       if (existingIdx === -1) {
-        setQueue([normalizedSong, ...activeQueue]);
-        setCurrentIndex(0);
+        resolvedQueue = [normalizedSong, ...activeQueue];
+        resolvedIndex = 0;
       } else {
-        setQueue(activeQueue);
-        setCurrentIndex(existingIdx);
+        resolvedIndex = existingIdx;
       }
     }
+
+    isLoadingSyncRef.current = true;
+    isRefreshingSyncRef.current = false;
+    stateRef.current = {
+      ...stateRef.current,
+      currentSong: normalizedSong,
+      queue: resolvedQueue,
+      currentIndex: resolvedIndex,
+      isPlaying: true,
+      isLoading: true,
+      isRefreshingStream: false,
+      playbackError: null,
+      currentTime: 0,
+    };
+
+    setCurrentSong(normalizedSong);
+    setCurrentTime(0);
+    setDuration(normalizedSong.durationSeconds || 210);
+    setIsPlaying(true);
+    setIsLoading(true);
+    setQueue(resolvedQueue);
+    setCurrentIndex(resolvedIndex);
 
     const executeStreamInitialization = async () => {
       if (!audioRef.current || reqId !== playRequestIdRef.current || intentionalPauseRef.current) {
@@ -1974,7 +2040,10 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           const cachedRes = await cache.match(cachePath);
           if (cachedRes && !abortController.signal.aborted) {
             const rawBlob = await cachedRes.blob();
-            if ((await isHealthyAudioBlob(rawBlob)) && !abortController.signal.aborted) {
+            const isValidOfflineBlob =
+              (await isHealthyAudioBlob(rawBlob)) &&
+              (await blobMatchesExpectedDuration(rawBlob, normalizedSong.durationSeconds));
+            if (isValidOfflineBlob && !abortController.signal.aborted) {
               const safeMime = await inferAudioMimeType(rawBlob);
               const playableBlob =
                 rawBlob.type === safeMime ? rawBlob : new Blob([rawBlob], { type: safeMime });
@@ -1984,7 +2053,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               resolvedAudioUrl = URL.createObjectURL(playableBlob);
               activeObjectUrlRef.current = resolvedAudioUrl;
               loadedFromOfflineStorage = true;
-            } else if (rawBlob.size <= 10000 || !(await isHealthyAudioBlob(rawBlob))) {
+            } else if (!isValidOfflineBlob) {
               await cache.delete(cachePath).catch(() => {});
             }
           }
@@ -1994,7 +2063,11 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (!loadedFromOfflineStorage && !abortController.signal.aborted) {
         try {
           const idbBlob = await getOfflineBlobFromIdb(normalizedSong.id);
-          if (idbBlob && (await isHealthyAudioBlob(idbBlob)) && !abortController.signal.aborted) {
+          const isValidIdbBlob =
+            idbBlob &&
+            (await isHealthyAudioBlob(idbBlob)) &&
+            (await blobMatchesExpectedDuration(idbBlob, normalizedSong.durationSeconds));
+          if (isValidIdbBlob && !abortController.signal.aborted) {
             const safeMime = await inferAudioMimeType(idbBlob);
             const playableBlob =
               idbBlob.type === safeMime ? idbBlob : new Blob([idbBlob], { type: safeMime });
@@ -2072,11 +2145,34 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     return;
                   }
                   const pState = ytPlayerRef.current?.getPlayerState?.();
-                  if (pState !== 1 && pState !== 3) {
-                    setIsLoading(false);
-                    setIsPlaying(false);
-                    setPlaybackError('Tap Play to start audio');
+                  if (pState === 1) return;
+                  if (pState === 3) {
+                    ytFallbackWatchdogRef.current = setTimeout(() => {
+                      ytFallbackWatchdogRef.current = null;
+                      if (
+                        reqId !== playRequestIdRef.current ||
+                        activeEngineRef.current !== 'yt' ||
+                        intentionalPauseRef.current
+                      ) {
+                        return;
+                      }
+                      const laterState = ytPlayerRef.current?.getPlayerState?.();
+                      if (laterState !== 1) {
+                        try {
+                          ytPlayerRef.current?.stopVideo?.();
+                        } catch {}
+                        setIsLoading(false);
+                        setIsRefreshingStream(false);
+                        setIsPlaying(false);
+                        setPlaybackError('Stream timed out. Tap Retry.');
+                      }
+                    }, 4000);
+                    return;
                   }
+                  setIsLoading(false);
+                  setIsRefreshingStream(false);
+                  setIsPlaying(false);
+                  setPlaybackError('Tap Play to start audio');
                 }, 4000);
                 return;
               } catch {}
@@ -2085,7 +2181,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             setIsRefreshingStream(false);
             setIsPlaying(false);
             setPlaybackError(skipYtFallback ? 'Tap Play to start audio' : 'Stream unavailable. Tap Retry.');
-            scheduleAutoSkipOnDeadTrack(reqId);
             return;
           }
         }
@@ -2179,121 +2274,134 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         }, 8000);
 
-        audioRef.current
-          .play()
-          .then(() => {
-            if (
-              reqId !== playRequestIdRef.current ||
-              abortController.signal.aborted ||
-              intentionalPauseRef.current
-            ) {
-              audioRef.current?.pause();
-              return;
-            }
-            if (html5LoadWatchdogRef.current) {
-              clearTimeout(html5LoadWatchdogRef.current);
-              html5LoadWatchdogRef.current = null;
-            }
-            audioUnlockedRef.current = true;
-            setPlaybackError(null);
-            setCurrentSong(normalizedSong);
-            setIsPlaying(true);
-            setIsLoading(false);
-          })
-          .catch(async (err) => {
-            if (
-              reqId !== playRequestIdRef.current ||
-              abortController.signal.aborted ||
-              intentionalPauseRef.current
-            ) {
-              return;
-            }
-            if (err && err.name === 'AbortError') {
-              setTimeout(() => {
-                if (
-                  audioRef.current &&
-                  reqId === playRequestIdRef.current &&
-                  !abortController.signal.aborted &&
-                  !intentionalPauseRef.current &&
-                  activeEngineRef.current === 'html5'
-                ) {
-                  audioRef.current
-                    .play()
-                    .then(() => {
-                      if (reqId === playRequestIdRef.current && !intentionalPauseRef.current) {
-                        audioUnlockedRef.current = true;
-                        setPlaybackError(null);
-                        setIsPlaying(true);
-                        setIsLoading(false);
-                      }
-                    })
-                    .catch(() => {});
+        const attemptHtml5Start = (abortRetryCount = 0) => {
+          if (
+            !audioRef.current ||
+            reqId !== playRequestIdRef.current ||
+            abortController.signal.aborted ||
+            intentionalPauseRef.current ||
+            activeEngineRef.current !== 'html5'
+          ) {
+            return;
+          }
+          audioRef.current
+            .play()
+            .then(() => {
+              if (
+                reqId !== playRequestIdRef.current ||
+                abortController.signal.aborted ||
+                intentionalPauseRef.current
+              ) {
+                audioRef.current?.pause();
+                return;
+              }
+              if (html5LoadWatchdogRef.current) {
+                clearTimeout(html5LoadWatchdogRef.current);
+                html5LoadWatchdogRef.current = null;
+              }
+              audioUnlockedRef.current = true;
+              isLoadingSyncRef.current = false;
+              isRefreshingSyncRef.current = false;
+              setPlaybackError(null);
+              setCurrentSong(normalizedSong);
+              setIsPlaying(true);
+              setIsLoading(false);
+            })
+            .catch(async (err) => {
+              if (
+                reqId !== playRequestIdRef.current ||
+                abortController.signal.aborted ||
+                intentionalPauseRef.current
+              ) {
+                return;
+              }
+              if (err && err.name === 'AbortError') {
+                if (abortRetryCount < 3) {
+                  const retryDelayMs = abortRetryCount === 0 ? 120 : abortRetryCount === 1 ? 280 : 480;
+                  setTimeout(() => {
+                    attemptHtml5Start(abortRetryCount + 1);
+                  }, retryDelayMs);
                 }
-              }, 120);
-              return;
-            }
-            if (html5LoadWatchdogRef.current) {
-              clearTimeout(html5LoadWatchdogRef.current);
-              html5LoadWatchdogRef.current = null;
-            }
-            if (err && (err.name === 'NotAllowedError' || String(err.message || '').includes('NotAllowedError'))) {
-              setPlaybackError('Tap Play to start audio');
+                return;
+              }
+              if (html5LoadWatchdogRef.current) {
+                clearTimeout(html5LoadWatchdogRef.current);
+                html5LoadWatchdogRef.current = null;
+              }
+              if (
+                err &&
+                (err.name === 'NotAllowedError' || String(err.message || '').includes('NotAllowedError'))
+              ) {
+                isLoadingSyncRef.current = false;
+                isRefreshingSyncRef.current = false;
+                setPlaybackError('Tap Play to start audio');
+                setIsPlaying(false);
+                setIsLoading(false);
+                return;
+              }
+
+              // If <audio> already raised an error event, let unified audio.onerror recovery handle retries without racing.
+              if (errorRecoveryTimerRef.current || audioRef.current?.error) {
+                return;
+              }
+
+              MusicApi.invalidateClientDirectStreamCache(normalizedSong.id);
+              const failedSrc = audioRef.current?.getAttribute('src') || '';
+              const availability = await MusicApi.checkProxyStreamPlayable(normalizedSong, true).catch(() => ({
+                playable: false,
+                url: null,
+              }));
+              let alternateUrl =
+                availability.url && availability.url !== failedSrc ? availability.url : '';
+              if (!alternateUrl && availability.playable && !failedSrc.includes('/api/stream/')) {
+                alternateUrl = buildFreshStreamUrl({ ...normalizedSong, audioUrl: undefined });
+              }
+
+              if (
+                alternateUrl &&
+                audioRef.current &&
+                audioRef.current.src !== alternateUrl &&
+                reqId === playRequestIdRef.current &&
+                !intentionalPauseRef.current
+              ) {
+                applyAudioSourceWithSeek(audioRef.current, alternateUrl, startOffsetSeconds, reqId);
+                audioRef.current
+                  .play()
+                  .then(() => {
+                    if (reqId === playRequestIdRef.current && !intentionalPauseRef.current) {
+                      audioUnlockedRef.current = true;
+                      isLoadingSyncRef.current = false;
+                      isRefreshingSyncRef.current = false;
+                      setPlaybackError(null);
+                      setIsPlaying(true);
+                      setIsLoading(false);
+                    }
+                  })
+                  .catch((altErr: any) => {
+                    if (reqId === playRequestIdRef.current && !intentionalPauseRef.current) {
+                      isLoadingSyncRef.current = false;
+                      isRefreshingSyncRef.current = false;
+                      setIsLoading(false);
+                      setIsPlaying(false);
+                      setPlaybackError(
+                        altErr?.name === 'NotAllowedError'
+                          ? 'Tap Play to start audio'
+                          : 'Stream unavailable. Tap Retry.'
+                      );
+                    }
+                  });
+                return;
+              }
+              console.warn('Audio play initiated:', err);
+              isLoadingSyncRef.current = false;
+              isRefreshingSyncRef.current = false;
               setIsPlaying(false);
               setIsLoading(false);
-              return;
-            }
+              setPlaybackError('Stream unavailable. Tap Retry.');
+            });
+        };
 
-            // If <audio> already raised an error event, let unified audio.onerror recovery handle retries without racing.
-            if (errorRecoveryTimerRef.current || audioRef.current?.error) {
-              return;
-            }
-
-            MusicApi.invalidateClientDirectStreamCache(normalizedSong.id);
-            const failedSrc = audioRef.current?.getAttribute('src') || '';
-            const availability = await MusicApi.checkProxyStreamPlayable(normalizedSong, true).catch(() => ({
-              playable: false,
-              url: null,
-            }));
-            let alternateUrl =
-              availability.url && availability.url !== failedSrc ? availability.url : '';
-            if (!alternateUrl && availability.playable && !failedSrc.includes('/api/stream/')) {
-              alternateUrl = buildFreshStreamUrl({ ...normalizedSong, audioUrl: undefined });
-            }
-
-            if (
-              alternateUrl &&
-              audioRef.current &&
-              audioRef.current.src !== alternateUrl &&
-              reqId === playRequestIdRef.current &&
-              !intentionalPauseRef.current
-            ) {
-              applyAudioSourceWithSeek(audioRef.current, alternateUrl, startOffsetSeconds, reqId);
-              audioRef.current
-                .play()
-                .then(() => {
-                  if (reqId === playRequestIdRef.current && !intentionalPauseRef.current) {
-                    audioUnlockedRef.current = true;
-                    setPlaybackError(null);
-                    setIsPlaying(true);
-                    setIsLoading(false);
-                  }
-                })
-                .catch(() => {
-                  if (reqId === playRequestIdRef.current) {
-                    setIsLoading(false);
-                    setIsPlaying(false);
-                    setPlaybackError('Stream unavailable. Tap Retry.');
-                    scheduleAutoSkipOnDeadTrack(reqId);
-                  }
-                });
-              return;
-            }
-            console.warn('Audio play initiated:', err);
-            setIsPlaying(false);
-            setIsLoading(false);
-            setPlaybackError('Stream unavailable. Tap Retry.');
-            scheduleAutoSkipOnDeadTrack(reqId);
-          });
+        attemptHtml5Start(0);
       };
 
       html5FallbackFnRef.current = (pos?: number) => {
@@ -2345,6 +2453,9 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (audioRef.current) {
             audioRef.current.pause();
           }
+          try {
+            ytPlayerRef.current.unMute?.();
+          } catch {}
           ytPlayerRef.current.setVolume(Math.round(stateRef.current.volume * 100));
           ytPlayerRef.current.setPlaybackRate(stateRef.current.playbackSpeed);
           ytPlayerRef.current.loadVideoById({
@@ -2367,14 +2478,29 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (pState === 1) return;
             if (pState !== 3) {
               try {
-                ytPlayerRef.current?.playVideo?.();
+                // If autoplay policy blocked unmuted playback (state -1/5/2), briefly start muted then unmute
+                if (pState === -1 || pState === 5 || pState === 2) {
+                  ytPlayerRef.current?.mute?.();
+                  ytPlayerRef.current?.playVideo?.();
+                  setTimeout(() => {
+                    try {
+                      if (reqId === playRequestIdRef.current && activeEngineRef.current === 'yt' && !intentionalPauseRef.current) {
+                        ytPlayerRef.current?.unMute?.();
+                        ytPlayerRef.current?.setVolume?.(Math.round(stateRef.current.volume * 100));
+                      }
+                    } catch {}
+                  }, 350);
+                } else {
+                  ytPlayerRef.current?.playVideo?.();
+                }
               } catch {}
             }
             if (Boolean(directResolvedUrl) && pState !== 3) {
               startHtml5StreamPlayback(0, true);
               return;
             }
-            // Give YT startup a brief grace period before falling back to HTML5
+            // Give YouTube IFrame ample buffering grace period so exact video audio isn't prematurely replaced
+            const graceMs = pState === 3 ? 4500 : 2500;
             ytFallbackWatchdogRef.current = setTimeout(() => {
               ytFallbackWatchdogRef.current = null;
               if (
@@ -2387,8 +2513,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               if (ytPlayerRef.current?.getPlayerState?.() !== 1) {
                 startHtml5StreamPlayback(0, true);
               }
-            }, 1500);
-          }, 1500);
+            }, graceMs);
+          }, 2500);
           return;
         } catch {
           // Fall through to HTML5 stream playback
@@ -2401,7 +2527,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     // 3. Confirmed Decision 1: 300ms debounce window before launching new stream initialization
-    if (options?.immediate) {
+    if (options?.immediate || (isSameTrack && hadPlaybackError)) {
       executeStreamInitialization();
     } else {
       playDebounceTimerRef.current = setTimeout(() => {
@@ -2453,10 +2579,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       clearTimeout(proactivePauseTimerRef.current);
       proactivePauseTimerRef.current = null;
     }
-    if (autoSkipTimerRef.current) {
-      clearTimeout(autoSkipTimerRef.current);
-      autoSkipTimerRef.current = null;
-    }
     stopSyntheticMelody();
     if (activeEngineRef.current === 'yt' && ytPlayerRef.current && ytReadyRef.current) {
       try {
@@ -2473,6 +2595,14 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } catch {}
       }
     }
+    isLoadingSyncRef.current = false;
+    isRefreshingSyncRef.current = false;
+    stateRef.current = {
+      ...stateRef.current,
+      isPlaying: false,
+      isLoading: false,
+      isRefreshingStream: false,
+    };
     setIsPlaying(false);
     setIsLoading(false);
     setIsRefreshingStream(false);
@@ -2541,10 +2671,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (proactivePauseTimerRef.current) {
       clearTimeout(proactivePauseTimerRef.current);
       proactivePauseTimerRef.current = null;
-    }
-    if (autoSkipTimerRef.current) {
-      clearTimeout(autoSkipTimerRef.current);
-      autoSkipTimerRef.current = null;
     }
 
     // If the user paused during the 300ms debounce or initial stream resolution (before any engine initialized),
@@ -2751,7 +2877,25 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                       setIsRefreshingStream(false);
                     }
                   })
-                  .catch(() => {});
+                  .catch((retryErr: any) => {
+                    if (reqId !== playRequestIdRef.current || intentionalPauseRef.current) return;
+                    if (
+                      retryErr &&
+                      (retryErr.name === 'NotAllowedError' ||
+                        String(retryErr.message || '').includes('NotAllowedError'))
+                    ) {
+                      if (resumeWatchdogRef.current) {
+                        clearTimeout(resumeWatchdogRef.current);
+                        resumeWatchdogRef.current = null;
+                      }
+                      isLoadingSyncRef.current = false;
+                      isRefreshingSyncRef.current = false;
+                      setIsLoading(false);
+                      setIsRefreshingStream(false);
+                      setIsPlaying(false);
+                      setPlaybackError('Tap Play to start audio');
+                    }
+                  });
               }
             }, 120);
             return;
@@ -2998,45 +3142,28 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const handleNextSong = () => {
-    const { queue: q, currentIndex: idx, isShuffle: shuf, currentSong: nowPlaying } = stateRef.current;
+    const { queue: rawQueue, currentIndex: idx, isShuffle: shuf, currentSong: activeSong } = stateRef.current;
+    let q = rawQueue;
+    if (q.length <= 1) {
+      const existingIds = new Set(q.map((s) => s.id));
+      const extras = POPULAR_FEATURED_SONGS.filter((s) => !existingIds.has(s.id));
+      q = [...q, ...extras];
+    }
     if (q.length === 0) return;
 
-    const isAtOrNearEnd = idx >= q.length - 1;
-
-    // ===== Smart Radio Autoplay =====
-    // When reaching the end of the queue (or queue has ≤1 song),
-    // immediately transition to the matching category track (0ms synchronous gesture unlock)
-    // and asynchronously fetch smart radio in the background to expand the queue.
-    if (isAtOrNearEnd && nowPlaying) {
-      const categoryFallbacks = MusicApi.getCategoryInstantFallback(nowPlaying);
-      const nextCandidate = categoryFallbacks[0] || q[0];
-      const newQueue = categoryFallbacks.length > 0 ? categoryFallbacks : [nextCandidate];
-
-      // Play immediately within active user click stack — guarantees mobile autoplay unlock and 0ms UI response
-      playSong(nextCandidate, newQueue, { immediate: true, forceRestart: true, targetIndex: 0 });
-
-      // Extend the queue in background with full dynamic radio results
-      MusicApi.fetchSmartRadioQueue(nowPlaying)
-        .then((radioSongs) => {
-          if (radioSongs.length > 0) {
-            const filteredRadio = radioSongs.filter((s) => s.id !== nextCandidate.id);
-            if (filteredRadio.length > 0) {
-              setQueue([nextCandidate, ...filteredRadio]);
-            }
-          }
-        })
-        .catch(() => {});
-      return;
+    let effectiveIdx = idx;
+    if (activeSong && (effectiveIdx < 0 || effectiveIdx >= q.length || q[effectiveIdx]?.id !== activeSong.id)) {
+      const foundIdx = q.findIndex((s) => s.id === activeSong.id);
+      if (foundIdx !== -1) effectiveIdx = foundIdx;
     }
 
-    // Normal next within queue (not at end)
-    let nextIdx = idx + 1;
+    let nextIdx = effectiveIdx + 1;
     if (shuf && q.length > 1) {
-      for (let i = 0; i < 5 && nextIdx === idx; i++) {
+      for (let i = 0; i < 5 && nextIdx === effectiveIdx; i++) {
         nextIdx = Math.floor(Math.random() * q.length);
       }
-      if (nextIdx === idx || nextIdx >= q.length) {
-        nextIdx = (idx + 1) % q.length;
+      if (nextIdx === effectiveIdx || nextIdx >= q.length) {
+        nextIdx = (effectiveIdx + 1) % q.length;
       }
     } else if (nextIdx >= q.length) {
       nextIdx = 0;
@@ -3048,13 +3175,18 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   const handlePrevSong = () => {
-    const { queue: q, currentIndex: idx, currentTime: curPos } = stateRef.current;
+    const { queue: q, currentIndex: idx, currentTime: curPos, currentSong: activeSong } = stateRef.current;
     if (q.length === 0) return;
     if (curPos > 3 || (audioRef.current && audioRef.current.currentTime > 3)) {
       seekTo(0);
       return;
     }
-    let prevIdx = idx - 1;
+    let effectiveIdx = idx;
+    if (activeSong && (effectiveIdx < 0 || effectiveIdx >= q.length || q[effectiveIdx]?.id !== activeSong.id)) {
+      const foundIdx = q.findIndex((s) => s.id === activeSong.id);
+      if (foundIdx !== -1) effectiveIdx = foundIdx;
+    }
+    let prevIdx = effectiveIdx - 1;
     if (prevIdx < 0) {
       prevIdx = q.length - 1;
     }
@@ -3142,6 +3274,14 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return newPl;
   };
 
+  const renamePlaylist = (playlistId: string, newTitle: string) => {
+    const clean = newTitle.trim();
+    if (!clean) return;
+    setPlaylists((prev) =>
+      prev.map((p) => (p.id === playlistId ? { ...p, title: clean, updatedAt: Date.now() } : p))
+    );
+  };
+
   const deletePlaylist = (playlistId: string) => {
     setPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
   };
@@ -3222,23 +3362,35 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (knownMaster && knownMaster.startsWith('/audio/')) {
         candidateUrls.push(knownMaster);
       }
-      candidateUrls.push(explicitProxyStream);
-      const resolvedDirect = await MusicApi.resolveClientDirectStreamUrl(normalized);
+      const availability = await MusicApi.checkProxyStreamPlayable(normalized).catch(() => ({
+        playable: false,
+        url: null,
+      }));
+      const resolvedDirect = availability.url;
       if (resolvedDirect && !candidateUrls.includes(resolvedDirect)) {
         candidateUrls.push(resolvedDirect);
       }
       if (knownMaster && !candidateUrls.includes(knownMaster)) {
         candidateUrls.push(knownMaster);
       }
-      const proxyStream = buildStreamUrl(normalized);
-      if (!candidateUrls.includes(proxyStream)) {
-        candidateUrls.push(proxyStream);
+      if (availability.playable) {
+        if (!candidateUrls.includes(explicitProxyStream)) {
+          candidateUrls.push(explicitProxyStream);
+        }
+        const proxyStream = buildStreamUrl(normalized);
+        if (!candidateUrls.includes(proxyStream)) {
+          candidateUrls.push(proxyStream);
+        }
       }
 
       if (!audioBlob) {
         for (const url of candidateUrls) {
           const downloadedBlob = await fetchAudioBlobWithRetry(url, 2, 25000);
-          if (downloadedBlob && (await isHealthyAudioBlob(downloadedBlob))) {
+          if (
+            downloadedBlob &&
+            (await isHealthyAudioBlob(downloadedBlob)) &&
+            (await blobMatchesExpectedDuration(downloadedBlob, normalized.durationSeconds))
+          ) {
             audioBlob = downloadedBlob;
             break;
           }
@@ -3323,52 +3475,134 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     downloads.some((s) => s.id === songId && s.offlineStatus === 'downloading');
 
   // Authentication Handlers
-  const signInWithGoogle = async () => {
-    const res = await signInWithPopup(auth, googleProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(res);
-    if (credential?.accessToken) {
-      setDriveAccessToken(credential.accessToken);
+  const isFirebaseEmailDisabledError = (err: any): boolean => {
+    const code = String(err?.code || '');
+    const msg = String(err?.message || '');
+    return (
+      code === 'auth/operation-not-allowed' ||
+      code === 'auth/configuration-not-found' ||
+      code === 'auth/admin-restricted-operation' ||
+      msg.includes('PASSWORD_LOGIN_DISABLED') ||
+      msg.includes('OPERATION_NOT_ALLOWED') ||
+      msg.includes('CONFIGURATION_NOT_FOUND')
+    );
+  };
+
+  const formatAuthErrorMessage = (err: any, fallback: string): string => {
+    const code = String(err?.code || '');
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      return 'Google sign-in popup was closed before completing.';
     }
-    setUser({
-      uid: res.user.uid,
-      email: res.user.email,
-      displayName: res.user.displayName || res.user.email?.split('@')[0] || 'User',
-      photoURL: res.user.photoURL,
-      isGuest: false,
-    });
+    if (code === 'auth/popup-blocked') {
+      return 'Sign-in popup was blocked by your browser. Please allow popups and try again.';
+    }
+    if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+      return 'Invalid email or password.';
+    }
+    if (code === 'auth/email-already-in-use') {
+      return 'An account with this email already exists. Please sign in instead.';
+    }
+    if (code === 'auth/weak-password') {
+      return 'Password must be at least 6 characters long.';
+    }
+    if (code === 'auth/invalid-email') {
+      return 'Please enter a valid email address.';
+    }
+    if (code === 'auth/too-many-requests') {
+      return 'Too many failed attempts. Please wait a moment and try again.';
+    }
+    const raw = err instanceof Error ? err.message : fallback;
+    return raw.replace(/^Firebase:\s*/i, '') || fallback;
+  };
+
+  const loadProfileCollections = async (uid: string) => {
+    const cloudData = await CloudSyncService.loadUserData(uid);
+    if (cloudData) {
+      if (cloudData.favorites) setFavorites(cloudData.favorites);
+      if (cloudData.playlists) setPlaylists(cloudData.playlists);
+      if (cloudData.history) setHistory(cloudData.history);
+    }
+  };
+
+  const signInWithGoogle = async () => {
+    try {
+      LocalAuthService.clearActiveSession();
+      const res = await signInWithPopup(auth, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(res);
+      if (credential?.accessToken) {
+        setDriveAccessToken(credential.accessToken);
+      }
+      setUser({
+        uid: res.user.uid,
+        email: res.user.email,
+        displayName: res.user.displayName || res.user.email?.split('@')[0] || 'User',
+        photoURL: res.user.photoURL,
+        isGuest: false,
+      });
+      await loadProfileCollections(res.user.uid);
+    } catch (err: any) {
+      throw new Error(formatAuthErrorMessage(err, 'Google sign in failed'));
+    }
   };
 
   const signInWithEmail = async (email: string, pass: string) => {
-    const res = await signInWithEmailAndPassword(auth, email, pass);
-    setUser({
-      uid: res.user.uid,
-      email: res.user.email,
-      displayName: res.user.displayName || email.split('@')[0],
-      photoURL: res.user.photoURL,
-      isGuest: false,
-    });
+    validateEmailAndPassword(email, pass);
+    const cleanEmail = email.trim();
+    try {
+      const res = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+      LocalAuthService.clearActiveSession();
+      setUser({
+        uid: res.user.uid,
+        email: res.user.email,
+        displayName: res.user.displayName || cleanEmail.split('@')[0],
+        photoURL: res.user.photoURL,
+        isGuest: false,
+      });
+      await loadProfileCollections(res.user.uid);
+    } catch (err: any) {
+      if (isFirebaseEmailDisabledError(err)) {
+        const localProfile = await LocalAuthService.signIn(cleanEmail, pass);
+        setUser(localProfile);
+        await loadProfileCollections(localProfile.uid);
+        return;
+      }
+      throw new Error(formatAuthErrorMessage(err, 'Sign in failed'));
+    }
   };
 
-  const registerWithEmail = async (email: string, pass: string) => {
-    const res = await createUserWithEmailAndPassword(auth, email, pass);
-    setUser({
-      uid: res.user.uid,
-      email: res.user.email,
-      displayName: email.split('@')[0],
-      photoURL: null,
-      isGuest: false,
-    });
+  const registerWithEmail = async (email: string, pass: string, displayName?: string) => {
+    validateEmailAndPassword(email, pass);
+    const cleanEmail = email.trim();
+    const cleanName = (displayName || '').trim() || cleanEmail.split('@')[0] || 'Listener';
+    try {
+      const res = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+      try {
+        await updateProfile(res.user, { displayName: cleanName });
+      } catch {}
+      LocalAuthService.clearActiveSession();
+      setUser({
+        uid: res.user.uid,
+        email: res.user.email,
+        displayName: cleanName,
+        photoURL: res.user.photoURL,
+        isGuest: false,
+      });
+    } catch (err: any) {
+      if (isFirebaseEmailDisabledError(err)) {
+        const localProfile = await LocalAuthService.register(cleanEmail, pass, cleanName);
+        setUser(localProfile);
+        return;
+      }
+      throw new Error(formatAuthErrorMessage(err, 'Account creation failed'));
+    }
   };
 
   const signOut = async () => {
-    await fbSignOut(auth);
-    setUser({
-      uid: 'guest_local_user',
-      email: null,
-      displayName: 'Guest Listener',
-      photoURL: null,
-      isGuest: true,
-    });
+    LocalAuthService.clearActiveSession();
+    try {
+      await fbSignOut(auth);
+    } catch {}
+    setUser(GUEST_USER_PROFILE);
   };
 
   const updateUser = (updates: Partial<UserProfile>) => {
@@ -3439,6 +3673,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         toggleFavorite,
         isFavorite,
         createPlaylist,
+        renamePlaylist,
         deletePlaylist,
         addToPlaylist,
         removeFromPlaylist,

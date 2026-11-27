@@ -92,13 +92,13 @@ const List<Song> _kDefaultFeaturedSongs = [
     durationFormatted: '3:20',
   ),
   Song(
-    id: 'RgKAFK5djSk',
-    title: 'See You Again',
-    artist: 'Wiz Khalifa ft. Charlie Puth',
-    channelId: 'WizKhalifa',
-    thumbnailUrl: 'https://i.ytimg.com/vi/RgKAFK5djSk/hqdefault.jpg',
-    durationSeconds: 229,
-    durationFormatted: '3:49',
+    id: 'hT_nvWreIhg',
+    title: 'Counting Stars',
+    artist: 'OneRepublic',
+    channelId: 'OneRepublicVEVO',
+    thumbnailUrl: 'https://i.ytimg.com/vi/hT_nvWreIhg/hqdefault.jpg',
+    durationSeconds: 257,
+    durationFormatted: '4:17',
   ),
   Song(
     id: 'CevxZvSJLk8',
@@ -168,11 +168,16 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadCachedHomeDataSync();
+    final hasCached = _loadCachedHomeDataSync();
     _loadArtists();
+    if (!hasCached) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadLiveTrendingMix();
+      });
+    }
   }
 
-  void _loadCachedHomeDataSync() {
+  bool _loadCachedHomeDataSync() {
     try {
       final raw = LocalStorageService.getString(_dynamicCacheKey);
       if (raw != null && raw.isNotEmpty) {
@@ -184,8 +189,36 @@ class _HomeScreenState extends State<HomeScreen> {
               .toList();
           if (parsed.isNotEmpty) {
             _dynamicSongs = parsed;
+            return true;
           }
         }
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  Future<void> _loadLiveTrendingMix() async {
+    try {
+      final ytRepo = context.read<YouTubeRepository>();
+      final trending = await ytRepo.getTrendingMusic();
+      if (mounted && trending.isNotEmpty && _selectedVibeId == 'for_you') {
+        final merged = <Song>[];
+        final seen = <String>{};
+        for (final s in [...trending, ..._kDefaultFeaturedSongs]) {
+          if (seen.contains(s.id)) continue;
+          seen.add(s.id);
+          merged.add(s);
+          if (merged.length >= 16) break;
+        }
+        setState(() {
+          _dynamicSongs = merged;
+        });
+        try {
+          final payload = jsonEncode(
+            merged.map((s) => SongModel.fromEntity(s).toJson()).toList(),
+          );
+          LocalStorageService.setString(_dynamicCacheKey, payload);
+        } catch (_) {}
       }
     } catch (_) {}
   }
@@ -232,10 +265,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       if (nextVibeId == 'for_you' && vibeId != null) {
-        setState(() {
-          _dynamicSongs = List<Song>.from(_kDefaultFeaturedSongs);
-          _isRefreshingMix = false;
-        });
+        final ytRepo = context.read<YouTubeRepository>();
+        final trending = await ytRepo.getTrendingMusic();
+        if (mounted) {
+          setState(() {
+            _dynamicSongs = trending.isNotEmpty
+                ? trending
+                : List<Song>.from(_kDefaultFeaturedSongs);
+            _isRefreshingMix = false;
+          });
+        }
         return;
       }
 
@@ -283,7 +322,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final userName = authProv.user?.name ?? '';
     final userInitial = userName.trim().isNotEmpty && !authProv.isGuest
         ? userName.trim()[0].toUpperCase()
-        : 'H';
+        : 'G';
 
     return Scaffold(
       backgroundColor: AppColors.backgroundDark,
@@ -306,7 +345,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  AppLogo(
+                  const AppLogo(
                     size: 38,
                     showText: true,
                     subtitle: 'MUSIC',

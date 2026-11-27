@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
@@ -47,6 +48,38 @@ class YouTubeRemoteDatasource {
         lower.contains('tumi hiyar') ||
         lower.contains('hiyar majh')) {
       return 'Amar Hiyar Majhe';
+    }
+    if (lower == 'tmi' ||
+        lower == 'tumi' ||
+        lower.contains('level five') ||
+        lower.contains('level 5') ||
+        lower.contains('levl 5')) {
+      return 'LEVEL FIVE TUMI';
+    }
+    if (RegExp(r'(?:সুরা|সূরা)?\s*(?:আল[-\s]?)?বাকারা').hasMatch(q)) {
+      return 'Surah Al-Baqarah';
+    }
+    if (RegExp(r'(?:সুরা|সূরা)?\s*(?:ইয়াসিন|ইয়াসিন)').hasMatch(q)) {
+      return 'Surah Yasin';
+    }
+    if (RegExp(r'(?:সুরা|সূরা)?\s*(?:আর[-\s]?)?রহমান').hasMatch(q)) {
+      return 'Surah Ar-Rahman';
+    }
+    if (RegExp(r'(?:সুরা|সূরা)?\s*(?:আল[-\s]?)?মুলক').hasMatch(q)) {
+      return 'Surah Al-Mulk';
+    }
+    if (RegExp(r'(?:সুরা|সূরা)?\s*(?:আল[-\s]?)?কাহফ').hasMatch(q)) {
+      return 'Surah Al-Kahf';
+    }
+    if (RegExp(r'(?:সুরা|সূরা)?\s*(?:আল[-\s]?)?ফাতিহা').hasMatch(q)) {
+      return 'Surah Al-Fatihah';
+    }
+    if (RegExp(r'(?:সুরা|সূরা)?\s*(?:আল[-\s]?)?(?:ওয়াকিয়া|ওয়াকিয়া)').hasMatch(q)) {
+      return 'Surah Al-Waqiah';
+    }
+    final bakarahRe = RegExp(r'\b(?:sura|surah)?\s*(?:al[-\s]?)?(?:bakarah?|bakra|baqara)\b', caseSensitive: false);
+    if (bakarahRe.hasMatch(lower)) {
+      return q.replaceAll(bakarahRe, 'Surah Al-Baqarah').replaceAll(RegExp(r'\s+'), ' ').trim();
     }
     return q;
   }
@@ -192,24 +225,94 @@ class YouTubeRemoteDatasource {
     }();
 
     final webSearchFuture = _searchWebFallback(cleanQuery);
+    final saavnSearchFuture = _searchJioSaavnFallback(cleanQuery);
 
-    final ytRes = await ytSearchFuture;
-    if (ytRes != null && ytRes.songs.isNotEmpty) {
-      _setCache(cacheKey, ytRes);
-      return ytRes;
+    // Race YouTube, InnerTube web, and direct JioSaavn catalog concurrently so slow/blocked YouTube
+    // endpoints never force an 8.5s sequential wait before returning playable results.
+    final searchCompleter = Completer<SearchResultModel>();
+    SearchResultModel? ytRes;
+    SearchResultModel? webRes;
+    SearchResultModel? saavnRes;
+    bool ytDone = false;
+    bool webDone = false;
+    bool saavnDone = false;
+    Timer? graceTimer;
+
+    void finishSearch(SearchResultModel result) {
+      graceTimer?.cancel();
+      if (!searchCompleter.isCompleted) {
+        searchCompleter.complete(result);
+      }
     }
 
-    final webRes = await webSearchFuture;
-    if (webRes.songs.isNotEmpty) {
-      _setCache(cacheKey, webRes);
-      return webRes;
+    SearchResultModel pickBestSearch() {
+      if (ytRes != null && ytRes!.songs.isNotEmpty) return ytRes!;
+      if (webRes != null && webRes!.songs.isNotEmpty) return webRes!;
+      if (saavnRes != null && saavnRes!.songs.isNotEmpty) return saavnRes!;
+      return _getEmptySearchResult();
     }
 
-    // 4. Fallback: Direct JioSaavn catalog search if both YouTube search endpoints are blocked/unreachable
-    final saavnRes = await _searchJioSaavnFallback(cleanQuery);
-    if (saavnRes.songs.isNotEmpty) {
-      _setCache(cacheKey, saavnRes);
-      return saavnRes;
+    void checkSearchSettle() {
+      if (searchCompleter.isCompleted) return;
+      if (ytRes != null && ytRes!.songs.isNotEmpty) {
+        finishSearch(ytRes!);
+        return;
+      }
+      final hasFallback = (webRes != null && webRes!.songs.isNotEmpty) ||
+          (saavnRes != null && saavnRes!.songs.isNotEmpty);
+      if (hasFallback) {
+        if (ytDone) {
+          finishSearch(pickBestSearch());
+          return;
+        }
+        graceTimer ??= Timer(const Duration(milliseconds: 700), () {
+          finishSearch(pickBestSearch());
+        });
+        return;
+      }
+      if (ytDone && webDone && saavnDone) {
+        finishSearch(_getEmptySearchResult());
+      }
+    }
+
+    ytSearchFuture.then((r) {
+      ytRes = r;
+      ytDone = true;
+      checkSearchSettle();
+    }).catchError((_) {
+      ytDone = true;
+      checkSearchSettle();
+    });
+
+    webSearchFuture.then((r) {
+      webRes = r;
+      webDone = true;
+      checkSearchSettle();
+    }).catchError((_) {
+      webDone = true;
+      checkSearchSettle();
+    });
+
+    saavnSearchFuture.then((r) {
+      saavnRes = r;
+      saavnDone = true;
+      checkSearchSettle();
+    }).catchError((_) {
+      saavnDone = true;
+      checkSearchSettle();
+    });
+
+    final bestResult = await searchCompleter.future.timeout(
+      const Duration(milliseconds: 4500),
+      onTimeout: () {
+        graceTimer?.cancel();
+        return pickBestSearch();
+      },
+    );
+
+    if (bestResult.songs.isNotEmpty) {
+      _setCache(cacheKey, bestResult);
+      return bestResult;
     }
 
     return _getEmptySearchResult();
@@ -282,24 +385,87 @@ class YouTubeRemoteDatasource {
     }();
 
     final webFuture = _searchWebFallback('trending music songs');
+    final saavnFuture = _searchJioSaavnFallback('trending hits');
 
-    final ytSongs = await ytFuture;
-    if (ytSongs.isNotEmpty) {
-      _setCache(cacheKey, ytSongs);
-      return ytSongs;
+    final trendCompleter = Completer<List<SongModel>>();
+    List<SongModel> ytSongs = const [];
+    List<SongModel> webSongs = const [];
+    List<SongModel> saavnSongs = const [];
+    bool ytDone = false;
+    bool webDone = false;
+    bool saavnDone = false;
+    Timer? graceTimer;
+
+    void finishTrend(List<SongModel> list) {
+      graceTimer?.cancel();
+      if (!trendCompleter.isCompleted) {
+        trendCompleter.complete(list);
+      }
     }
 
-    final webResults = await webFuture;
-    final webFiltered = webResults.songs.where((s) => s.durationSeconds <= 2700).toList();
-    if (webFiltered.isNotEmpty) {
-      _setCache(cacheKey, webFiltered);
-      return webFiltered;
+    List<SongModel> mergeTrending() {
+      final merged = <SongModel>[];
+      final seen = <String>{};
+      for (final s in [...saavnSongs, ...ytSongs, ...webSongs]) {
+        if (s.id.isEmpty || seen.contains(s.id) || s.durationSeconds > 2700) continue;
+        seen.add(s.id);
+        merged.add(s);
+        if (merged.length >= 20) break;
+      }
+      return merged;
     }
 
-    final saavnRes = await _searchJioSaavnFallback('trending hits');
-    if (saavnRes.songs.isNotEmpty) {
-      _setCache(cacheKey, saavnRes.songs);
-      return saavnRes.songs;
+    void checkTrendSettle() {
+      if (trendCompleter.isCompleted) return;
+      if (ytDone && webDone && saavnDone) {
+        finishTrend(mergeTrending());
+        return;
+      }
+      if (saavnSongs.isNotEmpty || ytSongs.isNotEmpty || webSongs.isNotEmpty) {
+        graceTimer ??= Timer(const Duration(milliseconds: 700), () {
+          finishTrend(mergeTrending());
+        });
+      }
+    }
+
+    ytFuture.then((r) {
+      ytSongs = r;
+      ytDone = true;
+      checkTrendSettle();
+    }).catchError((_) {
+      ytDone = true;
+      checkTrendSettle();
+    });
+
+    webFuture.then((r) {
+      webSongs = r.songs.where((s) => s.durationSeconds <= 2700).toList();
+      webDone = true;
+      checkTrendSettle();
+    }).catchError((_) {
+      webDone = true;
+      checkTrendSettle();
+    });
+
+    saavnFuture.then((r) {
+      saavnSongs = r.songs;
+      saavnDone = true;
+      checkTrendSettle();
+    }).catchError((_) {
+      saavnDone = true;
+      checkTrendSettle();
+    });
+
+    final finalTrending = await trendCompleter.future.timeout(
+      const Duration(milliseconds: 4200),
+      onTimeout: () {
+        graceTimer?.cancel();
+        return mergeTrending();
+      },
+    );
+
+    if (finalTrending.isNotEmpty) {
+      _setCache(cacheKey, finalTrending);
+      return finalTrending;
     }
 
     return [];

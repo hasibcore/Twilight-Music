@@ -182,12 +182,18 @@ class MiniPlayerWidget extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${currentSong.artist} • ${Formatters.formatDuration(player.currentPosition)} / ${Formatters.formatDuration(player.totalDuration.inSeconds > 0 ? player.totalDuration : Duration(seconds: currentSong.durationSeconds))}',
+                          player.errorMessage ??
+                              '${currentSong.artist} • ${Formatters.formatDuration(player.currentPosition)} / ${Formatters.formatDuration(player.totalDuration.inSeconds > 0 ? player.totalDuration : Duration(seconds: currentSong.durationSeconds))}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: secondaryTextColor,
+                            color: player.errorMessage != null
+                                ? const Color(0xFFFB7185)
+                                : secondaryTextColor,
                             fontSize: 11.0,
+                            fontWeight: player.errorMessage != null
+                                ? FontWeight.w600
+                                : FontWeight.normal,
                             fontFeatures: const [FontFeature.tabularFigures()],
                           ),
                         ),
@@ -212,7 +218,7 @@ class MiniPlayerWidget extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     padding: const EdgeInsets.all(4),
                     constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                    icon: Icon(Icons.skip_previous_rounded, color: iconColor, size: 22),
+                    icon: const Icon(Icons.skip_previous_rounded, color: iconColor, size: 22),
                     onPressed: () => player.previous(),
                   ),
                   // Circular White Play / Pause Pill Button (matching AI Studio Web UI)
@@ -266,7 +272,7 @@ class MiniPlayerWidget extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     padding: const EdgeInsets.all(4),
                     constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                    icon: Icon(Icons.skip_next_rounded, color: iconColor, size: 22),
+                    icon: const Icon(Icons.skip_next_rounded, color: iconColor, size: 22),
                     onPressed: () => player.next(),
                   ),
                   // Queue Drawer Button

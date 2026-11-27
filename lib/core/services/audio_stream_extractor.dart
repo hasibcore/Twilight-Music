@@ -80,15 +80,13 @@ class AudioStreamExtractor {
   };
 
   static const List<String> _invidiousInstances = [
-    'https://inv.nadeko.net',
     'https://invidious.nerdvpn.de',
     'https://invidious.tiekoetter.com',
     'https://invidious.f5.si',
-    'https://yewtu.be',
-    'https://vid.puffyan.us',
-    'https://pipedapi.kavin.rocks',
     'https://api.piped.video',
   ];
+
+  static final RegExp _nonWordUnicodeRegex = RegExp(r'[^\p{L}\p{N}\s]', unicode: true);
 
   // In-memory cache with timestamps (stream URLs cached up to 5m30s)
   static final Map<String, AudioStreamResult> _cache = {};
@@ -478,12 +476,19 @@ class AudioStreamExtractor {
   }
 
   static List<String> _getCoreTitleTokens(String coreTitle) {
-    final allTokens = _stripParentheticalAndEntities(coreTitle)
+    final cleaned = _stripParentheticalAndEntities(coreTitle)
         .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(_nonWordUnicodeRegex, ' ');
+    final allTokens = cleaned
         .split(RegExp(r'\s+'))
         .where((t) => t.length >= 2)
         .toList();
+    if (allTokens.isEmpty) {
+      return cleaned
+          .split(RegExp(r'\s+'))
+          .where((t) => t.isNotEmpty && !RegExp(r'^\d+$').hasMatch(t))
+          .toList();
+    }
     final filtered = allTokens.where((t) => !_coreTitleStopWords.contains(t)).toList();
     return filtered.isNotEmpty ? filtered : allTokens;
   }
@@ -497,13 +502,13 @@ class AudioStreamExtractor {
     if (coreTokens.isEmpty) return false;
     final extraTokens = _stripParentheticalAndEntities(extraAllowedText)
         .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(_nonWordUnicodeRegex, ' ')
         .split(RegExp(r'\s+'))
         .where((w) => w.length >= 2)
         .toList();
     final stripped = _stripParentheticalAndEntities(candTitle)
         .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(_nonWordUnicodeRegex, ' ')
         .split(RegExp(r'\s+'))
         .where((w) => w.length >= 2 && !_coreTitleStopWords.contains(w) && !RegExp(r'^\d+$').hasMatch(w))
         .toList();
@@ -520,10 +525,16 @@ class AudioStreamExtractor {
 
   /// Cleans YouTube video titles and channel names into a canonical song search query
   static String cleanTrackText(String input) {
-    return _decodeHtmlEntities(input)
-        .replaceAll(RegExp(r'#\S+'), ' ')
-        .replaceAll(RegExp(r'\(\s*[^\x00-\x7F]+\s*\)'), ' ')
-        .replaceAll(RegExp(r'\[\s*[^\x00-\x7F]+\s*\]'), ' ')
+    final decoded = _decodeHtmlEntities(input).replaceAll(RegExp(r'#\S+'), ' ');
+    final hasLatinOutsideParens = RegExp(r'[a-zA-Z]').hasMatch(
+      decoded.replaceAll(RegExp(r'\([^)]*\)'), ' ').replaceAll(RegExp(r'\[[^\]]*\]'), ' '),
+    );
+    final baseText = hasLatinOutsideParens
+        ? decoded
+            .replaceAll(RegExp(r'\(\s*[^\x00-\x7F]+\s*\)'), ' ')
+            .replaceAll(RegExp(r'\[\s*[^\x00-\x7F]+\s*\]'), ' ')
+        : decoded;
+    return baseText
         .replaceAll(RegExp(r'\([^)]*(?:official|video|audio|lyric|lyrics|visualizer|hd|4k|hq|remaster|live|mv|full\s+song|coke\s+studio|season\s*\d+|anniversary|concert|from\s+|feat\.?\s+|ft\.?\s+|original\s+motion|soundtrack|ost|film|movie|natok|drama|telefilm)[^)]*\)', caseSensitive: false), ' ')
         .replaceAll(RegExp(r'\[[^\]]*(?:official|video|audio|lyric|lyrics|visualizer|hd|4k|hq|remaster|live|mv|full\s+song|coke\s+studio|season\s*\d+|anniversary|concert|from\s+|feat\.?\s+|ft\.?\s+|original\s+motion|soundtrack|ost|film|movie|natok|drama|telefilm)[^\]]*\]', caseSensitive: false), ' ')
         .replaceAll(RegExp(r'\b(?:official\s+music\s+video|official\s+video|official\s+audio|lyric(?:al)?\s+video|full\s+video|full\s+audio|full\s+song|4k\s+remaster|audio\s+song|video\s+song)\b', caseSensitive: false), ' ')
@@ -866,7 +877,6 @@ class AudioStreamExtractor {
     '8pgvTBikV9U': 'https://aac.saavncdn.com/744/89e8ba380132d45e474dd3b49779f20a_320.mp4',
     '8iuZrJumCLo': 'https://aac.saavncdn.com/296/ab693f16b6e4708e6fe9763c3fe20329_320.mp4',
     'rEGYM2DarbQ': 'https://aac.saavncdn.com/649/d43613a52a0b2f0331a84e2ff9bb65ba_320.mp4',
-    'JirEG9LIJTU': 'https://aac.saavncdn.com/000/8a81a552431793831c58e09f3d7fde01_320.mp4',
   };
 
   static AudioStreamResult? _matchKnownDirectMaster(String cleanId, String trackTitle, String trackArtist, String rawContext) {
@@ -906,8 +916,6 @@ class AudioStreamExtractor {
       matchedUrl = _knownDirectMastersByVideoId['09R8_2nJtjg'];
     } else if (tLower == 'hello' && rawLower.contains('adele')) {
       matchedUrl = _knownDirectMastersByVideoId['YQHsXMglC9A'];
-    } else if (tLower.contains('bondho janala') && rawLower.contains('shironamhin')) {
-      matchedUrl = _knownDirectMastersByVideoId['JirEG9LIJTU'];
     }
 
     if (matchedUrl != null) {
@@ -1091,8 +1099,8 @@ class AudioStreamExtractor {
     }
 
     final coreTokens = _getCoreTitleTokens(trackTitle);
-    final normTitleCheck = trackTitle.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
-    final normArtistCheck = trackArtist.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normTitleCheck = trackTitle.toLowerCase().replaceAll(_nonWordUnicodeRegex, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normArtistCheck = trackArtist.toLowerCase().replaceAll(_nonWordUnicodeRegex, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
     if (trackTitle.isEmpty || coreTokens.isEmpty || (normTitleCheck.isNotEmpty && normArtistCheck.isNotEmpty && normTitleCheck == normArtistCheck)) {
       return null;
     }
@@ -1185,6 +1193,22 @@ class AudioStreamExtractor {
       }
     }
 
+    if (!preferCdnFallback) {
+      final quranDirectUrl = _resolveQuranSurahDirectUrl(title, artist, useMirror: forceRefresh);
+      if (quranDirectUrl != null) {
+        final quranResult = AudioStreamResult(
+          url: quranDirectUrl,
+          totalBytes: 0,
+          mimeType: 'audio/mpeg',
+          bitrate: 128000,
+          headers: const {'User-Agent': 'TwilightMusic/3.6'},
+          isDirectDownloadable: true,
+        );
+        _setCache(cacheKey, quranResult);
+        return quranResult;
+      }
+    }
+
     if (!forceRefresh && _inFlightExtractions.containsKey(cacheKey)) {
       return _inFlightExtractions[cacheKey]!;
     }
@@ -1225,39 +1249,74 @@ class AudioStreamExtractor {
         return null;
       }
 
-      // Wait up to 1.8s for verified exact YouTube stream first
+      // Race verified CDN and verified YouTube concurrently without stalling behind bot-blocked InnerTube clients.
+      // If YouTube resolves cleanly first (or within a short 350ms grace after CDN resolves), prefer exact YT audio;
+      // otherwise immediately return the verified high-bitrate CDN stream for sub-1.5s startup.
+      final raceCompleter = Completer<AudioStreamResult?>();
       AudioStreamResult? ytResult;
-      try {
-        ytResult = await ytFuture.timeout(
-          const Duration(milliseconds: 1800),
-          onTimeout: () => null,
-        );
-      } catch (_) {}
+      AudioStreamResult? cdnResult;
+      bool ytDone = !isStandardYouTubeId;
+      bool cdnDone = false;
+      Timer? graceTimer;
 
-      if (ytResult != null) {
-        _setCache(cacheKey, ytResult);
-        return ytResult;
+      void finishRace(AudioStreamResult? winner) {
+        graceTimer?.cancel();
+        if (!raceCompleter.isCompleted) {
+          raceCompleter.complete(winner);
+        }
       }
 
-      // If YouTube direct streams were blocked (HTTP 403) or timed out, use the concurrent CDN result (bounded 4s wait)
-      final cdnResult = await cdnFuture.timeout(
-        const Duration(seconds: 4),
-        onTimeout: () => null,
-      );
-      if (cdnResult != null) {
-        AppLogger.info('Resolved verified high-bitrate CDN stream for $cleanId');
-        _setCache(cacheKey, cdnResult);
-        return cdnResult;
+      void checkSettle() {
+        if (raceCompleter.isCompleted) return;
+        if (ytResult != null) {
+          finishRace(ytResult);
+          return;
+        }
+        if (cdnResult != null) {
+          if (ytDone) {
+            finishRace(cdnResult);
+            return;
+          }
+          graceTimer ??= Timer(const Duration(milliseconds: 350), () {
+            finishRace(ytResult ?? cdnResult);
+          });
+          return;
+        }
+        if (ytDone && cdnDone) {
+          finishRace(null);
+        }
       }
 
-      // Final bounded check in case ytFuture finished while awaiting cdnFuture
-      final lateYt = await ytFuture.timeout(
-        const Duration(milliseconds: 1200),
-        onTimeout: () => null,
+      ytFuture.then((res) {
+        ytResult = res;
+        ytDone = true;
+        checkSettle();
+      }).catchError((_) {
+        ytDone = true;
+        checkSettle();
+      });
+
+      cdnFuture.then((res) {
+        cdnResult = res;
+        cdnDone = true;
+        checkSettle();
+      }).catchError((_) {
+        cdnDone = true;
+        checkSettle();
+      });
+
+      final racedResult = await raceCompleter.future.timeout(
+        const Duration(milliseconds: 5500),
+        onTimeout: () {
+          graceTimer?.cancel();
+          return ytResult ?? cdnResult;
+        },
       );
-      if (lateYt != null) {
-        _setCache(cacheKey, lateYt);
-        return lateYt;
+
+      if (racedResult != null) {
+        AppLogger.info('Resolved verified audio stream for $cleanId');
+        _setCache(cacheKey, racedResult);
+        return racedResult;
       }
 
       // Final exact-track YouTube search fallback for external catalog IDs (js_* / sp_*) when CDN audio is 404/geo-blocked
@@ -1327,12 +1386,12 @@ class AudioStreamExtractor {
 
     final coreTokens = _getCoreTitleTokens(title);
     if (coreTokens.isEmpty) return null;
-    final normCoreTitle = title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
-    final normTargetArtist = artist.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normCoreTitle = title.toLowerCase().replaceAll(_nonWordUnicodeRegex, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normTargetArtist = artist.toLowerCase().replaceAll(_nonWordUnicodeRegex, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
     if (normCoreTitle.isNotEmpty && normTargetArtist.isNotEmpty && normCoreTitle == normTargetArtist) return null;
     final artistTokens = normTargetArtist
         .split(RegExp(r'\s+'))
-        .where((t) => t.length >= 3 && !_coreTitleStopWords.contains(t))
+        .where((t) => t.length >= 2 && !_coreTitleStopWords.contains(t))
         .toList();
     final rawContextLower = (rawContext.isNotEmpty ? rawContext : '$title $artist').toLowerCase();
     final wantsCokeStudio = rawContextLower.contains('coke studio');
@@ -1375,8 +1434,8 @@ class AudioStreamExtractor {
         final candDurSec = int.tryParse(moreInfo['duration']?.toString() ?? '0') ?? 0;
         if (candDurSec > 0 && candDurSec <= 45) continue;
 
-        final candNormFull = candTitle.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
-        final candNormBase = candTitle.split('|').first.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+        final candNormFull = candTitle.replaceAll(_nonWordUnicodeRegex, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+        final candNormBase = candTitle.split('|').first.replaceAll(_nonWordUnicodeRegex, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
         final isDistinctiveCoreTitle =
             coreTokens.length >= 2 || (coreTokens.length == 1 && normCoreTitle.length >= 6);
 
@@ -1468,9 +1527,13 @@ class AudioStreamExtractor {
         }
         if (targetDurationSeconds != null && targetDurationSeconds > 0 && candDurSec > 0) {
           final durDiff = (candDurSec - targetDurationSeconds).abs();
-          if (durDiff <= 5) score += 45;
-          else if (durDiff <= 15) score += 25;
-          else if (durDiff <= 45) score += 10;
+          if (durDiff <= 5) {
+            score += 45;
+          } else if (durDiff <= 15) {
+            score += 25;
+          } else if (durDiff <= 45) {
+            score += 10;
+          }
         }
 
         if (wantsCokeStudio && candIsCokeStudio) {
@@ -1564,10 +1627,10 @@ class AudioStreamExtractor {
     String scClientId = await _getSoundCloudClientId();
     final coreTokens = _getCoreTitleTokens(title);
     if (coreTokens.isEmpty) return null;
-    final normTargetArtist = artist.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normTargetArtist = artist.toLowerCase().replaceAll(_nonWordUnicodeRegex, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
     final artistTokens = normTargetArtist
         .split(RegExp(r'\s+'))
-        .where((t) => t.length >= 3 && !_coreTitleStopWords.contains(t))
+        .where((t) => t.length >= 2 && !_coreTitleStopWords.contains(t))
         .toList();
     final rawContextLower = rawContext.toLowerCase();
     final wantsCokeStudio = rawContextLower.contains('coke studio');
@@ -1588,7 +1651,7 @@ class AudioStreamExtractor {
 
     final normCoreTitle = _stripParentheticalAndEntities(title)
         .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(_nonWordUnicodeRegex, ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     if (normCoreTitle.isNotEmpty && normTargetArtist.isNotEmpty && normCoreTitle == normTargetArtist) return null;
@@ -1664,7 +1727,7 @@ class AudioStreamExtractor {
         final isBilingualPrefixMatch = coreTokens.length >= 2 &&
             RegExp(r'[^\x00-\x7F]').hasMatch(rawContext) &&
             candTitle
-                .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+                .replaceAll(_nonWordUnicodeRegex, ' ')
                 .replaceAll(RegExp(r'\s+'), ' ')
                 .trim()
                 .startsWith(normCoreTitle);
@@ -1685,7 +1748,7 @@ class AudioStreamExtractor {
         final minReq = coreTokens.length <= 3 ? coreTokens.length : (coreTokens.length * 0.75).ceil();
         if (matched < minReq) continue;
 
-        final candSegNorm = candSongSegment.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+        final candSegNorm = candSongSegment.replaceAll(_nonWordUnicodeRegex, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
         final artistMatched = artistTokens.isEmpty || artistTokens.any((at) => _tokenMatchesText(at, combined));
         final exactDistinctiveMatch = isDistinctiveCoreTitle &&
             coreTokens.length >= 2 &&
@@ -1736,9 +1799,13 @@ class AudioStreamExtractor {
         }
         if (targetDurationSeconds != null && targetDurationSeconds > 0) {
           final diff = (candDurSec - targetDurationSeconds).abs();
-          if (diff <= 3) score += 75;
-          else if (diff <= 8) score += 50;
-          else if (diff <= 20) score += 25;
+          if (diff <= 3) {
+            score += 75;
+          } else if (diff <= 8) {
+            score += 50;
+          } else if (diff <= 20) {
+            score += 25;
+          }
         }
         final hasProg = transcodings.any((tr) => (tr['format'] as Map<String, dynamic>?)?['protocol'] == 'progressive');
         if (hasProg) score += 15;
@@ -1760,10 +1827,7 @@ class AudioStreamExtractor {
         final hlsTr = transcodings
             .where((tr) =>
                 (tr['format'] as Map<String, dynamic>?)?['protocol'] == 'hls' &&
-                tr['snipped'] != true &&
-                !(((tr['format'] as Map<String, dynamic>?)?['mime_type']?.toString() ?? '')
-                    .toLowerCase()
-                    .contains('mpegurl')))
+                tr['snipped'] != true)
             .toList();
         hlsTr.sort((a, b) {
           int rank(Map<String, dynamic> tr) {
@@ -1773,8 +1837,11 @@ class AudioStreamExtractor {
             if (m.contains('mpeg') || m.contains('mp4') || p.contains('aac') || p.contains('mp3')) {
               score += 10;
             }
-            if (p.contains('160k')) score += 3;
-            else if (p.contains('96k')) score += 2;
+            if (p.contains('160k')) {
+              score += 3;
+            } else if (p.contains('96k')) {
+              score += 2;
+            }
             return score;
           }
           return rank(b).compareTo(rank(a));
@@ -1809,7 +1876,20 @@ class AudioStreamExtractor {
                   headers: const {'User-Agent': 'Mozilla/5.0'},
                   isDirectDownloadable: !isHls,
                 );
-                if (isHls) return candidate;
+                if (isHls) {
+                  final playlistProbe = await _getWithRetry(
+                    Uri.parse(streamUrl),
+                    headers: const {'User-Agent': 'Mozilla/5.0'},
+                    timeout: const Duration(milliseconds: 2200),
+                    retries: 0,
+                  );
+                  if (playlistProbe != null &&
+                      playlistProbe.statusCode == 200 &&
+                      playlistProbe.body.contains('#EXTM3U')) {
+                    return candidate;
+                  }
+                  continue;
+                }
                 final verified = await _verifyStreamPlayable(candidate);
                 if (verified != null) return verified;
               }
@@ -1832,20 +1912,20 @@ class AudioStreamExtractor {
     if (coreTokens.isEmpty) return null;
     final normCoreTitle = _stripParentheticalAndEntities(title)
         .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(_nonWordUnicodeRegex, ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     final isDistinctiveCoreTitle =
         coreTokens.length >= 2 || (coreTokens.length == 1 && normCoreTitle.length >= 6);
     final artistNorm = artist
         .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
+        .replaceAll(_nonWordUnicodeRegex, ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     if (normCoreTitle.isNotEmpty && artistNorm.isNotEmpty && normCoreTitle == artistNorm) return null;
     final artistTokens = artistNorm
         .split(RegExp(r'\s+'))
-        .where((t) => t.length >= 3 && !_coreTitleStopWords.contains(t))
+        .where((t) => t.length >= 2 && !_coreTitleStopWords.contains(t))
         .toList();
     final rawContextLower = (rawContext.isNotEmpty ? rawContext : '$title $artist').toLowerCase();
     final wantsRemixOrKaraoke = RegExp(
@@ -1919,7 +1999,7 @@ class AudioStreamExtractor {
         }
         final minReq = coreTokens.length <= 3 ? coreTokens.length : (coreTokens.length * 0.75).ceil();
         if (matched < minReq) continue;
-        final candNorm = candTitle.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+        final candNorm = candTitle.replaceAll(_nonWordUnicodeRegex, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
         final artistMatched = artistTokens.isEmpty || artistTokens.any((at) => _tokenMatchesText(at, combined));
         final exactDistinctiveTitleMatch = isDistinctiveCoreTitle &&
             coreTokens.length >= 2 &&
@@ -1941,8 +2021,11 @@ class AudioStreamExtractor {
         }
         if (targetDurationSeconds != null && targetDurationSeconds > 0 && durationSec > 0) {
           final durDiff = (durationSec - targetDurationSeconds).abs();
-          if (durDiff <= 5) score += 45;
-          else if (durDiff <= 15) score += 25;
+          if (durDiff <= 5) {
+            score += 45;
+          } else if (durDiff <= 15) {
+            score += 25;
+          }
         }
 
         if (score > bestScore) {
@@ -2414,5 +2497,97 @@ class AudioStreamExtractor {
     }
 
     return null;
+  }
+
+  static String? _resolveQuranSurahDirectUrl(
+    String? rawTitle,
+    String? rawArtist, {
+    bool useMirror = false,
+  }) {
+    final combined = '${rawTitle ?? ''} ${rawArtist ?? ''}'.trim();
+    if (combined.isEmpty) return null;
+
+    final isQuranContext = RegExp(
+      r'\b(?:surah|sura|surat|quran|quraan|koran|tilawat|telawat|recitation|murattal|qari|sheikh|shaikh|alafasy|sudais|abdul\s*basit|muaiqly|ghamdi|dosari|hussary|minshawi|baqarah?|bakarah?)\b|سورة|القرآن|সুরা|সূরা|বাকারা|কুরআন|তিলাওয়াত|তিলাওয়াত',
+      caseSensitive: false,
+    ).hasMatch(combined);
+    if (!isQuranContext) return null;
+
+    final isExplicitFullSurah = RegExp(r'\b(?:full|complete|1\s*[-–to]+\s*286)\b|كاملة', caseSensitive: false).hasMatch(combined);
+    if (!isExplicitFullSurah &&
+        (RegExp(r'\b(?:ayat|ayah|verse|verses|part|pt\.?)\s*\d+', caseSensitive: false).hasMatch(combined) ||
+            RegExp(r'\b(?:urdu|english|hindi|bangla)\s+translation\b', caseSensitive: false).hasMatch(combined))) {
+      return null;
+    }
+
+    final patterns = <MapEntry<String, RegExp>>[
+      MapEntry('001', RegExp(r'\b(?:al[-\s]?)?(?:fatihah?|fateha)\b|الفاتحة|ফাতিহা', caseSensitive: false)),
+      MapEntry('002', RegExp(r'\b(?:al[-\s]?)?(?:baqarah?|bakarah?|baqra|bakra)\b|البقرة|বাকারা', caseSensitive: false)),
+      MapEntry('003', RegExp(r'\b(?:aal|al|ali)[-\s]?(?:e[-\s]?)?imran\b|آل عمران|ইমরান', caseSensitive: false)),
+      MapEntry('018', RegExp(r'\b(?:al[-\s]?)?kahf\b|الكهف|কাহফ', caseSensitive: false)),
+      MapEntry('019', RegExp(r'\bmaryam\b|مريم|মারইয়াম', caseSensitive: false)),
+      MapEntry('036', RegExp(r'\b(?:ya[-\s]?sin|yaseen|yasin)\b|يس|ইয়াসিন|ইয়াসিন', caseSensitive: false)),
+      MapEntry('055', RegExp(r'\b(?:ar[-\s]?|al[-\s]?)?rahman\b|الرحمن|রহমান', caseSensitive: false)),
+      MapEntry('056', RegExp(r"\b(?:al[-\s]?)?(?:waqiah?|wakiah?|waqi'ah?)\b|الواقعة|ওয়াকিয়া|ওয়াকিয়া", caseSensitive: false)),
+      MapEntry('067', RegExp(r'\b(?:al[-\s]?)?mulk\b|الملك|মুলক', caseSensitive: false)),
+      MapEntry('073', RegExp(r'\b(?:al[-\s]?)?muz+am+il\b|المزمل|মুজাম্মিল', caseSensitive: false)),
+      MapEntry('078', RegExp(r'\b(?:an[-\s]?|al[-\s]?)?naba\b|النبأ|নাবা', caseSensitive: false)),
+      MapEntry('087', RegExp(r"\b(?:al[-\s]?)?a'?la\b|الأعلى", caseSensitive: false)),
+      MapEntry('093', RegExp(r'\b(?:ad[-\s]?|al[-\s]?)?(?:duha|dhuha)\b|الضحى', caseSensitive: false)),
+      MapEntry('097', RegExp(r'\b(?:al[-\s]?)?qadr\b|القدر|কদর', caseSensitive: false)),
+      MapEntry('108', RegExp(r'\b(?:al[-\s]?)?(?:kawthar|kausar)\b|الكوثر|কাউসার', caseSensitive: false)),
+      MapEntry('109', RegExp(r'\b(?:al[-\s]?)?kafirun\b|الكافرون', caseSensitive: false)),
+      MapEntry('112', RegExp(r'\b(?:al[-\s]?)?ikhlas\b|الإخلاص|ইখলাস', caseSensitive: false)),
+      MapEntry('113', RegExp(r'\b(?:al[-\s]?)?falaq\b|الفلق|ফালাক', caseSensitive: false)),
+      MapEntry('114', RegExp(r'\b(?:an[-\s]?|al[-\s]?)?(?:nas|naas)\b|الناس|নাস', caseSensitive: false)),
+    ];
+
+    String? surahNum;
+    for (final entry in patterns) {
+      if (entry.value.hasMatch(combined)) {
+        surahNum = entry.key;
+        break;
+      }
+    }
+    if (surahNum == null) {
+      final numMatch = RegExp(r'\b(?:surah|sura|surat)\s*#?\s*(\d{1,3})\b', caseSensitive: false).firstMatch(combined);
+      if (numMatch != null) {
+        final parsed = int.tryParse(numMatch.group(1) ?? '') ?? 0;
+        if (parsed >= 1 && parsed <= 114) {
+          surahNum = parsed.toString().padLeft(3, '0');
+        }
+      }
+    }
+    if (surahNum == null) return null;
+
+    final lower = combined.toLowerCase();
+    if (RegExp(r'sudais|sudays').hasMatch(lower)) {
+      return useMirror
+          ? 'https://server11.mp3quran.net/sds/$surahNum.mp3'
+          : 'https://download.quranicaudio.com/quran/abdurrahmaan_as-sudays/$surahNum.mp3';
+    }
+    if (RegExp(r'abdul\s*basit|abd\s*al\s*basit').hasMatch(lower)) {
+      return useMirror
+          ? 'https://server7.mp3quran.net/basit/$surahNum.mp3'
+          : 'https://download.quranicaudio.com/quran/abdul_basit_murattal/$surahNum.mp3';
+    }
+    if (RegExp(r'maher|muaiqly|muayqali').hasMatch(lower)) {
+      return useMirror
+          ? 'https://download.quranicaudio.com/quran/maher_256/$surahNum.mp3'
+          : 'https://server12.mp3quran.net/maher/$surahNum.mp3';
+    }
+    if (RegExp(r'yasser|dosari|dossari').hasMatch(lower)) {
+      return useMirror
+          ? 'https://download.quranicaudio.com/quran/yasser_ad-dussary/$surahNum.mp3'
+          : 'https://server11.mp3quran.net/yasser/$surahNum.mp3';
+    }
+    if (RegExp(r'ghamdi|ghamidi').hasMatch(lower)) {
+      return useMirror
+          ? 'https://server7.mp3quran.net/s_gmd/$surahNum.mp3'
+          : 'https://download.quranicaudio.com/quran/sa3d_al-ghaamidi/complete/$surahNum.mp3';
+    }
+    return useMirror
+        ? 'https://server8.mp3quran.net/afs/$surahNum.mp3'
+        : 'https://download.quranicaudio.com/quran/mishaari_raashid_al_3afaasee/$surahNum.mp3';
   }
 }

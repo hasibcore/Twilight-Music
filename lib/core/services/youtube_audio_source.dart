@@ -570,21 +570,23 @@ class YouTubeAudioSource extends StreamAudioSource {
       try { if (doneWebm.existsSync()) doneWebm.deleteSync(); } catch (_) {}
     }
 
-    // 3. NETWORK PATH: Run stream resolution & artwork fetch IN PARALLEL
-    // Stream resolution (300-500ms Tier1) and thumbnail HTTP download no longer block each other.
-    final results = await Future.wait([
-      AudioStreamExtractor.extractAudioStream(
-        cleanId,
-        forceRefresh: forceRefresh,
-        title: song.title,
-        artist: song.artist,
-        durationSeconds: song.durationSeconds,
-      ),
-      ArtworkService.getArtworkUri(thumbnailUrl: song.thumbnailUrl, songId: cleanId),
-    ]);
+    // 3. NETWORK PATH: Resolve verified audio stream immediately without blocking on artwork HTTP downloads.
+    // Use the normalized network thumbnail URI right away for MediaSession and warm local artwork cache in background.
+    final quickThumbUrl = ArtworkService.normalizeThumbnailUrl(song.thumbnailUrl, songId: cleanId);
+    artUri = quickThumbUrl.isNotEmpty ? Uri.tryParse(quickThumbUrl) : null;
+    unawaited(
+      ArtworkService.getArtworkUri(thumbnailUrl: song.thumbnailUrl, songId: cleanId)
+          .catchError((_) => null),
+    );
 
-    final streamResult = results[0] as AudioStreamResult?;
-    artUri = results[1] as Uri?;
+    final streamResult = await AudioStreamExtractor.extractAudioStream(
+      cleanId,
+      forceRefresh: forceRefresh,
+      title: song.title,
+      artist: song.artist,
+      durationSeconds: song.durationSeconds,
+    );
+
     final mediaItem = buildMediaItem(artUri);
 
     if (streamResult != null) {
@@ -617,39 +619,6 @@ class YouTubeAudioSource extends StreamAudioSource {
         cacheFile: cacheFile,
         mediaItem: mediaItem,
       );
-    }
-
-    // 4. Secondary Fallback: Direct YoutubeExplode streamsClient with fast 8s timeout
-    try {
-      final manifest = await yt.videos.streamsClient.getManifest(
-        cleanId,
-      ).timeout(const Duration(seconds: 8));
-
-      final audioStreams = manifest.audioOnly.toList();
-      if (audioStreams.isNotEmpty) {
-        final mp4Streams = audioStreams.where((s) =>
-            s.container.name.toLowerCase().contains('mp4') ||
-            s.container.name.toLowerCase().contains('m4a')).toList();
-
-        final bestStream = mp4Streams.isNotEmpty
-            ? mp4Streams.withHighestBitrate()
-            : audioStreams.withHighestBitrate();
-
-        AppLogger.info('Streaming "${song.title}" via YouTubeAudioSource.fromStreamInfo (${bestStream.container.name}, ${bestStream.bitrate})');
-
-        final isMp4 = bestStream.container.name.toLowerCase().contains('mp4') ||
-            bestStream.container.name.toLowerCase().contains('m4a');
-        final cacheFile = File('${tempDir.path}/twilight_v31_cache_$cleanId.${isMp4 ? "m4a" : "webm"}');
-
-        return YouTubeAudioSource.fromStreamInfo(
-          yt: yt,
-          streamInfo: bestStream,
-          cacheFile: cacheFile,
-          mediaItem: mediaItem,
-        );
-      }
-    } catch (e) {
-      AppLogger.info('Direct getManifest fallback failed for $cleanId: $e');
     }
 
     throw Exception('No playable audio stream available for "${song.title}"');

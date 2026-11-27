@@ -101,6 +101,14 @@ class PlayerProvider extends ChangeNotifier {
   void _initAudioPlayer() {
     try {
       _audioPlayer = AudioPlayer(
+        audioLoadConfiguration: const AudioLoadConfiguration(
+          androidLoadControl: AndroidLoadControl(
+            minBufferDuration: Duration(seconds: 25),
+            maxBufferDuration: Duration(seconds: 60),
+            bufferForPlaybackDuration: Duration(milliseconds: 1500),
+            bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 3500),
+          ),
+        ),
         handleInterruptions: true,
         androidApplyAudioAttributes: true,
         handleAudioSessionActivation: true,
@@ -181,10 +189,14 @@ class PlayerProvider extends ChangeNotifier {
 
         if (state.processingState == ProcessingState.completed) {
           if (_intentionalPause || _isResolvingSong || isDebouncePending) return;
-          // A song is ONLY naturally completed if it played near its expected duration
-          final bool isNearEnd = _totalDuration.inSeconds > 20 &&
-              (_currentPosition.inSeconds >= (_totalDuration.inSeconds * 0.85).toInt() ||
-               (_totalDuration - _currentPosition).inSeconds <= 15);
+          // A song is ONLY naturally completed if it played meaningfully (>=10s) and reached near its expected duration
+          final int expectedSecs = _totalDuration.inSeconds > 0
+              ? _totalDuration.inSeconds
+              : (_currentSong?.durationSeconds ?? 0);
+          final bool isNearEnd = _currentPosition.inSeconds >= 10 &&
+              expectedSecs > 20 &&
+              (_currentPosition.inSeconds >= (expectedSecs * 0.85).toInt() ||
+               (expectedSecs - _currentPosition.inSeconds) <= 15);
 
           if (isNearEnd) {
             onTrackEnded();
@@ -669,7 +681,8 @@ class PlayerProvider extends ChangeNotifier {
         }
 
         final bool isJioSaavnId = cleanId.startsWith('js_');
-        if (!isJioSaavnId &&
+        if (!_isTest &&
+            !isJioSaavnId &&
             (effectiveSong.id.startsWith('sp_') ||
                 effectiveSong.channelId == 'spotify' ||
                 cleanId.length != 11)) {
@@ -695,22 +708,46 @@ class PlayerProvider extends ChangeNotifier {
         if (resolvedLocal != null) {
           _isPlayingOfflineFile = true;
         } else if (!isJioSaavnId && cleanId.length != 11 && !_isTest) {
+          final targetTokens = effectiveSong.title
+              .toLowerCase()
+              .replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), ' ')
+              .split(RegExp(r'\s+'))
+              .where((t) => t.length >= 2)
+              .toList();
+          bool matchesTargetSong(String candTitle, int candDurSecs) {
+            if (targetTokens.isEmpty) return true;
+            final lowerCand = candTitle.toLowerCase();
+            final matched = targetTokens.where((t) => lowerCand.contains(t)).length;
+            final minReq = targetTokens.length <= 2 ? targetTokens.length : (targetTokens.length * 0.6).ceil();
+            if (matched < minReq) return false;
+            if (effectiveSong.durationSeconds > 0 && candDurSecs > 0) {
+              if ((candDurSecs - effectiveSong.durationSeconds).abs() > 45) return false;
+            }
+            return true;
+          }
+
           try {
             final searchRes = await _yt.search
                 .search('${effectiveSong.title} ${effectiveSong.artist}')
                 .timeout(const Duration(seconds: 4));
-            if (searchRes.isNotEmpty) {
-              cleanId = searchRes.first.id.value;
+            for (final v in searchRes.take(5)) {
+              if (matchesTargetSong(v.title, v.duration?.inSeconds ?? 0)) {
+                cleanId = v.id.value;
+                break;
+              }
             }
           } catch (_) {}
 
-          if (cleanId.length != 11) {
+          if (cleanId.length != 11 && !cleanId.startsWith('js_')) {
             final tempClient = http.Client();
             try {
               final ytDatasource = YouTubeRemoteDatasource(client: tempClient, apiKey: '');
               final searchResult = await ytDatasource.searchAll('${effectiveSong.title} ${effectiveSong.artist}');
-              if (searchResult.songs.isNotEmpty) {
-                cleanId = searchResult.songs.first.id;
+              for (final cand in searchResult.songs.take(5)) {
+                if (matchesTargetSong(cand.title, cand.durationSeconds)) {
+                  cleanId = cand.id;
+                  break;
+                }
               }
             } catch (_) {
             } finally {
@@ -1314,51 +1351,73 @@ class PlayerProvider extends ChangeNotifier {
       notifyListeners();
 
       final seedSong = _currentSong;
-      try {
-        final query = seedSong != null
-            ? '${seedSong.title} ${seedSong.artist} music'
-            : 'popular music hits';
-        final searchResults = await _yt.search.search(query).timeout(const Duration(seconds: 4));
-        if (autoplayReqId != _playRequestId || _intentionalPause) return;
-        if (searchResults.isNotEmpty) {
-          final newTracks = searchResults
-              .where((v) => !_queue.any((q) => q.id == v.id.value))
-              .map((v) => Song(
-                    id: v.id.value,
-                    title: v.title,
-                    artist: v.author,
-                    channelId: v.channelId.value,
-                    thumbnailUrl: 'https://i.ytimg.com/vi/${v.id.value}/hqdefault.jpg',
-                    durationSeconds: v.duration?.inSeconds ?? 210,
-                    durationFormatted: Formatters.formatDuration(v.duration ?? const Duration(seconds: 210)),
-                    viewCount: v.engagement.viewCount,
-                    publishedAt: v.uploadDate,
-                  ))
-              .toList();
-
-          if (newTracks.isNotEmpty) {
-            _queue.addAll(newTracks.take(5));
-            _currentIndex = (_currentIndex + 1).clamp(0, _queue.length - 1);
-            await playSong(_queue[_currentIndex], queueIndex: _currentIndex);
-            return;
-          }
-        }
-      } catch (e) {
-        AppLogger.info('Autoplay related tracks fallback: $e');
-      }
-
-      if (autoplayReqId != _playRequestId || _intentionalPause) return;
-
-      try {
-        final query = seedSong != null
-            ? '${seedSong.title} ${seedSong.artist}'
-            : 'trending music hits';
-        final tempClient = http.Client();
+      if (!_isTest) {
         try {
-          final ytDatasource = YouTubeRemoteDatasource(client: tempClient, apiKey: '');
-          final remoteResults = await ytDatasource.searchAll(query).timeout(const Duration(seconds: 5));
+          final query = seedSong != null
+              ? '${seedSong.title} ${seedSong.artist} music'
+              : 'popular music hits';
+          final searchResults = await _yt.search.search(query).timeout(const Duration(seconds: 4));
           if (autoplayReqId != _playRequestId || _intentionalPause) return;
-          final newTracks = remoteResults.songs
+          if (searchResults.isNotEmpty) {
+            final newTracks = searchResults
+                .where((v) => !_queue.any((q) => q.id == v.id.value))
+                .map((v) => Song(
+                      id: v.id.value,
+                      title: v.title,
+                      artist: v.author,
+                      channelId: v.channelId.value,
+                      thumbnailUrl: 'https://i.ytimg.com/vi/${v.id.value}/hqdefault.jpg',
+                      durationSeconds: v.duration?.inSeconds ?? 210,
+                      durationFormatted: Formatters.formatDuration(v.duration ?? const Duration(seconds: 210)),
+                      viewCount: v.engagement.viewCount,
+                      publishedAt: v.uploadDate,
+                    ))
+                .toList();
+
+            if (newTracks.isNotEmpty) {
+              _queue.addAll(newTracks.take(5));
+              _currentIndex = (_currentIndex + 1).clamp(0, _queue.length - 1);
+              await playSong(_queue[_currentIndex], queueIndex: _currentIndex);
+              return;
+            }
+          }
+        } catch (e) {
+          AppLogger.info('Autoplay related tracks fallback: $e');
+        }
+
+        if (autoplayReqId != _playRequestId || _intentionalPause) return;
+
+        try {
+          final query = seedSong != null
+              ? '${seedSong.title} ${seedSong.artist}'
+              : 'trending music hits';
+          final tempClient = http.Client();
+          try {
+            final ytDatasource = YouTubeRemoteDatasource(client: tempClient, apiKey: '');
+            final remoteResults = await ytDatasource.searchAll(query).timeout(const Duration(seconds: 5));
+            if (autoplayReqId != _playRequestId || _intentionalPause) return;
+            final newTracks = remoteResults.songs
+                .where((s) => !_queue.any((q) => q.id == s.id || q.isSameTrack(s)))
+                .toList();
+            if (newTracks.isNotEmpty) {
+              _queue.addAll(newTracks.take(5));
+              _currentIndex = (_currentIndex + 1).clamp(0, _queue.length - 1);
+              await playSong(_queue[_currentIndex], queueIndex: _currentIndex);
+              return;
+            }
+          } finally {
+            tempClient.close();
+          }
+        } catch (e) {
+          AppLogger.info('Autoplay repository search fallback: $e');
+        }
+
+        if (autoplayReqId != _playRequestId || _intentionalPause) return;
+
+        try {
+          final suggestions = await MusicImportService().getViralHitsChart().timeout(const Duration(seconds: 5));
+          if (autoplayReqId != _playRequestId || _intentionalPause) return;
+          final newTracks = suggestions
               .where((s) => !_queue.any((q) => q.id == s.id || q.isSameTrack(s)))
               .toList();
           if (newTracks.isNotEmpty) {
@@ -1367,29 +1426,9 @@ class PlayerProvider extends ChangeNotifier {
             await playSong(_queue[_currentIndex], queueIndex: _currentIndex);
             return;
           }
-        } finally {
-          tempClient.close();
+        } catch (e) {
+          AppLogger.info('Autoplay dynamic extension fallback: $e');
         }
-      } catch (e) {
-        AppLogger.info('Autoplay repository search fallback: $e');
-      }
-
-      if (autoplayReqId != _playRequestId || _intentionalPause) return;
-
-      try {
-        final suggestions = await MusicImportService().getViralHitsChart().timeout(const Duration(seconds: 5));
-        if (autoplayReqId != _playRequestId || _intentionalPause) return;
-        final newTracks = suggestions
-            .where((s) => !_queue.any((q) => q.id == s.id || q.isSameTrack(s)))
-            .toList();
-        if (newTracks.isNotEmpty) {
-          _queue.addAll(newTracks.take(5));
-          _currentIndex = (_currentIndex + 1).clamp(0, _queue.length - 1);
-          await playSong(_queue[_currentIndex], queueIndex: _currentIndex);
-          return;
-        }
-      } catch (e) {
-        AppLogger.info('Autoplay dynamic extension fallback: $e');
       }
       if (autoplayReqId != _playRequestId || _intentionalPause || _queue.isEmpty) return;
       _currentIndex = 0;

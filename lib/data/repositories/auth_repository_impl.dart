@@ -32,7 +32,7 @@ class AuthRepositoryImpl implements AuthRepository {
             email.isNotEmpty &&
             !email.toLowerCase().contains('guest@')) {
           _currentUser = UserProfile(
-            uid: map['uid'] as String? ?? 'usr_hasibul_hasan',
+            uid: map['uid'] as String? ?? 'usr_${email.hashCode.abs()}',
             name: name,
             email: email,
             avatarUrl: map['avatarUrl'] as String? ?? '',
@@ -46,13 +46,13 @@ class AuthRepositoryImpl implements AuthRepository {
       AppLogger.error('Failed to load user session: $e');
     }
 
-    // Default to Hasibul Hasan (gudhulibela031@gmail.com) matching PC Web UI
+    // Default to clean Guest Listener session until user explicitly signs in
     _currentUser = const UserProfile(
-      uid: 'usr_hasibul_hasan',
-      name: 'Hasibul Hasan',
-      email: 'gudhulibela031@gmail.com',
+      uid: 'guest_local_user',
+      name: 'Guest Listener',
+      email: '',
       avatarUrl: '',
-      isGuest: false,
+      isGuest: true,
     );
   }
 
@@ -74,11 +74,11 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<UserProfile> signInAsGuest() async {
     _currentUser = const UserProfile(
-      uid: 'usr_hasibul_hasan',
-      name: 'Hasibul Hasan',
-      email: 'gudhulibela031@gmail.com',
+      uid: 'guest_local_user',
+      name: 'Guest Listener',
+      email: '',
       avatarUrl: '',
-      isGuest: false,
+      isGuest: true,
     );
     await _persistSession(_currentUser!);
     return _currentUser!;
@@ -159,11 +159,11 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<void> signOut() async {
     await LocalStorageService.remove(_sessionKey);
     _currentUser = const UserProfile(
-      uid: 'usr_hasibul_hasan',
-      name: 'Hasibul Hasan',
-      email: 'gudhulibela031@gmail.com',
+      uid: 'guest_local_user',
+      name: 'Guest Listener',
+      email: '',
       avatarUrl: '',
-      isGuest: false,
+      isGuest: true,
     );
   }
 

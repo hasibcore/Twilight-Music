@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
-import { Heart, ListMusic, History, Download, Play, Plus, Trash2, ArrowRight, AlertTriangle, RefreshCw, Check, Loader2 } from 'lucide-react';
+import { Heart, ListMusic, History, Download, Play, Plus, Trash2, ArrowRight, AlertTriangle, RefreshCw, Check, Loader2, Shuffle, Pencil } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
-import { Playlist } from '../types';
+import { Playlist, Song } from '../types';
 
-export const LibraryScreen: React.FC = () => {
+interface LibraryScreenProps {
+  onOpenPlaylistModal?: (song: Song) => void;
+}
+
+export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onOpenPlaylistModal }) => {
   const {
     favorites,
     playlists,
@@ -13,6 +17,7 @@ export const LibraryScreen: React.FC = () => {
     selectAndPlaySong,
     deletePlaylist,
     createPlaylist,
+    renamePlaylist,
     removeFromPlaylist,
     downloadSong,
     isDownloaded,
@@ -29,6 +34,8 @@ export const LibraryScreen: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
+  const [renamingPlaylist, setRenamingPlaylist] = useState<Playlist | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +44,14 @@ export const LibraryScreen: React.FC = () => {
     setNewTitle('');
     setNewDesc('');
     setShowCreateModal(false);
+  };
+
+  const handleRenameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renamingPlaylist || !renameTitle.trim()) return;
+    renamePlaylist(renamingPlaylist.id, renameTitle.trim());
+    setRenamingPlaylist(null);
+    setRenameTitle('');
   };
 
   return (
@@ -147,34 +162,70 @@ export const LibraryScreen: React.FC = () => {
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-6 rounded-3xl bg-gradient-to-r from-indigo-950/40 via-purple-950/40 to-slate-900 border border-indigo-500/20">
             <div className="flex items-center gap-4">
-              <div className="w-20 h-20 rounded-2xl overflow-hidden bg-slate-800 shrink-0">
-                <img
-                  src={selectedPlaylist.thumbnailUrl}
-                  alt={selectedPlaylist.title}
-                  className="w-full h-full object-cover"
-                />
+              <div className="w-20 h-20 rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-600/30 to-purple-700/30 border border-indigo-500/20 flex items-center justify-center shrink-0">
+                {selectedPlaylist.thumbnailUrl ? (
+                  <img
+                    src={selectedPlaylist.thumbnailUrl}
+                    alt={selectedPlaylist.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <ListMusic className="w-9 h-9 text-indigo-300" />
+                )}
               </div>
               <div>
                 <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">
                   Playlist
                 </span>
-                <h2 className="text-xl sm:text-2xl font-black text-white">{selectedPlaylist.title}</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl sm:text-2xl font-black text-white">{selectedPlaylist.title}</h2>
+                  {selectedPlaylist.isCustom && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenamingPlaylist(selectedPlaylist);
+                        setRenameTitle(selectedPlaylist.title);
+                      }}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                      title="Rename playlist"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
                 <p className="text-xs text-slate-400 mt-1">{selectedPlaylist.description || 'Custom collection'}</p>
                 <span className="text-xs text-slate-500 mt-1 block">
-                  {selectedPlaylist.songs.length} tracks
+                  {selectedPlaylist.songs.length} {selectedPlaylist.songs.length === 1 ? 'track' : 'tracks'}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center flex-wrap gap-2">
               {selectedPlaylist.songs.length > 0 && (
-                <button
-                  onClick={() => selectAndPlaySong(selectedPlaylist.songs[0], selectedPlaylist.songs)}
-                  className="px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-indigo-600/30"
-                >
-                  <Play className="w-4 h-4 fill-white" />
-                  <span>Play Playlist</span>
-                </button>
+                <>
+                  <button
+                    onClick={() =>
+                      playSong(selectedPlaylist.songs[0], selectedPlaylist.songs, {
+                        immediate: true,
+                        forceRestart: true,
+                      })
+                    }
+                    className="px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-indigo-600/30"
+                  >
+                    <Play className="w-4 h-4 fill-white" />
+                    <span>Play Playlist</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      const shuffled = [...selectedPlaylist.songs].sort(() => Math.random() - 0.5);
+                      playSong(shuffled[0], shuffled, { immediate: true, forceRestart: true });
+                    }}
+                    className="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/15 text-white font-bold text-xs flex items-center gap-1.5"
+                  >
+                    <Shuffle className="w-4 h-4" />
+                    <span>Shuffle</span>
+                  </button>
+                </>
               )}
               <button
                 onClick={() => setSelectedPlaylist(null)}
@@ -281,6 +332,19 @@ export const LibraryScreen: React.FC = () => {
                       <span className="text-xs text-slate-500 font-mono shrink-0">
                         {song.durationFormatted || '03:30'}
                       </span>
+                      {onOpenPlaylistModal && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenPlaylistModal(song);
+                          }}
+                          className="p-2 rounded-xl border text-slate-400 hover:text-indigo-300 bg-white/5 hover:bg-indigo-500/15 border-white/10 transition-colors shrink-0"
+                          title="Add to Playlist"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -360,8 +424,12 @@ export const LibraryScreen: React.FC = () => {
                     className="group p-4 rounded-3xl bg-slate-900/60 hover:bg-slate-800/80 border border-white/5 hover:border-indigo-500/30 transition-all cursor-pointer flex flex-col justify-between"
                   >
                     <div className="flex items-center gap-3 mb-3">
-                      <div className="w-14 h-14 rounded-2xl overflow-hidden bg-slate-800 shrink-0">
-                        <img src={pl.thumbnailUrl} alt={pl.title} className="w-full h-full object-cover" />
+                      <div className="w-14 h-14 rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-600/30 to-purple-700/30 border border-indigo-500/20 flex items-center justify-center shrink-0">
+                        {pl.thumbnailUrl ? (
+                          <img src={pl.thumbnailUrl} alt={pl.title} className="w-full h-full object-cover" />
+                        ) : (
+                          <ListMusic className="w-6 h-6 text-indigo-300" />
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <h4 className="text-sm font-bold text-white truncate group-hover:text-indigo-400">{pl.title}</h4>
@@ -376,15 +444,31 @@ export const LibraryScreen: React.FC = () => {
                         <ArrowRight className="w-3.5 h-3.5" />
                       </span>
                       {pl.isCustom && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deletePlaylist(pl.id);
-                          }}
-                          className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenamingPlaylist(pl);
+                              setRenameTitle(pl.title);
+                            }}
+                            className="p-1 rounded-lg text-slate-500 hover:text-indigo-300 hover:bg-indigo-500/10"
+                            title="Rename playlist"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deletePlaylist(pl.id);
+                            }}
+                            className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10"
+                            title="Delete playlist"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -416,6 +500,19 @@ export const LibraryScreen: React.FC = () => {
                       <span className="text-xs text-slate-500 font-mono shrink-0">
                         {song.durationFormatted || '03:30'}
                       </span>
+                      {onOpenPlaylistModal && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenPlaylistModal(song);
+                          }}
+                          className="p-2 rounded-xl border text-slate-400 hover:text-indigo-300 bg-white/5 hover:bg-indigo-500/15 border-white/10 transition-colors shrink-0"
+                          title="Add to Playlist"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -601,6 +698,39 @@ export const LibraryScreen: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
+                  className="px-4 py-2.5 rounded-xl bg-white/5 text-xs text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Rename Playlist Modal */}
+      {renamingPlaylist && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-white/10 w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4">
+            <h3 className="font-bold text-white text-base">Rename Playlist</h3>
+            <form onSubmit={handleRenameSubmit} className="space-y-3">
+              <input
+                type="text"
+                value={renameTitle}
+                onChange={(e) => setRenameTitle(e.target.value)}
+                placeholder="New playlist name..."
+                autoFocus
+                className="w-full px-3.5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              />
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white"
+                >
+                  Save Name
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRenamingPlaylist(null)}
                   className="px-4 py-2.5 rounded-xl bg-white/5 text-xs text-slate-400 hover:text-white"
                 >
                   Cancel

@@ -5,6 +5,7 @@ import {
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  updateProfile,
   signOut as fbSignOut,
   onAuthStateChanged,
   User as FirebaseUser,
@@ -29,7 +30,10 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfigJson) : getApp(
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export const googleDriveProvider = new GoogleAuthProvider();
+googleDriveProvider.addScope('https://www.googleapis.com/auth/drive.file');
 
 // In-memory access token cache for Google Workspace APIs (per security guidelines)
 let cachedDriveAccessToken: string | null = null;
@@ -130,6 +134,7 @@ export {
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  updateProfile,
   fbSignOut,
   onAuthStateChanged,
 };

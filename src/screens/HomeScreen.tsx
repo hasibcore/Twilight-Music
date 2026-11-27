@@ -11,6 +11,7 @@ import {
   Loader2,
   Download,
   Check,
+  Plus,
 } from 'lucide-react';
 import { useMusic } from '../context/MusicContext';
 import { Song } from '../types';
@@ -31,6 +32,7 @@ const ensureYtThumb = (s: Song): Song =>
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenSearch,
+  onOpenPlaylistModal,
   onSelectArtist,
   onOpenLanding,
 }) => {
@@ -220,6 +222,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      onOpenPlaylistModal(song);
+                    }}
+                    className="absolute top-1.5 left-1.5 z-10 p-1.5 rounded-xl backdrop-blur-md border bg-black/60 hover:bg-indigo-600/80 border-white/15 text-white transition-all"
+                    title="Add to Playlist"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
                       downloadSong(song);
                     }}
                     disabled={isDownLoading}
@@ -322,6 +335,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     </h4>
                     <p className="text-[11px] text-slate-400 truncate">{song.artist}</p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenPlaylistModal(song);
+                    }}
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-indigo-300 hover:bg-indigo-500/15 transition-colors shrink-0"
+                    title="Add to Playlist"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
                 </div>
               );
             })}
@@ -398,6 +422,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                       alt={song.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenPlaylistModal(song);
+                      }}
+                      className="absolute top-1.5 left-1.5 z-10 p-1.5 rounded-xl backdrop-blur-md border bg-black/60 hover:bg-indigo-600/80 border-white/15 text-white transition-all"
+                      title="Add to Playlist"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
                     <button
                       type="button"
                       onClick={(e) => {

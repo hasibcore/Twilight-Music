@@ -27,23 +27,30 @@ export const ProfileScreen: React.FC = () => {
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [displayNameInput, setDisplayNameInput] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const closeAuthModal = () => {
+    setShowAuthModal(false);
+    setAuthError(null);
+  };
+
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) return;
+    if (!email.trim() || !password) return;
     setAuthError(null);
     setIsSubmitting(true);
     try {
       if (isRegisterMode) {
-        await registerWithEmail(email, password);
+        await registerWithEmail(email.trim(), password, displayNameInput.trim());
       } else {
-        await signInWithEmail(email, password);
+        await signInWithEmail(email.trim(), password);
       }
       setShowAuthModal(false);
+      setDisplayNameInput('');
       setEmail('');
       setPassword('');
     } catch (err: unknown) {
@@ -82,15 +89,15 @@ export const ProfileScreen: React.FC = () => {
       {/* User Card */}
       <div className="p-6 rounded-3xl bg-slate-900/60 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-6 shadow-xl">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-white/10 flex items-center justify-center text-white shadow-lg overflow-hidden shrink-0">
+          <div className="w-16 h-16 rounded-2xl bg-slate-500/65 border border-white/10 flex items-center justify-center text-white shadow-lg overflow-hidden shrink-0">
             {user.photoURL ? (
               <img src={user.photoURL} alt={user.displayName || 'User'} className="w-full h-full object-cover" />
-            ) : !user.isGuest && user.displayName ? (
-              <span className="text-2xl font-black tracking-tight">
-                {user.displayName.trim().charAt(0).toUpperCase()}
-              </span>
+            ) : user.isGuest ? (
+              <User className="w-7 h-7 text-slate-200" />
             ) : (
-              <User className="w-8 h-8 text-slate-400" />
+              <span className="text-2xl font-black tracking-tight">
+                {(user.displayName || 'U').trim().charAt(0).toUpperCase()}
+              </span>
             )}
           </div>
           <div>
@@ -250,6 +257,15 @@ export const ProfileScreen: React.FC = () => {
 
             {/* Email / Password Form */}
             <form onSubmit={handleAuthSubmit} className="space-y-3">
+              {isRegisterMode && (
+                <input
+                  type="text"
+                  value={displayNameInput}
+                  onChange={(e) => setDisplayNameInput(e.target.value)}
+                  placeholder="Display name"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+              )}
               <input
                 type="email"
                 value={email}
@@ -262,14 +278,15 @@ export const ProfileScreen: React.FC = () => {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
+                placeholder="Password (min. 6 characters)"
+                minLength={6}
                 required
                 className="w-full px-3.5 py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
               />
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-colors"
+                className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white font-bold text-xs shadow-md transition-colors"
               >
                 {isSubmitting ? 'Authenticating...' : isRegisterMode ? 'Create Account' : 'Sign In'}
               </button>
@@ -277,13 +294,18 @@ export const ProfileScreen: React.FC = () => {
 
             <div className="flex items-center justify-between text-xs pt-2">
               <button
-                onClick={() => setIsRegisterMode(!isRegisterMode)}
+                type="button"
+                onClick={() => {
+                  setIsRegisterMode(!isRegisterMode);
+                  setAuthError(null);
+                }}
                 className="text-indigo-400 hover:underline"
               >
                 {isRegisterMode ? 'Already have an account? Sign In' : 'Need an account? Register'}
               </button>
               <button
-                onClick={() => setShowAuthModal(false)}
+                type="button"
+                onClick={closeAuthModal}
                 className="text-slate-400 hover:text-white"
               >
                 Cancel
