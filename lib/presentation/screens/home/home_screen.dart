@@ -194,7 +194,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    final hasCached = _loadCachedHomeDataSync();
+    _loadCachedHomeDataSync();
     _loadArtists();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Always refresh live mix on start — cached data loads instantly, then live replaces it
@@ -204,14 +204,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _loadCachedHomeDataSync() {
     try {
-      final raw = LocalStorageService.getString(_dynamicCacheKey) ??
-          LocalStorageService.getString('twilight_home_dynamic_flutter_v3');
+      // Read v4 cache only so polluted v3 entries (with broken js_* ytimg URLs or duplicates) never flash
+      final raw = LocalStorageService.getString(_dynamicCacheKey);
       if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw) as List?;
         if (decoded != null && decoded.isNotEmpty) {
           final parsed = decoded
               .whereType<Map>()
               .map((m) => SongModel.fromJson(Map<String, dynamic>.from(m)).toEntity())
+              .where((s) => s.thumbnailUrl.isNotEmpty)
               .toList();
           final cleaned = _dedupeAndNormalizeSongs(parsed);
           if (cleaned.isNotEmpty) {

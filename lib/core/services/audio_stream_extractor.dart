@@ -1231,10 +1231,7 @@ class AudioStreamExtractor {
     }
 
     Future<AudioStreamResult?> runExtraction() async {
-      final isStandardYouTubeId = cleanId.length == 11 &&
-          !cleanId.startsWith('sp_') &&
-          !cleanId.startsWith('js_') &&
-          RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(cleanId);
+      final isStandardYouTubeId = ArtworkService.isYouTubeVideoId(cleanId);
 
       // Launch both verified YouTube extraction and verified CDN extraction concurrently!
       final Future<AudioStreamResult?> ytFuture =

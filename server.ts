@@ -2806,8 +2806,8 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
     ok: true,
     status: 'healthy',
-    version: '3.6.3',
-    buildNumber: 63,
+    version: '3.6.4',
+    buildNumber: 64,
     timestamp: new Date().toISOString(),
   });
 });
@@ -3843,7 +3843,7 @@ app.get(
   }
 );
 
-// Push Full App Codebase to GitHub & Publish v3.6.3 Release + Upload Archive directly to GitHub Releases
+// Push Full App Codebase to GitHub & Publish v3.6.4 Release + Upload Archive directly to GitHub Releases
 app.post('/api/release/github', async (req: Request, res: Response) => {
   try {
     const { repo = 'hasibcore/Twilight-Music', token, tagName = 'v3.6.4' } = req.body || {};

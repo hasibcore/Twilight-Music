@@ -86,6 +86,22 @@ void main() {
         song.thumbnailUrl,
         equals('https://c.saavncdn.com/400/Trending-Punjabi-2024-20241114144017-500x500.jpg'),
       );
+
+      // Poisoned v3.6.3 cache URLs for js_*/sp_* or literal ${1} templates are cleaned automatically
+      expect(
+        ArtworkService.normalizeThumbnailUrl(
+          'https://i.ytimg.com/vi/js_BX6n0TPe/hqdefault.jpg',
+          songId: 'js_BX6n0TPe',
+        ),
+        equals(''),
+      );
+      expect(
+        ArtworkService.normalizeThumbnailUrl(
+          r'https://c.saavncdn.com/400/Trending-Punjabi-2024${1}500x500.jpg',
+          songId: 'js_BX6n0TPe',
+        ),
+        equals('https://c.saavncdn.com/400/Trending-Punjabi-2024-500x500.jpg'),
+      );
     });
   });
 }

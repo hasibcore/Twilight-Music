@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
@@ -382,7 +383,7 @@ class MusicImportService {
       );
     }
 
-    // Race InnerTube and YoutubeExplode search concurrently
+    // Race InnerTube and YoutubeExplode search genuinely concurrently so whichever responds first resolves immediately
     final webIdFuture = _searchVideoIdFallback('${song.title} ${song.artist}');
     final ytSearchFuture = () async {
       try {
@@ -404,15 +405,40 @@ class MusicImportService {
       return null;
     }();
 
-    final webId = await webIdFuture;
-    if (webId != null && webId.isNotEmpty) {
-      return song.copyWith(
-        id: webId,
-        thumbnailUrl: verifiedThumbFor(webId, song.thumbnailUrl),
-      );
+    final raceCompleter = Completer<Song?>();
+    int pending = 2;
+    void completeIfDone(Song? result) {
+      if (raceCompleter.isCompleted) return;
+      if (result != null) {
+        raceCompleter.complete(result);
+        return;
+      }
+      pending--;
+      if (pending <= 0) {
+        raceCompleter.complete(null);
+      }
     }
 
-    return await ytSearchFuture;
+    webIdFuture.then<void>((webId) {
+      if (webId != null && webId.isNotEmpty) {
+        completeIfDone(song.copyWith(
+          id: webId,
+          thumbnailUrl: verifiedThumbFor(webId, song.thumbnailUrl),
+        ));
+      } else {
+        completeIfDone(null);
+      }
+    }).catchError((_) {
+      completeIfDone(null);
+    });
+
+    ytSearchFuture.then<void>((ytSong) {
+      completeIfDone(ytSong);
+    }).catchError((_) {
+      completeIfDone(null);
+    });
+
+    return raceCompleter.future.timeout(const Duration(seconds: 4), onTimeout: () => null);
   }
 
   Future<String?> _searchVideoIdFallback(String query) async {

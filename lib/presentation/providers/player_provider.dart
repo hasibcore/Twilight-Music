@@ -97,21 +97,25 @@ class PlayerProvider extends ChangeNotifier {
     _initAudioPlayer();
   }
 
+  AudioPlayer _createConfiguredAudioPlayer() {
+    return AudioPlayer(
+      audioLoadConfiguration: const AudioLoadConfiguration(
+        androidLoadControl: AndroidLoadControl(
+          minBufferDuration: Duration(seconds: 15),
+          maxBufferDuration: Duration(seconds: 45),
+          bufferForPlaybackDuration: Duration(milliseconds: 500),
+          bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 1200),
+        ),
+      ),
+      handleInterruptions: true,
+      androidApplyAudioAttributes: true,
+      handleAudioSessionActivation: true,
+    );
+  }
+
   void _initAudioPlayer() {
     try {
-      _audioPlayer = AudioPlayer(
-        audioLoadConfiguration: const AudioLoadConfiguration(
-          androidLoadControl: AndroidLoadControl(
-            minBufferDuration: Duration(seconds: 15),
-            maxBufferDuration: Duration(seconds: 45),
-            bufferForPlaybackDuration: Duration(milliseconds: 500),
-            bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 1200),
-          ),
-        ),
-        handleInterruptions: true,
-        androidApplyAudioAttributes: true,
-        handleAudioSessionActivation: true,
-      );
+      _audioPlayer = _createConfiguredAudioPlayer();
 
       _playerStateSub = _audioPlayer!.playerStateStream.listen((state) {
         if (_isResolvingSong &&
@@ -810,7 +814,7 @@ class PlayerProvider extends ChangeNotifier {
         return;
       }
 
-      _audioPlayer ??= AudioPlayer();
+      _audioPlayer ??= _createConfiguredAudioPlayer();
 
       if (currentRequestId != _playRequestId) return;
 

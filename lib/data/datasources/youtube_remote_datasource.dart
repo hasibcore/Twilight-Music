@@ -636,9 +636,33 @@ class YouTubeRemoteDatasource {
     return _getEmptySearchResult();
   }
 
+  static const Map<String, String> _apiJsonHeaders = {
+    'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+  };
+
+  static String _decodeHtmlEntities(String text) {
+    return text
+        .replaceAll('&quot;', '"')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&#039;', "'")
+        .replaceAll('&#39;', "'")
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>');
+  }
+
   static String _trackDedupeKey(String title, String artist) {
-    final normTitle = title.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
-    final normArtist = artist.split(',').first.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normTitle = _decodeHtmlEntities(title)
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final normArtist = _decodeHtmlEntities(artist)
+        .split(',')
+        .first
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
     return '$normTitle|$normArtist';
   }
 
@@ -650,7 +674,7 @@ class YouTubeRemoteDatasource {
           'https://www.jiosaavn.com/api.php?p=1&q=${Uri.encodeComponent(query.trim())}&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=15&__call=search.getResults',
         );
         final offRes = await client
-            .get(officialUri, headers: ArtworkService.imageHeaders)
+            .get(officialUri, headers: _apiJsonHeaders)
             .timeout(const Duration(milliseconds: 3000));
         if (offRes.statusCode == 200) {
           final offData = jsonDecode(offRes.body);
@@ -662,7 +686,7 @@ class YouTubeRemoteDatasource {
             final seenTracks = <String>{};
             for (final item in items) {
               final id = item['id']?.toString() ?? '';
-              final title = item['title']?.toString() ?? '';
+              final title = _decodeHtmlEntities(item['title']?.toString() ?? '');
               final moreInfo = item['more_info'] as Map<String, dynamic>? ?? {};
               final durSec = int.tryParse(moreInfo['duration']?.toString() ?? '0') ?? 0;
               final encUrl = moreInfo['encrypted_media_url']?.toString() ?? '';
@@ -671,9 +695,12 @@ class YouTubeRemoteDatasource {
               final primaryList = (artistMap['primary_artists'] as List? ?? [])
                   .whereType<Map<String, dynamic>>()
                   .toList();
-              final subtitle = item['subtitle']?.toString() ?? '';
+              final subtitle = _decodeHtmlEntities(item['subtitle']?.toString() ?? '');
               final artistName = primaryList.isNotEmpty
-                  ? primaryList.map((a) => a['name']?.toString() ?? '').where((s) => s.isNotEmpty).join(', ')
+                  ? primaryList
+                      .map((a) => _decodeHtmlEntities(a['name']?.toString() ?? ''))
+                      .where((s) => s.isNotEmpty)
+                      .join(', ')
                   : (subtitle.split(' - ').first.trim().isNotEmpty ? subtitle.split(' - ').first.trim() : 'Artist');
               final trackKey = _trackDedupeKey(title, artistName);
               if (trackKey.length > 1 && seenTracks.contains(trackKey)) continue;
@@ -720,7 +747,7 @@ class YouTubeRemoteDatasource {
           'https://saavn.sumit.co/api/search/songs?query=${Uri.encodeComponent(query.trim())}&limit=15',
         );
         final res = await client
-            .get(uri, headers: ArtworkService.imageHeaders)
+            .get(uri, headers: _apiJsonHeaders)
             .timeout(const Duration(milliseconds: 2800));
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
@@ -734,7 +761,7 @@ class YouTubeRemoteDatasource {
             final seenTracks = <String>{};
             for (final item in items) {
               final id = item['id']?.toString() ?? '';
-              final title = item['name']?.toString() ?? '';
+              final title = _decodeHtmlEntities(item['name']?.toString() ?? '');
               final durSec = int.tryParse(item['duration']?.toString() ?? '0') ?? 0;
               if (id.isEmpty || title.isEmpty || durSec <= 35) continue;
               final primaryList =
@@ -742,8 +769,11 @@ class YouTubeRemoteDatasource {
                       .whereType<Map<String, dynamic>>()
                       .toList();
               final artistName = primaryList.isNotEmpty
-                  ? primaryList.map((a) => a['name']?.toString() ?? '').where((s) => s.isNotEmpty).join(', ')
-                  : (item['label']?.toString() ?? 'Artist');
+                  ? primaryList
+                      .map((a) => _decodeHtmlEntities(a['name']?.toString() ?? ''))
+                      .where((s) => s.isNotEmpty)
+                      .join(', ')
+                  : _decodeHtmlEntities(item['label']?.toString() ?? 'Artist');
               final trackKey = _trackDedupeKey(title, artistName);
               if (trackKey.length > 1 && seenTracks.contains(trackKey)) continue;
               if (trackKey.length > 1) seenTracks.add(trackKey);

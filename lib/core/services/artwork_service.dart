@@ -22,9 +22,11 @@ class ArtworkService {
       final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/twilight_notification_logo.png');
       if (!file.existsSync() || file.lengthSync() < 1000) {
-        final byteData = await rootBundle.load('assets/images/twilight_icon.png');
+        final byteData =
+            await rootBundle.load('assets/images/twilight_icon.png');
         await file.writeAsBytes(
-          byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
+          byteData.buffer
+              .asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
           flush: true,
         );
         AppLogger.info('Wrote default notification logo to: ${file.path}');
@@ -42,7 +44,7 @@ class ArtworkService {
   static const Map<String, String> imageHeaders = {
     'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+    'Accept': 'image/jpeg,image/png,image/webp,image/*,*/*;q=0.8',
   };
 
   /// Returns true when [songId] is a genuine 11-character YouTube video ID
@@ -80,6 +82,9 @@ class ArtworkService {
     }
 
     if (raw.contains('saavncdn.com')) {
+      if (raw.contains(r'${1}')) {
+        raw = raw.replaceAll(r'${1}', '-');
+      }
       return raw.replaceAllMapped(
         RegExp(r'([_-])(?:50x50|150x150)(?=\.[a-zA-Z0-9]+(?:\?|$))'),
         (m) => '${m[1]}500x500',
@@ -88,9 +93,17 @@ class ArtworkService {
 
     // If the URL is a YouTube thumbnail, normalize maxresdefault/sddefault to hqdefault
     // and ensure the video ID in the thumbnail URL matches songId when songId is a valid 11-char YT ID.
+    // Also reject previously poisoned ytimg URLs referencing js_/sp_/custom_ IDs so they never 404.
     if (raw.contains('ytimg.com/vi/') || raw.contains('img.youtube.com/vi/')) {
       if (isValidYtId) {
         return 'https://i.ytimg.com/vi/$cleanId/hqdefault.jpg';
+      }
+      final viMatch = RegExp(r'/vi/([^/?#]+)').firstMatch(raw);
+      final embeddedId = viMatch?.group(1) ?? '';
+      if (embeddedId.startsWith('js_') ||
+          embeddedId.startsWith('sp_') ||
+          embeddedId.startsWith('custom_')) {
+        return '';
       }
       return raw
           .replaceAll('/maxresdefault.jpg', '/hqdefault.jpg')
@@ -183,7 +196,8 @@ class ArtworkService {
     }
 
     final cleanSongId = songId?.trim() ?? '';
-    final isFlutterTest = !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
+    final isFlutterTest =
+        !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
 
     // Check if we have a locally cached thumbnail for this song, or download & verify it now
     if (cleanSongId.isNotEmpty) {
@@ -247,4 +261,3 @@ class ArtworkService {
     return null;
   }
 }
-
