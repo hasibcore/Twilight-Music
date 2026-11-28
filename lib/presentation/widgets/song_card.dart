@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../domain/entities/song.dart';
 import '../../core/constants/app_colors.dart';
@@ -7,6 +6,7 @@ import '../providers/download_provider.dart';
 import '../providers/player_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../screens/playlist/create_playlist_dialog.dart';
+import 'cached_artwork_image.dart';
 
 enum SongCardVariant { horizontalCard, listTile }
 
@@ -51,33 +51,26 @@ class SongCard extends StatelessWidget {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(10),
-                  child: song.thumbnailUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: song.thumbnailUrl,
-                          width: 145,
-                          height: 145,
-                          fit: BoxFit.cover,
-                          placeholder: (_, __) => Container(
-                            width: 145,
-                            height: 145,
-                            color: AppColors.surfaceVariantDark,
-                            child: const Center(
-                              child: Icon(Icons.music_note, color: Colors.white24),
-                            ),
-                          ),
-                          errorWidget: (_, __, ___) => Container(
-                            width: 145,
-                            height: 145,
-                            color: AppColors.surfaceVariantDark,
-                            child: const Icon(Icons.broken_image, color: Colors.white24),
-                          ),
-                        )
-                      : Container(
-                          width: 145,
-                          height: 145,
-                          color: AppColors.surfaceVariantDark,
-                          child: const Icon(Icons.music_note, color: Colors.white24),
-                        ),
+                  child: CachedArtworkImage(
+                    imageUrl: song.thumbnailUrl,
+                    songId: song.id,
+                    width: 145,
+                    height: 145,
+                    placeholderWidget: Container(
+                      width: 145,
+                      height: 145,
+                      color: AppColors.surfaceVariantDark,
+                      child: const Center(
+                        child: Icon(Icons.music_note, color: Colors.white24),
+                      ),
+                    ),
+                    fallbackWidget: Container(
+                      width: 145,
+                      height: 145,
+                      color: AppColors.surfaceVariantDark,
+                      child: const Icon(Icons.music_note, color: Colors.white24),
+                    ),
+                  ),
                 ),
                 if (isCurrent)
                   Positioned.fill(
@@ -138,25 +131,23 @@ class SongCard extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(6),
-            child: song.thumbnailUrl.isNotEmpty
-                ? CachedNetworkImage(
-                    imageUrl: song.thumbnailUrl,
-                    width: 52,
-                    height: 52,
-                    fit: BoxFit.cover,
-                    errorWidget: (_, __, ___) => Container(
-                      width: 52,
-                      height: 52,
-                      color: AppColors.surfaceVariant(context),
-                      child: Icon(Icons.music_note, color: AppColors.iconMuted(context)),
-                    ),
-                  )
-                : Container(
-                    width: 52,
-                    height: 52,
-                    color: AppColors.surfaceVariant(context),
-                    child: Icon(Icons.music_note, color: AppColors.iconMuted(context)),
-                  ),
+            child: CachedArtworkImage(
+              imageUrl: song.thumbnailUrl,
+              songId: song.id,
+              width: 52,
+              height: 52,
+              placeholderWidget: Container(
+                width: 52,
+                height: 52,
+                color: AppColors.surfaceVariant(context),
+              ),
+              fallbackWidget: Container(
+                width: 52,
+                height: 52,
+                color: AppColors.surfaceVariant(context),
+                child: Icon(Icons.music_note, color: AppColors.iconMuted(context)),
+              ),
+            ),
           ),
           if (isCurrent)
             Container(
@@ -217,25 +208,18 @@ class SongCard extends StatelessWidget {
               ListTile(
                 leading: ClipRRect(
                   borderRadius: BorderRadius.circular(6),
-                  child: song.thumbnailUrl.isNotEmpty
-                      ? CachedNetworkImage(
-                          imageUrl: song.thumbnailUrl,
-                          width: 44,
-                          height: 44,
-                          fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => Container(
-                            width: 44,
-                            height: 44,
-                            color: AppColors.surfaceVariantDark,
-                            child: const Icon(Icons.music_note, color: Colors.white38),
-                          ),
-                        )
-                      : Container(
-                          width: 44,
-                          height: 44,
-                          color: AppColors.surfaceVariantDark,
-                          child: const Icon(Icons.music_note, color: Colors.white38),
-                        ),
+                  child: CachedArtworkImage(
+                    imageUrl: song.thumbnailUrl,
+                    songId: song.id,
+                    width: 44,
+                    height: 44,
+                    fallbackWidget: Container(
+                      width: 44,
+                      height: 44,
+                      color: AppColors.surfaceVariantDark,
+                      child: const Icon(Icons.music_note, color: Colors.white38),
+                    ),
+                  ),
                 ),
                 title: Text(
                   song.title,

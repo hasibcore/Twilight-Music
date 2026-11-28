@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:melody_tube/core/services/artwork_service.dart';
+import 'package:melody_tube/data/models/song_model.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -53,6 +54,37 @@ void main() {
           songId: 'kXYiU_JCYtU',
         ),
         equals('https://i.ytimg.com/vi/kXYiU_JCYtU/hqdefault.jpg'),
+      );
+    });
+
+    test('11-char js_* JioSaavn IDs keep HTTPS CDN artwork and never map to fake YouTube thumbnails', () {
+      expect(ArtworkService.isYouTubeVideoId('js_BX6n0TPe'), isFalse);
+      expect(ArtworkService.isYouTubeVideoId('dQw4w9WgXcQ'), isTrue);
+
+      const httpLowRes = 'http://c.saavncdn.com/400/Trending-Punjabi-2024-20241114144017-150x150.jpg';
+      final normalized = ArtworkService.normalizeThumbnailUrl(httpLowRes, songId: 'js_BX6n0TPe');
+      expect(
+        normalized,
+        equals('https://c.saavncdn.com/400/Trending-Punjabi-2024-20241114144017-500x500.jpg'),
+      );
+      expect(normalized.contains(r'${1}'), isFalse);
+
+      expect(
+        ArtworkService.fallbackThumbnailUrl(normalized, songId: 'js_BX6n0TPe'),
+        equals('https://c.saavncdn.com/400/Trending-Punjabi-2024-20241114144017-150x150.jpg'),
+      );
+
+      final song = SongModel.fromJson({
+        'id': 'js_BX6n0TPe',
+        'title': 'Trending',
+        'artist': 'Vicky Dhaliwal',
+        'channelId': 'js_BX6n0TPe',
+        'thumbnailUrl': httpLowRes,
+        'durationSeconds': 133,
+      });
+      expect(
+        song.thumbnailUrl,
+        equals('https://c.saavncdn.com/400/Trending-Punjabi-2024-20241114144017-500x500.jpg'),
       );
     });
   });

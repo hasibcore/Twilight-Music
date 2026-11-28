@@ -479,9 +479,9 @@ export class MusicApi {
           seen.add(dedupeKey);
 
           const images: any[] = Array.isArray(item?.image) ? item.image : [];
-          const highResArt =
-            (images.length > 0 ? String(images[images.length - 1]?.url || '') : '') ||
-            'https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg';
+          const rawArt = images.length > 0 ? String(images[images.length - 1]?.url || '').trim() : '';
+          const httpsArt = rawArt.startsWith('http://') ? `https://${rawArt.slice(7)}` : rawArt;
+          const highResArt = httpsArt || 'https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg';
 
           clientDirectStreamCache.set(trackId, fullStreamUrl);
           results.push({

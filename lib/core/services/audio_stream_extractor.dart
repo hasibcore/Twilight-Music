@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
+import 'artwork_service.dart';
 import '../utils/logger.dart';
 
 class AudioStreamResult {
@@ -689,15 +690,15 @@ class AudioStreamExtractor {
       return _metadataByVideoId[cleanId]!;
     }
 
-    if (cleanId.length == 11 && !cleanId.startsWith('sp_')) {
+    if (ArtworkService.isYouTubeVideoId(cleanId)) {
       try {
         final oembedUri = Uri.parse(
           'https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$cleanId&format=json',
         );
         final res = await _getWithRetry(
           oembedUri,
-          timeout: const Duration(milliseconds: 2500),
-          retries: 1,
+          timeout: const Duration(milliseconds: 2200),
+          retries: 0,
         );
         if (res != null && res.statusCode == 200) {
           final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -720,7 +721,7 @@ class AudioStreamExtractor {
   /// Retries once on transient socket/timeout or 5xx/429 responses.
   static Future<AudioStreamResult?> _verifyStreamPlayable(
     AudioStreamResult? candidate, {
-    Duration timeout = const Duration(milliseconds: 1800),
+    Duration timeout = const Duration(milliseconds: 1200),
   }) async {
     if (candidate == null || candidate.url.isEmpty) return null;
     for (int attempt = 0; attempt < 2; attempt++) {
@@ -845,8 +846,8 @@ class AudioStreamExtractor {
     }
 
     final candidates = <Future<AudioStreamResult?>>[
-      probeTier('Android VR', () => _extractFromAndroidVr(cleanId)),
       probeTier('iOS App', () => _extractFromIosApp(cleanId)),
+      probeTier('Android VR', () => _extractFromAndroidVr(cleanId)),
       probeTier('Android Music', () => _extractFromAndroidMusic(cleanId)),
       probeTier('TV Embedded', () => _extractFromTvEmbedded(cleanId)),
       probeTier('Android App', () => _extractFromAndroidApp(cleanId)),
@@ -856,7 +857,7 @@ class AudioStreamExtractor {
     ];
 
     try {
-      return await _firstNonNull(candidates, const Duration(milliseconds: 3500));
+      return await _firstNonNull(candidates, const Duration(milliseconds: 2800));
     } catch (_) {
       return null;
     }
@@ -935,141 +936,156 @@ class AudioStreamExtractor {
   static Future<AudioStreamResult?> _extractDirectJioSaavnById(String rawJioSaavnId) async {
     final pid = rawJioSaavnId.trim();
     if (pid.isEmpty) return null;
-    try {
-      final detailsUri = Uri.parse(
-        'https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${Uri.encodeComponent(pid)}&_format=json&_marker=0&api_version=4&ctx=web6dot0',
-      );
-      final detailsRes = await _getWithRetry(
-        detailsUri,
-        headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-        timeout: const Duration(milliseconds: 2800),
-        retries: 1,
-      );
-      if (detailsRes != null && detailsRes.statusCode == 200) {
-        final detailsData = jsonDecode(detailsRes.body);
-        Map<String, dynamic>? songItem;
-        if (detailsData is Map<String, dynamic>) {
-          if (detailsData[pid] is Map<String, dynamic>) {
-            songItem = detailsData[pid] as Map<String, dynamic>;
-          } else if (detailsData['songs'] is List && (detailsData['songs'] as List).isNotEmpty) {
-            final first = (detailsData['songs'] as List).first;
-            if (first is Map<String, dynamic>) songItem = first;
-          }
-        }
-        final moreInfo = songItem?['more_info'] as Map<String, dynamic>? ?? {};
-        final encUrl = moreInfo['encrypted_media_url']?.toString() ??
-            songItem?['encrypted_media_url']?.toString() ??
-            '';
-        if (encUrl.isNotEmpty) {
-          final authUri = Uri.parse(
-            'https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=${Uri.encodeComponent(encUrl)}&bitrate=320&api_version=4&_format=json&ctx=web6dot0&_marker=0',
-          );
-          final authRes = await _getWithRetry(
-            authUri,
-            headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-            timeout: const Duration(milliseconds: 2600),
-            retries: 1,
-          );
-          if (authRes != null && authRes.statusCode == 200) {
-            final authData = jsonDecode(authRes.body);
-            if (authData is Map<String, dynamic>) {
-              final rawAuthUrl = authData['auth_url']?.toString() ?? '';
-              if (rawAuthUrl.isNotEmpty) {
-                final directCdnUrl = rawAuthUrl
-                    .replaceFirst('https://web.saavncdn.com', 'https://aac.saavncdn.com')
-                    .replaceFirst('http://web.saavncdn.com', 'https://aac.saavncdn.com')
-                    .split('?')
-                    .first;
-                int contentLen = 0;
-                bool rejectedByCdn = false;
-                try {
-                  final headRes = await _headWithRetry(
-                    Uri.parse(directCdnUrl),
-                    headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-                    timeout: const Duration(milliseconds: 2500),
-                    retries: 0,
-                  );
-                  if (headRes != null) {
-                    if (headRes.statusCode >= 400) {
-                      rejectedByCdn = true;
-                    } else {
-                      contentLen = int.tryParse(headRes.headers['content-length'] ?? '0') ?? 0;
-                    }
-                  }
-                } catch (_) {}
-                if (!rejectedByCdn) {
-                  return AudioStreamResult(
-                    url: directCdnUrl,
-                    totalBytes: contentLen,
-                    mimeType: 'audio/mp4',
-                    bitrate: 320000,
-                    headers: const {
-                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                      'Accept': '*/*',
-                    },
-                    isDirectDownloadable: true,
-                  );
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch (_) {}
 
-    try {
-      final sumitUri = Uri.parse('https://saavn.sumit.co/api/songs/${Uri.encodeComponent(pid)}');
-      final sumitRes = await _getWithRetry(
-        sumitUri,
-        headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-        timeout: const Duration(milliseconds: 2500),
-        retries: 0,
-      );
-      if (sumitRes != null && sumitRes.statusCode == 200) {
-        final data = jsonDecode(sumitRes.body);
-        if (data is Map<String, dynamic>) {
-          final rawData = data['data'];
-          final item = rawData is List && rawData.isNotEmpty
-              ? rawData.first
-              : (rawData is Map<String, dynamic> ? rawData : null);
-          if (item is Map<String, dynamic>) {
-            final dls = item['downloadUrl'] as List? ?? [];
-            if (dls.isNotEmpty) {
-              final best = dls.last;
-              final url = (best is Map ? best['url'] : null)?.toString() ?? '';
-              if (url.isNotEmpty) {
-                bool rejected = false;
-                try {
-                  final headRes = await _headWithRetry(
-                    Uri.parse(url),
-                    headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-                    timeout: const Duration(milliseconds: 1600),
-                    retries: 0,
-                  );
-                  if (headRes != null && headRes.statusCode >= 400) {
-                    rejected = true;
+    Future<AudioStreamResult?> fetchSumit() async {
+      try {
+        final sumitUri = Uri.parse('https://saavn.sumit.co/api/songs/${Uri.encodeComponent(pid)}');
+        final sumitRes = await _getWithRetry(
+          sumitUri,
+          headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+          timeout: const Duration(milliseconds: 2400),
+          retries: 0,
+        );
+        if (sumitRes != null && sumitRes.statusCode == 200) {
+          final data = jsonDecode(sumitRes.body);
+          if (data is Map<String, dynamic>) {
+            final rawData = data['data'];
+            final item = rawData is List && rawData.isNotEmpty
+                ? rawData.first
+                : (rawData is Map<String, dynamic> ? rawData : null);
+            if (item is Map<String, dynamic>) {
+              final dls = item['downloadUrl'] as List? ?? [];
+              if (dls.isNotEmpty) {
+                final best = dls.last;
+                final url = (best is Map ? best['url'] : null)?.toString() ?? '';
+                if (url.isNotEmpty) {
+                  final httpsUrl = url.startsWith('http://') ? 'https://${url.substring(7)}' : url;
+                  int contentLen = 0;
+                  bool rejected = false;
+                  try {
+                    final headRes = await _headWithRetry(
+                      Uri.parse(httpsUrl),
+                      headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+                      timeout: const Duration(milliseconds: 900),
+                      retries: 0,
+                    );
+                    if (headRes != null) {
+                      if (headRes.statusCode >= 400) {
+                        rejected = true;
+                      } else {
+                        contentLen = int.tryParse(headRes.headers['content-length'] ?? '0') ?? 0;
+                      }
+                    }
+                  } catch (_) {}
+                  if (!rejected) {
+                    return AudioStreamResult(
+                      url: httpsUrl,
+                      totalBytes: contentLen,
+                      mimeType: 'audio/mp4',
+                      bitrate: 320000,
+                      headers: const {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                        'Accept': '*/*',
+                      },
+                      isDirectDownloadable: true,
+                    );
                   }
-                } catch (_) {}
-                if (!rejected) {
-                  return AudioStreamResult(
-                    url: url,
-                    totalBytes: 0,
-                    mimeType: 'audio/mp4',
-                    bitrate: 320000,
-                    headers: const {
-                      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                      'Accept': '*/*',
-                    },
-                    isDirectDownloadable: true,
-                  );
                 }
               }
             }
           }
         }
-      }
-    } catch (_) {}
-    return null;
+      } catch (_) {}
+      return null;
+    }
+
+    Future<AudioStreamResult?> fetchOfficial() async {
+      try {
+        final detailsUri = Uri.parse(
+          'https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${Uri.encodeComponent(pid)}&_format=json&_marker=0&api_version=4&ctx=web6dot0',
+        );
+        final detailsRes = await _getWithRetry(
+          detailsUri,
+          headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+          timeout: const Duration(milliseconds: 2200),
+          retries: 0,
+        );
+        if (detailsRes != null && detailsRes.statusCode == 200) {
+          final detailsData = jsonDecode(detailsRes.body);
+          Map<String, dynamic>? songItem;
+          if (detailsData is Map<String, dynamic>) {
+            if (detailsData[pid] is Map<String, dynamic>) {
+              songItem = detailsData[pid] as Map<String, dynamic>;
+            } else if (detailsData['songs'] is List && (detailsData['songs'] as List).isNotEmpty) {
+              final first = (detailsData['songs'] as List).first;
+              if (first is Map<String, dynamic>) songItem = first;
+            }
+          }
+          final moreInfo = songItem?['more_info'] as Map<String, dynamic>? ?? {};
+          final encUrl = moreInfo['encrypted_media_url']?.toString() ??
+              songItem?['encrypted_media_url']?.toString() ??
+              '';
+          if (encUrl.isNotEmpty) {
+            final authUri = Uri.parse(
+              'https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=${Uri.encodeComponent(encUrl)}&bitrate=320&api_version=4&_format=json&ctx=web6dot0&_marker=0',
+            );
+            final authRes = await _getWithRetry(
+              authUri,
+              headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+              timeout: const Duration(milliseconds: 2000),
+              retries: 0,
+            );
+            if (authRes != null && authRes.statusCode == 200) {
+              final authData = jsonDecode(authRes.body);
+              if (authData is Map<String, dynamic>) {
+                final rawAuthUrl = authData['auth_url']?.toString() ?? '';
+                if (rawAuthUrl.isNotEmpty) {
+                  final directCdnUrl = rawAuthUrl
+                      .replaceFirst('https://web.saavncdn.com', 'https://aac.saavncdn.com')
+                      .replaceFirst('http://web.saavncdn.com', 'https://aac.saavncdn.com')
+                      .split('?')
+                      .first;
+                  int contentLen = 0;
+                  bool rejectedByCdn = false;
+                  try {
+                    final headRes = await _headWithRetry(
+                      Uri.parse(directCdnUrl),
+                      headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
+                      timeout: const Duration(milliseconds: 900),
+                      retries: 0,
+                    );
+                    if (headRes != null) {
+                      if (headRes.statusCode >= 400) {
+                        rejectedByCdn = true;
+                      } else {
+                        contentLen = int.tryParse(headRes.headers['content-length'] ?? '0') ?? 0;
+                      }
+                    }
+                  } catch (_) {}
+                  if (!rejectedByCdn) {
+                    return AudioStreamResult(
+                      url: directCdnUrl,
+                      totalBytes: contentLen,
+                      mimeType: 'audio/mp4',
+                      bitrate: 320000,
+                      headers: const {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                        'Accept': '*/*',
+                      },
+                      isDirectDownloadable: true,
+                    );
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    // Race single-hop saavn.sumit.co and two-step JioSaavn API concurrently (~0.8s instead of 4-10s sequential)
+    return _firstNonNull([fetchSumit(), fetchOfficial()], const Duration(milliseconds: 3000));
   }
 
   /// Resolves a verified high-bitrate CDN stream (JioSaavn 320kbps, SoundCloud, or saavn.sumit.co)
@@ -1080,8 +1096,9 @@ class AudioStreamExtractor {
     String? artist,
     int? durationSeconds,
     bool allowKnownMaster = true,
+    bool skipDirectJioSaavnId = false,
   }) async {
-    if (cleanId.startsWith('js_') && cleanId.length > 3) {
+    if (!skipDirectJioSaavnId && cleanId.startsWith('js_') && cleanId.length > 3) {
       final directJs = await _extractDirectJioSaavnById(cleanId.substring(3));
       if (directJs != null) return directJs;
     }
@@ -1146,7 +1163,7 @@ class AudioStreamExtractor {
     ];
 
     try {
-      return await _firstNonNull(cdnFutures, const Duration(milliseconds: 5200));
+      return await _firstNonNull(cdnFutures, const Duration(milliseconds: 3600));
     } catch (_) {
       return null;
     }
@@ -1231,6 +1248,7 @@ class AudioStreamExtractor {
         artist: artist,
         durationSeconds: durationSeconds,
         allowKnownMaster: !forceRefresh && !preferCdnFallback,
+        skipDirectJioSaavnId: forceRefresh && preferCdnFallback,
       );
 
       if (preferCdnFallback) {
@@ -1306,7 +1324,7 @@ class AudioStreamExtractor {
       });
 
       final racedResult = await raceCompleter.future.timeout(
-        const Duration(milliseconds: 5500),
+        const Duration(milliseconds: 4000),
         onTimeout: () {
           graceTimer?.cancel();
           return ytResult ?? cdnResult;
@@ -1327,19 +1345,36 @@ class AudioStreamExtractor {
           final coreTokens = _getCoreTitleTokens(coreTitle);
           if (coreTokens.isNotEmpty) {
             final ytQuery = '$coreTitle ${parsedMeta['artist'] ?? artist ?? ''}'.trim();
-            final searchResults = await _yt.search.search(ytQuery).timeout(const Duration(seconds: 3));
-            for (final v in searchResults.take(5)) {
-              final vidId = v.id.value;
-              final candTitle = _stripParentheticalAndEntities(v.title).toLowerCase();
-              final candDur = v.duration?.inSeconds ?? 0;
-              if (candDur > 0 && candDur <= 45) continue;
-              if (durationSeconds != null &&
-                  durationSeconds > 0 &&
-                  candDur > 0 &&
-                  (candDur - durationSeconds).abs() > 40) {
-                continue;
+            final innerTubeIdsFuture = _searchYouTubeInnerTube(ytQuery, durationSeconds: durationSeconds, coreTokens: coreTokens);
+            final ytSearchFuture = () async {
+              try {
+                final searchResults = await _yt.search.search(ytQuery).timeout(const Duration(seconds: 3));
+                final matchedIds = <String>[];
+                for (final v in searchResults.take(5)) {
+                  final vidId = v.id.value;
+                  final candTitle = _stripParentheticalAndEntities(v.title).toLowerCase();
+                  final candDur = v.duration?.inSeconds ?? 0;
+                  if (candDur > 0 && candDur <= 45) continue;
+                  if (durationSeconds != null &&
+                      durationSeconds > 0 &&
+                      candDur > 0 &&
+                      (candDur - durationSeconds).abs() > 40) {
+                    continue;
+                  }
+                  if (!coreTokens.every((ct) => _tokenMatchesText(ct, candTitle))) continue;
+                  matchedIds.add(vidId);
+                }
+                return matchedIds;
+              } catch (_) {
+                return <String>[];
               }
-              if (!coreTokens.every((ct) => _tokenMatchesText(ct, candTitle))) continue;
+            }();
+
+            final candidates = <String>{
+              ...(await innerTubeIdsFuture),
+              ...(await ytSearchFuture),
+            };
+            for (final vidId in candidates.take(4)) {
               final ytFallback = await _extractVerifiedYouTubeDirect(vidId);
               if (ytFallback != null) {
                 _setCache(cacheKey, ytFallback);
@@ -1624,7 +1659,9 @@ class AudioStreamExtractor {
     String rawContext = '',
     int? targetDurationSeconds,
   }) async {
-    String scClientId = await _getSoundCloudClientId();
+    String scClientId = _cachedScClientId.isNotEmpty
+        ? _cachedScClientId
+        : await _getSoundCloudClientId();
     final coreTokens = _getCoreTitleTokens(title);
     if (coreTokens.isEmpty) return null;
     final normTargetArtist = artist.toLowerCase().replaceAll(_nonWordUnicodeRegex, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -1665,8 +1702,8 @@ class AudioStreamExtractor {
       var res = await _getWithRetry(
         searchUri,
         headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-        timeout: const Duration(milliseconds: 3500),
-        retries: 2,
+        timeout: const Duration(milliseconds: 2600),
+        retries: 1,
       );
 
       if (res != null && (res.statusCode == 401 || res.statusCode == 403)) {
@@ -1677,8 +1714,8 @@ class AudioStreamExtractor {
         res = await _getWithRetry(
           searchUri,
           headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-          timeout: const Duration(milliseconds: 3500),
-          retries: 1,
+          timeout: const Duration(milliseconds: 2600),
+          retries: 0,
         );
       }
 
@@ -2051,6 +2088,87 @@ class AudioStreamExtractor {
     return null;
   }
 
+  static Future<List<String>> _searchYouTubeInnerTube(
+    String query, {
+    int? durationSeconds,
+    List<String> coreTokens = const [],
+  }) async {
+    try {
+      final res = await _postWithRetry(
+        Uri.parse('https://www.youtube.com/youtubei/v1/search?prettyPrint=false'),
+        headers: const {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        },
+        body: jsonEncode({
+          'context': {
+            'client': {
+              'hl': 'en',
+              'gl': 'US',
+              'clientName': 'WEB',
+              'clientVersion': '2.20240920.01.00',
+            }
+          },
+          'query': query,
+        }),
+        timeout: const Duration(milliseconds: 2400),
+        retries: 0,
+      );
+      if (res == null || res.statusCode != 200) return const [];
+      final data = jsonDecode(res.body);
+      final ids = <String>[];
+      final seen = <String>{};
+
+      String extractText(dynamic node) {
+        if (node is Map<String, dynamic>) {
+          if (node['simpleText'] is String) return node['simpleText'] as String;
+          final runs = node['runs'];
+          if (runs is List) return runs.map((r) => r is Map ? (r['text'] ?? '').toString() : '').join();
+        }
+        return '';
+      }
+
+      int parseDur(String formatted) {
+        final parts = formatted.split(':').map((p) => int.tryParse(p) ?? 0).toList();
+        if (parts.length == 2) return parts[0] * 60 + parts[1];
+        if (parts.length == 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        return 0;
+      }
+
+      void walk(dynamic node) {
+        if (ids.length >= 5) return;
+        if (node is Map<String, dynamic>) {
+          if (node['videoRenderer'] is Map<String, dynamic>) {
+            final vr = node['videoRenderer'] as Map<String, dynamic>;
+            final vid = vr['videoId']?.toString() ?? '';
+            final candTitle = _stripParentheticalAndEntities(extractText(vr['title'])).toLowerCase();
+            final candDur = parseDur(extractText(vr['lengthText']));
+            if (ArtworkService.isYouTubeVideoId(vid) && !seen.contains(vid)) {
+              if ((candDur == 0 || candDur > 45) &&
+                  (durationSeconds == null || durationSeconds <= 0 || candDur == 0 || (candDur - durationSeconds).abs() <= 40) &&
+                  (coreTokens.isEmpty || coreTokens.every((ct) => _tokenMatchesText(ct, candTitle)))) {
+                seen.add(vid);
+                ids.add(vid);
+              }
+            }
+          }
+          for (final v in node.values) {
+            walk(v);
+          }
+        } else if (node is List) {
+          for (final item in node) {
+            walk(item);
+          }
+        }
+      }
+
+      walk(data);
+      return ids;
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// Extracts exact YouTube video audio via official YouTube Android VR client
   static Future<AudioStreamResult?> _extractFromAndroidVr(String videoId) async {
     final uri = Uri.parse('https://www.youtube.com/youtubei/v1/player?prettyPrint=false');
@@ -2085,8 +2203,8 @@ class AudioStreamExtractor {
         'Accept': '*/*',
       },
       body: jsonEncode(payload),
-      timeout: const Duration(milliseconds: 2800),
-      retries: 1,
+      timeout: const Duration(milliseconds: 2200),
+      retries: 0,
     );
 
     if (res == null || res.statusCode != 200) return null;
@@ -2132,8 +2250,8 @@ class AudioStreamExtractor {
       uri,
       headers: _iosAppHeaders,
       body: jsonEncode(payload),
-      timeout: const Duration(milliseconds: 2800),
-      retries: 1,
+      timeout: const Duration(milliseconds: 2200),
+      retries: 0,
     );
 
     if (res == null || res.statusCode != 200) return null;
@@ -2175,8 +2293,8 @@ class AudioStreamExtractor {
       uri,
       headers: _mwebHeaders,
       body: jsonEncode(payload),
-      timeout: const Duration(milliseconds: 2800),
-      retries: 1,
+      timeout: const Duration(milliseconds: 2200),
+      retries: 0,
     );
 
     if (res == null || res.statusCode != 200) return null;
@@ -2208,8 +2326,8 @@ class AudioStreamExtractor {
         final res = await _getWithRetry(
           uri,
           headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
-          timeout: const Duration(milliseconds: 2200),
-          retries: 1,
+          timeout: const Duration(milliseconds: 1800),
+          retries: 0,
         );
 
         if (res == null || res.statusCode != 200) return null;
@@ -2303,7 +2421,7 @@ class AudioStreamExtractor {
 
     return _firstNonNull(
       _invidiousInstances.map(queryInstance).toList(),
-      const Duration(milliseconds: 2800),
+      const Duration(milliseconds: 2200),
     );
   }
 
@@ -2337,8 +2455,8 @@ class AudioStreamExtractor {
       uri,
       headers: _tvHeaders,
       body: jsonEncode(payload),
-      timeout: const Duration(milliseconds: 2800),
-      retries: 1,
+      timeout: const Duration(milliseconds: 2200),
+      retries: 0,
     );
 
     if (res == null || res.statusCode != 200) return null;
@@ -2383,8 +2501,8 @@ class AudioStreamExtractor {
       uri,
       headers: _androidMusicHeaders,
       body: jsonEncode(payload),
-      timeout: const Duration(milliseconds: 2800),
-      retries: 1,
+      timeout: const Duration(milliseconds: 2200),
+      retries: 0,
     );
 
     if (res == null || res.statusCode != 200) return null;
@@ -2427,8 +2545,8 @@ class AudioStreamExtractor {
       uri,
       headers: _androidAppHeaders,
       body: jsonEncode(payload),
-      timeout: const Duration(milliseconds: 2800),
-      retries: 1,
+      timeout: const Duration(milliseconds: 2200),
+      retries: 0,
     );
 
     if (res == null || res.statusCode != 200) return null;

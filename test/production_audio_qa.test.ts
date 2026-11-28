@@ -283,11 +283,22 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(icStatMusicXml, /Rounded center play triangle/);
     assert.match(icStatMusicXml, /Upper-right orbital accent dot/);
 
-    // Verify audio_service_stop.png is a valid RGBA PNG (colorType 6) so Android MediaStyle never renders a solid white square
-    assert.strictEqual(stopPng.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
-    assert.strictEqual(stopPng.subarray(12, 16).toString('ascii'), 'IHDR');
-    const colorType = stopPng[25];
-    assert.strictEqual(colorType, 6, 'audio_service_stop.png must use RGBA color type 6 for transparent alpha mask');
+    // Verify audio_service_stop.png and all density-specific overrides (mdpi..xxxhdpi) are valid RGBA PNGs (colorType 6)
+    // so Android MediaStyle never loads audio_service plugin's solid white square fallback on xhdpi/xxhdpi/xxxhdpi devices
+    const stopDensities = [
+      'drawable/audio_service_stop.png',
+      'drawable-mdpi/audio_service_stop.png',
+      'drawable-hdpi/audio_service_stop.png',
+      'drawable-xhdpi/audio_service_stop.png',
+      'drawable-xxhdpi/audio_service_stop.png',
+      'drawable-xxxhdpi/audio_service_stop.png',
+    ];
+    for (const rel of stopDensities) {
+      const buf = fs.readFileSync(path.join(rootDir, 'android/app/src/main/res', rel));
+      assert.strictEqual(buf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', `${rel} must be valid PNG`);
+      assert.strictEqual(buf.subarray(12, 16).toString('ascii'), 'IHDR', `${rel} missing IHDR`);
+      assert.strictEqual(buf[25], 6, `${rel} must use RGBA color type 6 for transparent alpha mask`);
+    }
 
     assert.match(artworkServiceDart, /Uri\.file\(localFile\.path\)/);
   });
@@ -700,8 +711,8 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     // 1. Flutter must NOT await _audioPlayer!.play() before clearing _isLoading / _isResolvingSong
     assert.match(playerProvDart, /unawaited\(\s*_audioPlayer!\.play\(\)\.catchError/);
     assert.doesNotMatch(playerProvDart, /\n\s*await _audioPlayer!\.play\(\);\s*\n\s*_loadingWatchdog/);
-    assert.match(playerProvDart, /await _audioPlayer!\.setAudioSource\(source\)\.timeout\(const Duration\(seconds: 15\)\)/);
-    assert.match(playerProvDart, /await _audioPlayer!\.setAudioSource\(fallbackSource\)\.timeout\(const Duration\(seconds: 15\)\)/);
+    assert.match(playerProvDart, /await _audioPlayer!\.setAudioSource\(source\)\.timeout\(const Duration\(seconds:\s*(?:9|10|15)\)\)/);
+    assert.match(playerProvDart, /await _audioPlayer!\.setAudioSource\(fallbackSource\)\.timeout\(const Duration\(seconds:\s*(?:10|15)\)\)/);
 
     // 2. Server filters compilation mixes on /api/trending & /api/search, probes Tier 3 URLs, and never exposes raw googlevideo.com directCdnUrl to browser
     assert.match(serverTs, /const COMPILATION_MIX_REGEX/);
@@ -1372,5 +1383,37 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(musicContextTsx, /tx\.onabort = finish;/);
     assert.match(musicContextTsx, /req\.onblocked = \(\) => finish\(null\);/);
     assert.match(musicContextTsx, /offlineDownloadInFlightRef/);
+  });
+
+  it('Scenario 37: Verify js_* 11-char artwork preservation, home deduplication, concurrent JioSaavn lookup & fast ExoPlayer startup', () => {
+    const artworkDart = fs.readFileSync(path.join(rootDir, 'lib/core/services/artwork_service.dart'), 'utf8');
+    const homeDart = fs.readFileSync(path.join(rootDir, 'lib/presentation/screens/home/home_screen.dart'), 'utf8');
+    const songModelDart = fs.readFileSync(path.join(rootDir, 'lib/data/models/song_model.dart'), 'utf8');
+    const importDart = fs.readFileSync(path.join(rootDir, 'lib/core/services/music_import_service.dart'), 'utf8');
+    const extractorDart = fs.readFileSync(path.join(rootDir, 'lib/core/services/audio_stream_extractor.dart'), 'utf8');
+    const playerProvDart = fs.readFileSync(path.join(rootDir, 'lib/presentation/providers/player_provider.dart'), 'utf8');
+    const datasourceDart = fs.readFileSync(path.join(rootDir, 'lib/data/datasources/youtube_remote_datasource.dart'), 'utf8');
+    const homeTsx = fs.readFileSync(path.join(rootDir, 'src/screens/HomeScreen.tsx'), 'utf8');
+    const audioPlayerTsx = fs.readFileSync(path.join(rootDir, 'src/components/AudioPlayer.tsx'), 'utf8');
+    const serverTs = fs.readFileSync(path.join(rootDir, 'server.ts'), 'utf8');
+
+    // ArtworkService, HomeScreen, SongModel, MusicImportService, Web Home/AudioPlayer exclude 11-char js_* IDs from ytimg rewrite & use replaceAllMapped
+    assert.match(artworkDart, /!cleanId\.startsWith\('js_'\)/);
+    assert.match(artworkDart, /replaceAllMapped\(/);
+    assert.doesNotMatch(artworkDart, /r'\$\{1\}500x500'/);
+    assert.match(homeDart, /ArtworkService\.normalizeThumbnailUrl/);
+    assert.match(homeDart, /_dedupeAndNormalizeSongs/);
+    assert.match(songModelDart, /ArtworkService\.normalizeThumbnailUrl/);
+    assert.match(importDart, /!song\.id\.startsWith\('js_'\)/);
+    assert.match(homeTsx, /!cid\.startsWith\('js_'\)/);
+    assert.match(audioPlayerTsx, /!cid\.startsWith\('js_'\)/);
+
+    // Concurrent JioSaavn extraction & fast playback startup
+    assert.match(extractorDart, /ArtworkService\.isYouTubeVideoId\(cleanId\)/);
+    assert.match(extractorDart, /skipDirectJioSaavnId/);
+    assert.match(extractorDart, /_searchYouTubeInnerTube/);
+    assert.match(datasourceDart, /_trackDedupeKey/);
+    assert.match(playerProvDart, /bufferForPlaybackDuration:\s*Duration\(milliseconds:\s*500\)/);
+    assert.match(serverTs, /Promise\.allSettled\(\[fetchSumitById\(\),\s*fetchOfficialById\(\)\]\)/);
   });
 });

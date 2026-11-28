@@ -67,7 +67,9 @@ void main() async {
             androidShowNotificationBadge: true,
             // Strictly monochrome white-on-transparent vector status bar icon
             androidNotificationIcon: 'drawable/ic_stat_music',
-            notificationColor: const Color(0xFF6366F1),
+            // No explicit notificationColor — avoids opaque colored circles around
+            // action buttons (stop/skip) on Samsung One UI and MIUI.
+            // The MediaStyle artwork background naturally tints the notification.
             preloadArtwork: true,
           );
           AppLogger.info('JustAudioBackground initialized successfully');

@@ -1,4 +1,5 @@
 import '../../domain/entities/song.dart';
+import '../../core/services/artwork_service.dart';
 import '../../core/utils/formatters.dart';
 
 class SongModel extends Song {
@@ -73,11 +74,7 @@ class SongModel extends Song {
             : Formatters.formatSeconds(durationSecs);
 
     final rawThumb = (json['thumbnailUrl'] ?? '').toString().trim();
-    final thumbnailUrl = rawThumb.isNotEmpty
-        ? rawThumb
-        : (id.length == 11 && !id.startsWith('sp_')
-            ? 'https://i.ytimg.com/vi/$id/hqdefault.jpg'
-            : '');
+    final thumbnailUrl = ArtworkService.normalizeThumbnailUrl(rawThumb, songId: id);
 
     DateTime? parsedDate;
     final rawPub = json['publishedAt'];

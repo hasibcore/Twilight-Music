@@ -80,6 +80,22 @@ export const AudioPlayer: React.FC = () => {
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
+  const handleThumbError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    if (!currentSong?.id) return;
+    const cid = currentSong.id.trim();
+    if (cid.length === 11 && !cid.startsWith('sp_') && !cid.startsWith('js_') && !cid.startsWith('custom_')) {
+      const fallback = `https://i.ytimg.com/vi/${cid}/hqdefault.jpg`;
+      if (e.currentTarget.src !== fallback) {
+        e.currentTarget.src = fallback;
+      }
+    } else if (e.currentTarget.src.includes('saavncdn.com') && e.currentTarget.src.includes('500x500')) {
+      const downgraded = e.currentTarget.src.replace('500x500', '150x150');
+      if (e.currentTarget.src !== downgraded) {
+        e.currentTarget.src = downgraded;
+      }
+    }
+  };
+
   return (
     <>
       {/* Mini Player Bar (Docked at bottom above navigation) */}
@@ -112,14 +128,7 @@ export const AudioPlayer: React.FC = () => {
               key={`mini_${currentSong.id}_${currentSong.thumbnailUrl}`}
               src={currentSong.thumbnailUrl}
               alt={currentSong.title}
-              onError={(e) => {
-                if (currentSong.id.length === 11 && !currentSong.id.startsWith('sp_')) {
-                  const fallback = `https://i.ytimg.com/vi/${currentSong.id}/hqdefault.jpg`;
-                  if (e.currentTarget.src !== fallback) {
-                    e.currentTarget.src = fallback;
-                  }
-                }
-              }}
+              onError={handleThumbError}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform"
             />
           </div>
@@ -311,14 +320,7 @@ export const AudioPlayer: React.FC = () => {
               key={`bg_img_${currentSong.id}_${currentSong.thumbnailUrl}`}
               src={currentSong.thumbnailUrl}
               alt=""
-              onError={(e) => {
-                if (currentSong.id.length === 11 && !currentSong.id.startsWith('sp_')) {
-                  const fallback = `https://i.ytimg.com/vi/${currentSong.id}/hqdefault.jpg`;
-                  if (e.currentTarget.src !== fallback) {
-                    e.currentTarget.src = fallback;
-                  }
-                }
-              }}
+              onError={handleThumbError}
               className="w-full h-full object-cover scale-125 blur-3xl opacity-30"
             />
             <div className="absolute inset-0 bg-gradient-to-b from-slate-950/75 via-slate-950/90 to-slate-950" />
@@ -354,14 +356,7 @@ export const AudioPlayer: React.FC = () => {
                 key={`full_${currentSong.id}_${currentSong.thumbnailUrl}`}
                 src={currentSong.thumbnailUrl}
                 alt={currentSong.title}
-                onError={(e) => {
-                  if (currentSong.id.length === 11 && !currentSong.id.startsWith('sp_')) {
-                    const fallback = `https://i.ytimg.com/vi/${currentSong.id}/hqdefault.jpg`;
-                    if (e.currentTarget.src !== fallback) {
-                      e.currentTarget.src = fallback;
-                    }
-                  }
-                }}
+                onError={handleThumbError}
                 className="w-full h-full object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60" />

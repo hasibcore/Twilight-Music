@@ -73,7 +73,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onNavigate }) => {
         body: JSON.stringify({
           repo: githubRepo,
           token: githubToken,
-          tagName: 'v3.6.3',
+          tagName: 'v3.6.4',
         }),
       });
       const data = await res.json();
@@ -187,23 +187,23 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onNavigate }) => {
                 <Smartphone className="w-6 h-6" />
               </div>
               <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-extrabold uppercase tracking-wider">
-                v3.6.3 APK
+                v3.6.4 APK
               </span>
             </div>
             <h3 className="text-lg font-bold text-white">Android (APK)</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Native Android 7.0+ APK (v3.6.3+63) with exact YouTube playback, full playlists, Unicode search &amp; offline downloads.
+              Native Android 7.0+ APK (v3.6.4+64) with exact YouTube playback, full playlists, Unicode search &amp; offline downloads.
             </p>
           </div>
 
           <div className="flex flex-col gap-2">
             <a
-              href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.3/Twilight-Android-v3.6.3.apk"
-              download="Twilight-Android-v3.6.3.apk"
+              href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.4/Twilight-Android-v3.6.4.apk"
+              download="Twilight-Android-v3.6.4.apk"
               className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30 transition-all text-center cursor-pointer"
             >
               <Download className="w-4 h-4" />
-              <span>Download Android APK (v3.6.3)</span>
+              <span>Download Android APK (v3.6.4)</span>
             </a>
             <button
               onClick={() => (onNavigate ? onNavigate('home') : (window.location.href = '/'))}
@@ -213,13 +213,13 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onNavigate }) => {
               <span>Open Web / PWA Player</span>
             </button>
             <a
-              href="https://github.com/hasibcore/Twilight-Music/releases/tag/v3.6.3"
+              href="https://github.com/hasibcore/Twilight-Music/releases/tag/v3.6.4"
               target="_blank"
               rel="noopener noreferrer"
               className="w-full py-1.5 rounded-2xl text-slate-400 hover:text-slate-200 font-medium text-[11px] flex items-center justify-center gap-1.5 transition-colors"
             >
               <ExternalLink className="w-3 h-3" />
-              <span>View v3.6.3 on GitHub Releases</span>
+              <span>View v3.6.4 on GitHub Releases</span>
             </a>
           </div>
         </div>
@@ -232,7 +232,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onNavigate }) => {
                 <Monitor className="w-6 h-6" />
               </div>
               <span className="px-2.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-[10px] font-extrabold uppercase tracking-wider">
-                v3.6.3 x64
+                v3.6.4 x64
               </span>
             </div>
             <h3 className="text-lg font-bold text-white">Windows PC</h3>
@@ -243,15 +243,15 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onNavigate }) => {
 
           <div className="flex flex-col gap-2">
             <a
-              href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.3/Twilight-Windows-x64-v3.6.3.zip"
-              download="Twilight-Windows-x64-v3.6.3.zip"
+              href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.4/Twilight-Windows-x64-v3.6.4.zip"
+              download="Twilight-Windows-x64-v3.6.4.zip"
               className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 transition-all text-center"
             >
               <Download className="w-4 h-4" />
               <span>Download Windows x64 (.zip)</span>
             </a>
             <a
-              href="https://github.com/hasibcore/Twilight-Music/releases/tag/v3.6.3"
+              href="https://github.com/hasibcore/Twilight-Music/releases/tag/v3.6.4"
               target="_blank"
               rel="noopener noreferrer"
               className="w-full py-1.5 rounded-2xl text-slate-400 hover:text-slate-200 font-medium text-[11px] flex items-center justify-center gap-1.5 transition-colors"
@@ -270,26 +270,26 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({ onNavigate }) => {
                 <Apple className="w-6 h-6" />
               </div>
               <span className="px-2.5 py-1 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 text-[10px] font-extrabold uppercase tracking-wider">
-                v3.6.3 IPA
+                v3.6.4 IPA
               </span>
             </div>
             <h3 className="text-lg font-bold text-white">Apple iOS</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Unsigned iOS IPA package (`Twilight-iOS-v3.6.3.ipa`) for AltStore, Sideloadly, Scarlet, or TrollStore.
+              Unsigned iOS IPA package (`Twilight-iOS-v3.6.4.ipa`) for AltStore, Sideloadly, Scarlet, or TrollStore.
             </p>
           </div>
 
           <div className="flex flex-col gap-2">
             <a
-              href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.3/Twilight-iOS-v3.6.3.ipa"
-              download="Twilight-iOS-v3.6.3.ipa"
+              href="https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.4/Twilight-iOS-v3.6.4.ipa"
+              download="Twilight-iOS-v3.6.4.ipa"
               className="w-full py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-rose-600/30 transition-all text-center"
             >
               <Download className="w-4 h-4" />
               <span>Download iOS Package (.ipa)</span>
             </a>
             <a
-              href="https://github.com/hasibcore/Twilight-Music/releases/tag/v3.6.3"
+              href="https://github.com/hasibcore/Twilight-Music/releases/tag/v3.6.4"
               target="_blank"
               rel="noopener noreferrer"
               className="w-full py-1.5 rounded-2xl text-slate-400 hover:text-slate-200 font-medium text-[11px] flex items-center justify-center gap-1.5 transition-colors"

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../../core/constants/api_endpoints.dart';
+import '../../core/services/artwork_service.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/logger.dart';
 import '../models/song_model.dart';
@@ -265,7 +266,7 @@ class YouTubeRemoteDatasource {
           finishSearch(pickBestSearch());
           return;
         }
-        graceTimer ??= Timer(const Duration(milliseconds: 700), () {
+        graceTimer ??= Timer(const Duration(milliseconds: 350), () {
           finishSearch(pickBestSearch());
         });
         return;
@@ -405,10 +406,14 @@ class YouTubeRemoteDatasource {
 
     List<SongModel> mergeTrending() {
       final merged = <SongModel>[];
-      final seen = <String>{};
+      final seenIds = <String>{};
+      final seenTracks = <String>{};
       for (final s in [...saavnSongs, ...ytSongs, ...webSongs]) {
-        if (s.id.isEmpty || seen.contains(s.id) || s.durationSeconds > 2700) continue;
-        seen.add(s.id);
+        if (s.id.isEmpty || seenIds.contains(s.id) || s.durationSeconds > 2700) continue;
+        final trackKey = _trackDedupeKey(s.title, s.artist);
+        if (trackKey.length > 1 && seenTracks.contains(trackKey)) continue;
+        seenIds.add(s.id);
+        if (trackKey.length > 1) seenTracks.add(trackKey);
         merged.add(s);
         if (merged.length >= 20) break;
       }
@@ -422,7 +427,7 @@ class YouTubeRemoteDatasource {
         return;
       }
       if (saavnSongs.isNotEmpty || ytSongs.isNotEmpty || webSongs.isNotEmpty) {
-        graceTimer ??= Timer(const Duration(milliseconds: 700), () {
+        graceTimer ??= Timer(const Duration(milliseconds: 350), () {
           finishTrend(mergeTrending());
         });
       }
@@ -631,134 +636,208 @@ class YouTubeRemoteDatasource {
     return _getEmptySearchResult();
   }
 
+  static String _trackDedupeKey(String title, String artist) {
+    final normTitle = title.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normArtist = artist.split(',').first.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    return '$normTitle|$normArtist';
+  }
+
   Future<SearchResultModel> _searchJioSaavnFallback(String query) async {
     // 1. Primary: Official JioSaavn API (direct & Cloudflare-immune)
-    try {
-      final officialUri = Uri.parse(
-        'https://www.jiosaavn.com/api.php?p=1&q=${Uri.encodeComponent(query.trim())}&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=15&__call=search.getResults',
-      );
-      final offRes = await client
-          .get(officialUri, headers: const {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-          .timeout(const Duration(milliseconds: 3500));
-      if (offRes.statusCode == 200) {
-        final offData = jsonDecode(offRes.body);
-        if (offData is Map<String, dynamic>) {
-          final items = (offData['results'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
-          final songs = <SongModel>[];
-          final artists = <ArtistModel>[];
-          final seenArtists = <String>{};
-          for (final item in items) {
-            final id = item['id']?.toString() ?? '';
-            final title = item['title']?.toString() ?? '';
-            final moreInfo = item['more_info'] as Map<String, dynamic>? ?? {};
-            final durSec = int.tryParse(moreInfo['duration']?.toString() ?? '0') ?? 0;
-            final encUrl = moreInfo['encrypted_media_url']?.toString() ?? '';
-            if (id.isEmpty || title.isEmpty || encUrl.isEmpty || durSec <= 35) continue;
-            final artistMap = moreInfo['artistMap'] as Map<String, dynamic>? ?? {};
-            final primaryList = (artistMap['primary_artists'] as List? ?? [])
+    Future<SearchResultModel?> fetchOfficial() async {
+      try {
+        final officialUri = Uri.parse(
+          'https://www.jiosaavn.com/api.php?p=1&q=${Uri.encodeComponent(query.trim())}&_format=json&_marker=0&api_version=4&ctx=web6dot0&n=15&__call=search.getResults',
+        );
+        final offRes = await client
+            .get(officialUri, headers: ArtworkService.imageHeaders)
+            .timeout(const Duration(milliseconds: 3000));
+        if (offRes.statusCode == 200) {
+          final offData = jsonDecode(offRes.body);
+          if (offData is Map<String, dynamic>) {
+            final items = (offData['results'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
+            final songs = <SongModel>[];
+            final artists = <ArtistModel>[];
+            final seenArtists = <String>{};
+            final seenTracks = <String>{};
+            for (final item in items) {
+              final id = item['id']?.toString() ?? '';
+              final title = item['title']?.toString() ?? '';
+              final moreInfo = item['more_info'] as Map<String, dynamic>? ?? {};
+              final durSec = int.tryParse(moreInfo['duration']?.toString() ?? '0') ?? 0;
+              final encUrl = moreInfo['encrypted_media_url']?.toString() ?? '';
+              if (id.isEmpty || title.isEmpty || encUrl.isEmpty || durSec <= 35) continue;
+              final artistMap = moreInfo['artistMap'] as Map<String, dynamic>? ?? {};
+              final primaryList = (artistMap['primary_artists'] as List? ?? [])
+                  .whereType<Map<String, dynamic>>()
+                  .toList();
+              final subtitle = item['subtitle']?.toString() ?? '';
+              final artistName = primaryList.isNotEmpty
+                  ? primaryList.map((a) => a['name']?.toString() ?? '').where((s) => s.isNotEmpty).join(', ')
+                  : (subtitle.split(' - ').first.trim().isNotEmpty ? subtitle.split(' - ').first.trim() : 'Artist');
+              final trackKey = _trackDedupeKey(title, artistName);
+              if (trackKey.length > 1 && seenTracks.contains(trackKey)) continue;
+              if (trackKey.length > 1) seenTracks.add(trackKey);
+              final rawImg = item['image']?.toString() ?? '';
+              final thumb = ArtworkService.normalizeThumbnailUrl(rawImg, songId: 'js_$id');
+              songs.add(SongModel(
+                id: 'js_$id',
+                title: title,
+                artist: artistName,
+                channelId: 'js_$id',
+                thumbnailUrl: thumb,
+                durationSeconds: durSec,
+                durationFormatted: Formatters.formatDuration(Duration(seconds: durSec)),
+                viewCount: int.tryParse(item['play_count']?.toString() ?? '250000') ?? 250000,
+                publishedAt: null,
+              ));
+              if (artistName.isNotEmpty && !seenArtists.contains(artistName)) {
+                seenArtists.add(artistName);
+                artists.add(ArtistModel(
+                  id: 'js_art_$id',
+                  name: artistName,
+                  thumbnailUrl: thumb,
+                ));
+              }
+            }
+            if (songs.isNotEmpty) {
+              return SearchResultModel(
+                songs: songs,
+                videos: songs,
+                artists: artists,
+                playlists: const [],
+              );
+            }
+          }
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    Future<SearchResultModel?> fetchSumit() async {
+      try {
+        final uri = Uri.parse(
+          'https://saavn.sumit.co/api/search/songs?query=${Uri.encodeComponent(query.trim())}&limit=15',
+        );
+        final res = await client
+            .get(uri, headers: ArtworkService.imageHeaders)
+            .timeout(const Duration(milliseconds: 2800));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          if (data is Map<String, dynamic>) {
+            final items = ((data['data'] as Map<String, dynamic>?)?['results'] as List? ?? [])
                 .whereType<Map<String, dynamic>>()
                 .toList();
-            final subtitle = item['subtitle']?.toString() ?? '';
-            final artistName = primaryList.isNotEmpty
-                ? primaryList.map((a) => a['name']?.toString() ?? '').where((s) => s.isNotEmpty).join(', ')
-                : (subtitle.split(' - ').first.trim().isNotEmpty ? subtitle.split(' - ').first.trim() : 'Artist');
-            final rawImg = item['image']?.toString() ?? '';
-            final thumb = rawImg.replaceAll(RegExp(r'150x150|50x50'), '500x500');
-            songs.add(SongModel(
-              id: 'js_$id',
-              title: title,
-              artist: artistName,
-              channelId: 'js_$id',
-              thumbnailUrl: thumb,
-              durationSeconds: durSec,
-              durationFormatted: Formatters.formatDuration(Duration(seconds: durSec)),
-              viewCount: int.tryParse(item['play_count']?.toString() ?? '250000') ?? 250000,
-              publishedAt: null,
-            ));
-            if (artistName.isNotEmpty && !seenArtists.contains(artistName)) {
-              seenArtists.add(artistName);
-              artists.add(ArtistModel(
-                id: 'js_art_$id',
-                name: artistName,
+            final songs = <SongModel>[];
+            final artists = <ArtistModel>[];
+            final seenArtists = <String>{};
+            final seenTracks = <String>{};
+            for (final item in items) {
+              final id = item['id']?.toString() ?? '';
+              final title = item['name']?.toString() ?? '';
+              final durSec = int.tryParse(item['duration']?.toString() ?? '0') ?? 0;
+              if (id.isEmpty || title.isEmpty || durSec <= 35) continue;
+              final primaryList =
+                  ((item['artists'] as Map<String, dynamic>?)?['primary'] as List? ?? [])
+                      .whereType<Map<String, dynamic>>()
+                      .toList();
+              final artistName = primaryList.isNotEmpty
+                  ? primaryList.map((a) => a['name']?.toString() ?? '').where((s) => s.isNotEmpty).join(', ')
+                  : (item['label']?.toString() ?? 'Artist');
+              final trackKey = _trackDedupeKey(title, artistName);
+              if (trackKey.length > 1 && seenTracks.contains(trackKey)) continue;
+              if (trackKey.length > 1) seenTracks.add(trackKey);
+              final images = (item['image'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
+              final rawThumb = images.isNotEmpty ? (images.last['url']?.toString() ?? '') : '';
+              final thumb = ArtworkService.normalizeThumbnailUrl(rawThumb, songId: 'js_$id');
+              songs.add(SongModel(
+                id: 'js_$id',
+                title: title,
+                artist: artistName,
+                channelId: 'js_$id',
                 thumbnailUrl: thumb,
+                durationSeconds: durSec,
+                durationFormatted: Formatters.formatDuration(Duration(seconds: durSec)),
+                viewCount: int.tryParse(item['playCount']?.toString() ?? '250000') ?? 250000,
+                publishedAt: null,
               ));
+              if (artistName.isNotEmpty && !seenArtists.contains(artistName)) {
+                seenArtists.add(artistName);
+                artists.add(ArtistModel(
+                  id: 'js_art_$id',
+                  name: artistName,
+                  thumbnailUrl: thumb,
+                ));
+              }
+            }
+            if (songs.isNotEmpty) {
+              return SearchResultModel(
+                songs: songs,
+                videos: songs,
+                artists: artists,
+                playlists: const [],
+              );
             }
           }
-          if (songs.isNotEmpty) {
-            return SearchResultModel(
-              songs: songs,
-              videos: songs,
-              artists: artists,
-              playlists: const [],
-            );
-          }
         }
+      } catch (e) {
+        AppLogger.error('JioSaavn fallback search error: $e');
       }
-    } catch (_) {}
-
-    // 2. Secondary backup: saavn.sumit.co
-    try {
-      final uri = Uri.parse(
-        'https://saavn.sumit.co/api/search/songs?query=${Uri.encodeComponent(query.trim())}&limit=15',
-      );
-      final res = await client.get(uri).timeout(const Duration(milliseconds: 2800));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        if (data is Map<String, dynamic>) {
-          final items = ((data['data'] as Map<String, dynamic>?)?['results'] as List? ?? [])
-              .whereType<Map<String, dynamic>>()
-              .toList();
-          final songs = <SongModel>[];
-          final artists = <ArtistModel>[];
-          final seenArtists = <String>{};
-          for (final item in items) {
-            final id = item['id']?.toString() ?? '';
-            final title = item['name']?.toString() ?? '';
-            final durSec = int.tryParse(item['duration']?.toString() ?? '0') ?? 0;
-            if (id.isEmpty || title.isEmpty || durSec <= 35) continue;
-            final primaryList =
-                ((item['artists'] as Map<String, dynamic>?)?['primary'] as List? ?? [])
-                    .whereType<Map<String, dynamic>>()
-                    .toList();
-            final artistName = primaryList.isNotEmpty
-                ? primaryList.map((a) => a['name']?.toString() ?? '').where((s) => s.isNotEmpty).join(', ')
-                : (item['label']?.toString() ?? 'Artist');
-            final images = (item['image'] as List? ?? []).whereType<Map<String, dynamic>>().toList();
-            final thumb = images.isNotEmpty ? (images.last['url']?.toString() ?? '') : '';
-            songs.add(SongModel(
-              id: 'js_$id',
-              title: title,
-              artist: artistName,
-              channelId: 'js_$id',
-              thumbnailUrl: thumb,
-              durationSeconds: durSec,
-              durationFormatted: Formatters.formatDuration(Duration(seconds: durSec)),
-              viewCount: int.tryParse(item['playCount']?.toString() ?? '250000') ?? 250000,
-              publishedAt: null,
-            ));
-            if (artistName.isNotEmpty && !seenArtists.contains(artistName)) {
-              seenArtists.add(artistName);
-              artists.add(ArtistModel(
-                id: 'js_art_$id',
-                name: artistName,
-                thumbnailUrl: thumb,
-              ));
-            }
-          }
-          if (songs.isNotEmpty) {
-            return SearchResultModel(
-              songs: songs,
-              videos: songs,
-              artists: artists,
-              playlists: const [],
-            );
-          }
-        }
-      }
-    } catch (e) {
-      AppLogger.error('JioSaavn fallback search error: $e');
+      return null;
     }
-    return _getEmptySearchResult();
+
+    // Race official JioSaavn and saavn.sumit.co concurrently so neither stalls 3s behind the other
+    final completer = Completer<SearchResultModel>();
+    SearchResultModel? offRes;
+    SearchResultModel? sumitRes;
+    bool offDone = false;
+    bool sumitDone = false;
+    Timer? grace;
+
+    void finish(SearchResultModel r) {
+      grace?.cancel();
+      if (!completer.isCompleted) completer.complete(r);
+    }
+
+    void settle() {
+      if (completer.isCompleted) return;
+      if (offRes != null) {
+        finish(offRes!);
+        return;
+      }
+      if (sumitRes != null) {
+        if (offDone) {
+          finish(sumitRes!);
+        } else {
+          grace ??= Timer(const Duration(milliseconds: 250), () {
+            finish(offRes ?? sumitRes!);
+          });
+        }
+        return;
+      }
+      if (offDone && sumitDone) {
+        finish(_getEmptySearchResult());
+      }
+    }
+
+    unawaited(fetchOfficial().then((r) {
+      offRes = r;
+      offDone = true;
+      settle();
+    }));
+    unawaited(fetchSumit().then((r) {
+      sumitRes = r;
+      sumitDone = true;
+      settle();
+    }));
+
+    return completer.future.timeout(
+      const Duration(milliseconds: 3200),
+      onTimeout: () {
+        grace?.cancel();
+        return offRes ?? sumitRes ?? _getEmptySearchResult();
+      },
+    );
   }
 
   SearchResultModel _getEmptySearchResult() {

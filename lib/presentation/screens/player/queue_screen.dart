@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../../widgets/cached_artwork_image.dart';
 
 class QueueScreen extends StatelessWidget {
   const QueueScreen({super.key});
@@ -57,25 +57,18 @@ class QueueScreen extends StatelessWidget {
             ListTile(
               leading: ClipRRect(
                 borderRadius: BorderRadius.circular(6),
-                child: currentSong.thumbnailUrl.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl: currentSong.thumbnailUrl,
-                        width: 50,
-                        height: 50,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => Container(
-                          width: 50,
-                          height: 50,
-                          color: AppColors.surfaceVariantDark,
-                          child: const Icon(Icons.music_note, color: Colors.white38),
-                        ),
-                      )
-                    : Container(
-                        width: 50,
-                        height: 50,
-                        color: AppColors.surfaceVariantDark,
-                        child: const Icon(Icons.music_note, color: Colors.white38),
-                      ),
+                child: CachedArtworkImage(
+                  imageUrl: currentSong.thumbnailUrl,
+                  songId: currentSong.id,
+                  width: 50,
+                  height: 50,
+                  fallbackWidget: Container(
+                    width: 50,
+                    height: 50,
+                    color: AppColors.surfaceVariantDark,
+                    child: const Icon(Icons.music_note, color: Colors.white38),
+                  ),
+                ),
               ),
               title: Text(
                 currentSong.title,
@@ -136,25 +129,18 @@ class QueueScreen extends StatelessWidget {
                         child: ListTile(
                           leading: ClipRRect(
                             borderRadius: BorderRadius.circular(4),
-                            child: item.thumbnailUrl.isNotEmpty
-                                ? CachedNetworkImage(
-                                    imageUrl: item.thumbnailUrl,
-                                    width: 44,
-                                    height: 44,
-                                    fit: BoxFit.cover,
-                                    errorWidget: (_, __, ___) => Container(
-                                      width: 44,
-                                      height: 44,
-                                      color: AppColors.surfaceVariantDark,
-                                      child: const Icon(Icons.music_note, color: Colors.white38),
-                                    ),
-                                  )
-                                : Container(
-                                    width: 44,
-                                    height: 44,
-                                    color: AppColors.surfaceVariantDark,
-                                    child: const Icon(Icons.music_note, color: Colors.white38),
-                                  ),
+                            child: CachedArtworkImage(
+                              imageUrl: item.thumbnailUrl,
+                              songId: item.id,
+                              width: 44,
+                              height: 44,
+                              fallbackWidget: Container(
+                                width: 44,
+                                height: 44,
+                                color: AppColors.surfaceVariantDark,
+                                child: const Icon(Icons.music_note, color: Colors.white38),
+                              ),
+                            ),
                           ),
                           title: Text(
                             item.title,

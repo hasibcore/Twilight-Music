@@ -7,6 +7,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../providers/player_provider.dart';
+import '../../widgets/cached_artwork_image.dart';
 import '../../widgets/song_card.dart';
 import '../playlist/create_playlist_dialog.dart';
 import '../playlist/playlist_detail_screen.dart';
@@ -267,25 +268,18 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
                               height: 48,
                               fit: BoxFit.cover,
                             )
-                          : (item.song.thumbnailUrl.startsWith('http')
-                              ? Image.network(
-                                  item.song.thumbnailUrl,
-                                  width: 48,
-                                  height: 48,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
-                                    width: 48,
-                                    height: 48,
-                                    color: AppColors.surfaceVariantDark,
-                                    child: const Icon(Icons.music_note, color: Colors.white38),
-                                  ),
-                                )
-                              : Container(
-                                  width: 48,
-                                  height: 48,
-                                  color: AppColors.surfaceVariantDark,
-                                  child: const Icon(Icons.music_note, color: Colors.white38),
-                                )),
+                          : CachedArtworkImage(
+                              imageUrl: item.song.thumbnailUrl,
+                              songId: item.song.id,
+                              width: 48,
+                              height: 48,
+                              fallbackWidget: Container(
+                                width: 48,
+                                height: 48,
+                                color: AppColors.surfaceVariantDark,
+                                child: const Icon(Icons.music_note, color: Colors.white38),
+                              ),
+                            ),
                     ),
                     if (isCurrent)
                       Positioned.fill(
@@ -465,25 +459,17 @@ class _LibraryScreenState extends State<LibraryScreen> with SingleTickerProvider
           return ListTile(
             leading: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: playlist.thumbnailUrl.isNotEmpty
-                  ? Image.network(
-                      playlist.thumbnailUrl,
-                      width: 48,
-                      height: 48,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        width: 48,
-                        height: 48,
-                        color: AppColors.surfaceVariant(context),
-                        child: Icon(Icons.queue_music, color: AppColors.iconMuted(context)),
-                      ),
-                    )
-                  : Container(
-                      width: 48,
-                      height: 48,
-                      color: AppColors.surfaceVariant(context),
-                      child: Icon(Icons.queue_music, color: AppColors.iconMuted(context)),
-                    ),
+              child: CachedArtworkImage(
+                imageUrl: playlist.thumbnailUrl,
+                width: 48,
+                height: 48,
+                fallbackWidget: Container(
+                  width: 48,
+                  height: 48,
+                  color: AppColors.surfaceVariant(context),
+                  child: Icon(Icons.queue_music, color: AppColors.iconMuted(context)),
+                ),
+              ),
             ),
             title: Text(
               playlist.title,

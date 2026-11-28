@@ -363,7 +363,7 @@ class MusicImportService {
       return 'https://i.ytimg.com/vi/$ytId/hqdefault.jpg';
     }
 
-    if (!song.id.startsWith('sp_') && song.id.length == 11) {
+    if (!song.id.startsWith('sp_') && !song.id.startsWith('js_') && song.id.length == 11) {
       final cleanThumb = song.thumbnailUrl.trim().isEmpty ||
               song.thumbnailUrl.contains('maxresdefault.jpg') ||
               song.thumbnailUrl.contains('sddefault.jpg') ||

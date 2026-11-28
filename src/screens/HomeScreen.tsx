@@ -25,10 +25,23 @@ interface HomeScreenProps {
   onOpenLanding: () => void;
 }
 
-const ensureYtThumb = (s: Song): Song =>
-  s.id && s.id.length === 11 && !s.id.startsWith('sp_')
-    ? { ...s, thumbnailUrl: `https://i.ytimg.com/vi/${s.id}/hqdefault.jpg` }
-    : s;
+const normalizeWebThumbUrl = (url?: string): string => {
+  const raw = (url || '').trim();
+  if (!raw) return '';
+  const https = raw.startsWith('http://') ? `https://${raw.slice(7)}` : raw;
+  return https.includes('saavncdn.com')
+    ? https.replace(/([_-])(?:50x50|150x150)(?=\.[a-zA-Z0-9]+(?:\?|$))/g, '$1500x500')
+    : https;
+};
+
+const ensureYtThumb = (s: Song): Song => {
+  const cid = (s.id || '').trim();
+  if (cid.length === 11 && !cid.startsWith('sp_') && !cid.startsWith('js_') && !cid.startsWith('custom_')) {
+    return { ...s, thumbnailUrl: `https://i.ytimg.com/vi/${cid}/hqdefault.jpg` };
+  }
+  const normalized = normalizeWebThumbUrl(s.thumbnailUrl);
+  return normalized && normalized !== s.thumbnailUrl ? { ...s, thumbnailUrl: normalized } : s;
+};
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenSearch,

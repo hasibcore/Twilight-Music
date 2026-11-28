@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/artwork_service.dart';
 import '../../../core/services/local_storage_service.dart';
 import '../../../data/models/song_model.dart';
 import '../../../domain/entities/song.dart';
@@ -12,6 +12,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../widgets/app_logo.dart';
+import '../../widgets/cached_artwork_image.dart';
 import '../main_navigation_screen.dart';
 
 class _VibeCategory {
@@ -158,28 +159,53 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const String _dynamicCacheKey = 'twilight_home_dynamic_flutter_v3';
+  static const String _dynamicCacheKey = 'twilight_home_dynamic_flutter_v4';
 
   String _selectedVibeId = 'for_you';
   bool _isRefreshingMix = false;
   List<Song> _dynamicSongs = List<Song>.from(_kDefaultFeaturedSongs);
   List<Artist> _artists = List<Artist>.from(_kFeaturedArtists);
 
+  static String _trackDedupeKey(Song s) {
+    final normTitle = s.title.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    final normArtist = s.artist.split(',').first.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    return '$normTitle|$normArtist';
+  }
+
+  static List<Song> _dedupeAndNormalizeSongs(Iterable<Song> songs) {
+    final merged = <Song>[];
+    final seenIds = <String>{};
+    final seenTracks = <String>{};
+    for (final s in songs) {
+      if (s.id.isEmpty || seenIds.contains(s.id)) continue;
+      final trackKey = _trackDedupeKey(s);
+      if (trackKey.length > 1 && seenTracks.contains(trackKey)) continue;
+      seenIds.add(s.id);
+      if (trackKey.length > 1) seenTracks.add(trackKey);
+      final normalizedThumb = ArtworkService.normalizeThumbnailUrl(s.thumbnailUrl, songId: s.id);
+      merged.add(
+        normalizedThumb == s.thumbnailUrl ? s : s.copyWith(thumbnailUrl: normalizedThumb),
+      );
+      if (merged.length >= 16) break;
+    }
+    return merged;
+  }
+
   @override
   void initState() {
     super.initState();
     final hasCached = _loadCachedHomeDataSync();
     _loadArtists();
-    if (!hasCached) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _loadLiveTrendingMix();
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Always refresh live mix on start — cached data loads instantly, then live replaces it
+      if (mounted) _loadLiveTrendingMix();
+    });
   }
 
   bool _loadCachedHomeDataSync() {
     try {
-      final raw = LocalStorageService.getString(_dynamicCacheKey);
+      final raw = LocalStorageService.getString(_dynamicCacheKey) ??
+          LocalStorageService.getString('twilight_home_dynamic_flutter_v3');
       if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw) as List?;
         if (decoded != null && decoded.isNotEmpty) {
@@ -187,8 +213,9 @@ class _HomeScreenState extends State<HomeScreen> {
               .whereType<Map>()
               .map((m) => SongModel.fromJson(Map<String, dynamic>.from(m)).toEntity())
               .toList();
-          if (parsed.isNotEmpty) {
-            _dynamicSongs = parsed;
+          final cleaned = _dedupeAndNormalizeSongs(parsed);
+          if (cleaned.isNotEmpty) {
+            _dynamicSongs = cleaned;
             return true;
           }
         }
@@ -202,14 +229,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final ytRepo = context.read<YouTubeRepository>();
       final trending = await ytRepo.getTrendingMusic();
       if (mounted && trending.isNotEmpty && _selectedVibeId == 'for_you') {
-        final merged = <Song>[];
-        final seen = <String>{};
-        for (final s in [...trending, ..._kDefaultFeaturedSongs]) {
-          if (seen.contains(s.id)) continue;
-          seen.add(s.id);
-          merged.add(s);
-          if (merged.length >= 16) break;
-        }
+        final merged = _dedupeAndNormalizeSongs([...trending, ..._kDefaultFeaturedSongs]);
         setState(() {
           _dynamicSongs = merged;
         });
@@ -267,10 +287,13 @@ class _HomeScreenState extends State<HomeScreen> {
       if (nextVibeId == 'for_you' && vibeId != null) {
         final ytRepo = context.read<YouTubeRepository>();
         final trending = await ytRepo.getTrendingMusic();
+        final cleaned = _dedupeAndNormalizeSongs(
+          trending.isNotEmpty ? trending : _kDefaultFeaturedSongs,
+        );
         if (mounted) {
           setState(() {
-            _dynamicSongs = trending.isNotEmpty
-                ? trending
+            _dynamicSongs = cleaned.isNotEmpty
+                ? cleaned
                 : List<Song>.from(_kDefaultFeaturedSongs);
             _isRefreshingMix = false;
           });
@@ -281,7 +304,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final vibeObj = _kVibeCategories.where((v) => v.id == nextVibeId).firstOrNull;
       final query = vibeObj != null ? vibeObj.query : _getTimeBasedVibe().query;
       final ytRepo = context.read<YouTubeRepository>();
-      final songs = await ytRepo.searchSongs(query);
+      final songs = _dedupeAndNormalizeSongs(await ytRepo.searchSongs(query));
 
       if (mounted) {
         setState(() {
@@ -634,13 +657,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               ),
                               child: ClipOval(
-                                child: CachedNetworkImage(
+                                child: CachedArtworkImage(
                                   imageUrl: artist.thumbnailUrl,
-                                  fit: BoxFit.cover,
-                                  errorWidget: (_, __, ___) => const Icon(
-                                    Icons.person_rounded,
-                                    color: Colors.white54,
-                                    size: 36,
+                                  fallbackWidget: Container(
+                                    color: const Color(0xFF1E293B),
+                                    alignment: Alignment.center,
+                                    child: const Icon(
+                                      Icons.person_rounded,
+                                      color: Colors.white54,
+                                      size: 36,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -742,9 +768,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final isCurrent = playerProv.currentSong?.id == song.id;
     final isDown = downloadProv.isDownloaded(song.id);
     final isDownLoading = downloadProv.isDownloading(song.id);
-    final thumbUrl = song.id.length == 11 && !song.id.startsWith('sp_')
-        ? 'https://i.ytimg.com/vi/${song.id}/hqdefault.jpg'
-        : song.thumbnailUrl;
+    final thumbUrl = ArtworkService.normalizeThumbnailUrl(
+      song.thumbnailUrl,
+      songId: song.id,
+    );
 
     return GestureDetector(
       onTap: () => playerProv.selectAndPlaySong(song, newQueue: queue),
@@ -772,11 +799,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: CachedNetworkImage(
+                    child: CachedArtworkImage(
                       imageUrl: thumbUrl,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => Container(
+                      songId: song.id,
+                      fallbackWidget: Container(
                         color: const Color(0xFF1E293B),
+                        alignment: Alignment.center,
                         child: const Icon(
                           Icons.music_note_rounded,
                           color: Colors.white54,

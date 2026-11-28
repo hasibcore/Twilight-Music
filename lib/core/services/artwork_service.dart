@@ -39,23 +39,51 @@ class ArtworkService {
 
   static final Map<String, String> _localArtworkPathBySongId = {};
 
+  static const Map<String, String> imageHeaders = {
+    'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+  };
+
+  /// Returns true when [songId] is a genuine 11-character YouTube video ID
+  /// (explicitly excluding prefixed catalog IDs such as `sp_...`, `js_...`, `custom_...`).
+  static bool isYouTubeVideoId(String? songId) {
+    final cleanId = songId?.trim() ?? '';
+    return cleanId.length == 11 &&
+        !cleanId.startsWith('sp_') &&
+        !cleanId.startsWith('js_') &&
+        !cleanId.startsWith('custom_') &&
+        RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(cleanId);
+  }
+
   /// Normalizes YouTube and remote thumbnail URLs so unreliable `maxresdefault.jpg`
   /// or `sddefault.jpg` URLs (which frequently HTTP 404 and cause Android MediaSession
   /// or player widgets to retain the previous song's image) are converted to guaranteed
-  /// verified HQ thumbnails (`hqdefault.jpg`).
+  /// verified HQ thumbnails (`hqdefault.jpg`), upgrades cleartext `http://` media CDN
+  /// URLs to `https://` for Android NetworkSecurityConfig compliance, and upgrades
+  /// low-res JioSaavn artwork (`50x50`/`150x150`) to `500x500`.
   static String normalizeThumbnailUrl(String? thumbnailUrl, {String? songId}) {
     final cleanId = songId?.trim() ?? '';
-    final raw = thumbnailUrl?.trim() ?? '';
+    String raw = thumbnailUrl?.trim() ?? '';
 
-    final bool isValidYtId = cleanId.length == 11 &&
-        !cleanId.startsWith('sp_') &&
-        RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(cleanId);
+    if (raw.startsWith('http://')) {
+      raw = 'https://${raw.substring(7)}';
+    }
+
+    final bool isValidYtId = isYouTubeVideoId(cleanId);
 
     if (raw.isEmpty || raw.contains('picsum.photos')) {
       if (isValidYtId) {
         return 'https://i.ytimg.com/vi/$cleanId/hqdefault.jpg';
       }
-      return raw;
+      return '';
+    }
+
+    if (raw.contains('saavncdn.com')) {
+      return raw.replaceAllMapped(
+        RegExp(r'([_-])(?:50x50|150x150)(?=\.[a-zA-Z0-9]+(?:\?|$))'),
+        (m) => '${m[1]}500x500',
+      );
     }
 
     // If the URL is a YouTube thumbnail, normalize maxresdefault/sddefault to hqdefault
@@ -71,6 +99,32 @@ class ArtworkService {
     }
 
     return raw;
+  }
+
+  /// Returns a reliable fallback thumbnail URL when [failedUrl] fails to load
+  /// (e.g., JioSaavn `-500x500` -> `-150x150`, or YouTube `mqdefault.jpg`).
+  static String? fallbackThumbnailUrl(String? failedUrl, {String? songId}) {
+    String raw = (failedUrl ?? '').trim();
+    if (raw.startsWith('http://')) {
+      raw = 'https://${raw.substring(7)}';
+    }
+    if (raw.isEmpty) return null;
+
+    if (raw.contains('saavncdn.com')) {
+      final downgraded = raw.replaceAllMapped(
+        RegExp(r'([_-])500x500(?=\.[a-zA-Z0-9]+(?:\?|$))'),
+        (m) => '${m[1]}150x150',
+      );
+      if (downgraded != raw) return downgraded;
+    }
+
+    if (isYouTubeVideoId(songId)) {
+      final cleanId = songId!.trim();
+      final mq = 'https://i.ytimg.com/vi/$cleanId/mqdefault.jpg';
+      if (raw != mq) return mq;
+    }
+
+    return null;
   }
 
   /// Synchronously returns the verified local cached thumbnail file for a song if already synced.
@@ -166,10 +220,11 @@ class ArtworkService {
     String? songId,
   }) async {
     final candidateUrls = <String>[primaryUrl];
-    if (songId != null &&
-        songId.length == 11 &&
-        !songId.startsWith('sp_') &&
-        RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(songId)) {
+    final fallbackUrl = fallbackThumbnailUrl(primaryUrl, songId: songId);
+    if (fallbackUrl != null && !candidateUrls.contains(fallbackUrl)) {
+      candidateUrls.add(fallbackUrl);
+    }
+    if (songId != null && isYouTubeVideoId(songId)) {
       final ytHq = 'https://i.ytimg.com/vi/$songId/hqdefault.jpg';
       final ytMq = 'https://i.ytimg.com/vi/$songId/mqdefault.jpg';
       if (!candidateUrls.contains(ytHq)) candidateUrls.add(ytHq);
@@ -178,7 +233,9 @@ class ArtworkService {
 
     for (final url in candidateUrls) {
       try {
-        final res = await http.get(Uri.parse(url)).timeout(const Duration(milliseconds: 2200));
+        final res = await http
+            .get(Uri.parse(url))
+            .timeout(const Duration(milliseconds: 2200));
         if (res.statusCode == 200 && res.bodyBytes.length > 1500) {
           await targetFile.writeAsBytes(res.bodyBytes, flush: true);
           if (targetFile.existsSync() && targetFile.lengthSync() > 1500) {

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/player_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../../core/constants/app_colors.dart';
@@ -8,6 +7,7 @@ import '../../core/services/artwork_service.dart';
 import '../../core/utils/formatters.dart';
 import '../screens/player/full_player_screen.dart';
 import '../screens/player/queue_screen.dart';
+import 'cached_artwork_image.dart';
 
 class MiniPlayerWidget extends StatelessWidget {
   const MiniPlayerWidget({super.key});
@@ -136,16 +136,15 @@ class MiniPlayerWidget extends StatelessWidget {
                           songId: currentSong.id,
                         );
                         if (normalizedThumb.isNotEmpty) {
-                          return CachedNetworkImage(
+                          return CachedArtworkImage(
                             key: ValueKey('mini_net_${currentSong.id}_$normalizedThumb'),
                             imageUrl: normalizedThumb,
+                            songId: currentSong.id,
                             width: 46,
                             height: 46,
-                            fit: BoxFit.cover,
-                            fadeInDuration: Duration.zero,
-                            fadeOutDuration: Duration.zero,
+                            disableFade: true,
                             memCacheWidth: 140,
-                            errorWidget: (_, __, ___) => Container(
+                            fallbackWidget: Container(
                               width: 46,
                               height: 46,
                               color: const Color(0xFF1E293B),

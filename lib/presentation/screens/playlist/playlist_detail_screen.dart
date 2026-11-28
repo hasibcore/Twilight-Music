@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../domain/entities/playlist.dart';
 import '../../../domain/entities/song.dart';
 import '../../providers/playlist_provider.dart';
 import '../../providers/player_provider.dart';
+import '../../widgets/cached_artwork_image.dart';
 import '../../widgets/song_card.dart';
 import '../../widgets/mini_player_widget.dart';
 import '../main_navigation_screen.dart';
@@ -50,25 +50,17 @@ class PlaylistDetailScreen extends StatelessWidget {
             // Artwork
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: currentPl.thumbnailUrl.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: currentPl.thumbnailUrl,
-                      width: 180,
-                      height: 180,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => Container(
-                        width: 180,
-                        height: 180,
-                        color: AppColors.surfaceVariantDark,
-                        child: const Icon(Icons.queue_music, size: 60, color: Colors.white38),
-                      ),
-                    )
-                  : Container(
-                      width: 180,
-                      height: 180,
-                      color: AppColors.surfaceVariantDark,
-                      child: const Icon(Icons.queue_music, size: 60, color: Colors.white38),
-                    ),
+              child: CachedArtworkImage(
+                imageUrl: currentPl.thumbnailUrl,
+                width: 180,
+                height: 180,
+                fallbackWidget: Container(
+                  width: 180,
+                  height: 180,
+                  color: AppColors.surfaceVariantDark,
+                  child: const Icon(Icons.queue_music, size: 60, color: Colors.white38),
+                ),
+              ),
             ),
             const SizedBox(height: 16),
             // Title

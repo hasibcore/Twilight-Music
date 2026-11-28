@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/services/artwork_service.dart';
@@ -10,6 +9,7 @@ import '../../../core/services/lyrics_service.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/player_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../../widgets/cached_artwork_image.dart';
 import '../playlist/create_playlist_dialog.dart';
 import 'queue_screen.dart';
 
@@ -571,16 +571,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> with SingleTickerPr
       return ImageFiltered(
         key: ValueKey('bg_net_${songId}_$normalizedThumb'),
         imageFilter: ImageFilter.blur(sigmaX: 38, sigmaY: 38),
-        child: CachedNetworkImage(
+        child: CachedArtworkImage(
           key: ValueKey('bg_cni_${songId}_$normalizedThumb'),
           imageUrl: normalizedThumb,
-          fit: BoxFit.cover,
-          fadeInDuration: Duration.zero,
-          fadeOutDuration: Duration.zero,
-          placeholder: (_, __) => Container(
+          songId: songId,
+          disableFade: true,
+          placeholderWidget: Container(
             decoration: const BoxDecoration(gradient: AppColors.playerGradient),
           ),
-          errorWidget: (_, __, ___) => Container(
+          fallbackWidget: Container(
             decoration: const BoxDecoration(gradient: AppColors.playerGradient),
           ),
         ),
@@ -621,19 +620,18 @@ class _FullPlayerScreenState extends State<FullPlayerScreen> with SingleTickerPr
     }
 
     if (normalizedThumb.isNotEmpty) {
-      return CachedNetworkImage(
+      return CachedArtworkImage(
         key: ValueKey('art_net_${songId}_$normalizedThumb'),
         imageUrl: normalizedThumb,
-        fit: BoxFit.cover,
-        fadeInDuration: Duration.zero,
-        fadeOutDuration: Duration.zero,
-        placeholder: (_, __) => Container(
+        songId: songId,
+        disableFade: true,
+        placeholderWidget: Container(
           color: AppColors.surfaceVariantDark,
           child: const Center(
             child: CircularProgressIndicator(color: AppColors.primaryAccent),
           ),
         ),
-        errorWidget: (_, __, ___) => Container(
+        fallbackWidget: Container(
           color: AppColors.surfaceVariantDark,
           child: const Icon(Icons.music_note, size: 80, color: Colors.white24),
         ),

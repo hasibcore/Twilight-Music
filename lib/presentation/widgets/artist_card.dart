@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../domain/entities/artist.dart';
 import '../../core/constants/app_colors.dart';
 import '../screens/search/search_screen.dart';
+import 'cached_artwork_image.dart';
 
 class ArtistCard extends StatelessWidget {
   final Artist artist;
@@ -30,25 +30,17 @@ class ArtistCard extends StatelessWidget {
         child: Column(
           children: [
             ClipOval(
-              child: artist.thumbnailUrl.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: artist.thumbnailUrl,
-                      width: 100,
-                      height: 100,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => Container(
-                        width: 100,
-                        height: 100,
-                        color: AppColors.surfaceVariantDark,
-                        child: const Icon(Icons.person, color: Colors.white54, size: 40),
-                      ),
-                    )
-                  : Container(
-                      width: 100,
-                      height: 100,
-                      color: AppColors.surfaceVariantDark,
-                      child: const Icon(Icons.person, color: Colors.white54, size: 40),
-                    ),
+              child: CachedArtworkImage(
+                imageUrl: artist.thumbnailUrl,
+                width: 100,
+                height: 100,
+                fallbackWidget: Container(
+                  width: 100,
+                  height: 100,
+                  color: AppColors.surfaceVariantDark,
+                  child: const Icon(Icons.person, color: Colors.white54, size: 40),
+                ),
+              ),
             ),
             const SizedBox(height: 8),
             Text(

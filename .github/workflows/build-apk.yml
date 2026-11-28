@@ -1,4 +1,4 @@
-name: Build & Release Twilight Android APK, iOS IPA & Windows EXE (v3.6.3)
+name: Build & Release Twilight Android APK, iOS IPA & Windows EXE (v3.6.4)
 
 on:
   push:
@@ -15,8 +15,8 @@ concurrency:
 
 env:
   RELEASE_TAG: v3.0.0
-  NEW_RELEASE_TAG: v3.6.3
-  RELEASE_NAME: "Twilight Music v3.6.3 — Official Android APK, iOS IPA & Windows PC Release"
+  NEW_RELEASE_TAG: v3.6.4
+  RELEASE_NAME: "Twilight Music v3.6.4 — Official Android APK, iOS IPA & Windows PC Release"
   LEGACY_RELEASE_NAME: "Twilight Music v3.0.0 — Official Android APK, iOS IPA & Windows PC Release"
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
   # 1. ANDROID RELEASE APK + FULL PROJECT SOURCE ZIP (Ubuntu Runner)
   # ---------------------------------------------------------------------------
   build-android:
-    name: Build Android APK (v3.6.3)
+    name: Build Android APK (v3.6.4)
     runs-on: ubuntu-latest
 
     steps:
@@ -56,26 +56,26 @@ jobs:
           flutter build apk --release --android-skip-build-dependency-validation
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Twilight-Android-v3.0.0.apk
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Twilight-Android-v3.5.2.apk
-          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Twilight-Android-v3.6.3.apk
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/Twilight-Android-v3.6.4.apk
 
       - name: Package Full Project Release ZIP
         run: |
-          zip -r Twilight-Music-v3.6.3-Full-Project.zip . \
+          zip -r Twilight-Music-v3.6.4-Full-Project.zip . \
             -x "node_modules/*" ".git/*" "build/*" ".dart_tool/*" "dist/*"
-          cp Twilight-Music-v3.6.3-Full-Project.zip Twilight-Music-v3.0.0-Full-Project.zip
+          cp Twilight-Music-v3.6.4-Full-Project.zip Twilight-Music-v3.0.0-Full-Project.zip
 
       - name: Upload Android Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Twilight-Android-v3.6.3
+          name: Twilight-Android-v3.6.4
           path: |
-            build/app/outputs/flutter-apk/Twilight-Android-v3.6.3.apk
+            build/app/outputs/flutter-apk/Twilight-Android-v3.6.4.apk
             build/app/outputs/flutter-apk/Twilight-Android-v3.5.2.apk
             build/app/outputs/flutter-apk/Twilight-Android-v3.0.0.apk
             build/app/outputs/flutter-apk/app-release.apk
-            Twilight-Music-v3.6.3-Full-Project.zip
+            Twilight-Music-v3.6.4-Full-Project.zip
 
-      - name: Publish New Android APK Release (v3.6.3)
+      - name: Publish New Android APK Release (v3.6.4)
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
         with:
@@ -83,7 +83,7 @@ jobs:
           name: ${{ env.RELEASE_NAME }}
           make_latest: true
           body: |
-            # 🌙 Twilight Music v3.6.3 (Build 63) — Download Completion, Exact YouTube Playback & Reliability Release
+            # 🌙 Twilight Music v3.6.4 (Build 64) — Download Completion, Exact YouTube Playback & Reliability Release
 
             Clean, fast, ad-free music streaming & offline download app for **Android**, **Apple iOS**, **Windows PC**, and **Web**.
 
@@ -92,15 +92,15 @@ jobs:
             ### 📦 Official Platform Downloads:
             | Platform | Direct Download | Installation Guide |
             |---|---|---|
-            | 🤖 **Android (APK - Newest v3.6.3)** | [**`Twilight-Android-v3.6.3.apk`**](https://github.com/${{ github.repository }}/releases/download/v3.6.3/Twilight-Android-v3.6.3.apk) | Direct APK install for Android 7.0+ (Version 3.6.3+63) |
-            | 🤖 **Android (APK - Generic Alias)** | [**`app-release.apk`**](https://github.com/${{ github.repository }}/releases/download/v3.6.3/app-release.apk) | Identical signed release APK (`3.6.3+63`) |
-            | 🍏 **Apple iOS (IPA)** | [**`Twilight-iOS-v3.6.3.ipa`**](https://github.com/${{ github.repository }}/releases/download/v3.6.3/Twilight-iOS-v3.6.3.ipa) | Sideload via AltStore, Sideloadly, Scarlet, or TrollStore |
-            | 💻 **Windows PC (x64)** | [**`Twilight-Windows-x64-v3.6.3.zip`**](https://github.com/${{ github.repository }}/releases/download/v3.6.3/Twilight-Windows-x64-v3.6.3.zip) | Extract ZIP and run `Twilight.exe` on Windows 10/11 (64-bit) |
-            | 📦 **Full Source Code** | [**`Twilight-Music-v3.6.3-Full-Project.zip`**](https://github.com/${{ github.repository }}/releases/download/v3.6.3/Twilight-Music-v3.6.3-Full-Project.zip) | Complete Flutter + React/Express source bundle |
+            | 🤖 **Android (APK - Newest v3.6.4)** | [**`Twilight-Android-v3.6.4.apk`**](https://github.com/${{ github.repository }}/releases/download/v3.6.4/Twilight-Android-v3.6.4.apk) | Direct APK install for Android 7.0+ (Version 3.6.4+64) |
+            | 🤖 **Android (APK - Generic Alias)** | [**`app-release.apk`**](https://github.com/${{ github.repository }}/releases/download/v3.6.4/app-release.apk) | Identical signed release APK (`3.6.4+64`) |
+            | 🍏 **Apple iOS (IPA)** | [**`Twilight-iOS-v3.6.4.ipa`**](https://github.com/${{ github.repository }}/releases/download/v3.6.4/Twilight-iOS-v3.6.4.ipa) | Sideload via AltStore, Sideloadly, Scarlet, or TrollStore |
+            | 💻 **Windows PC (x64)** | [**`Twilight-Windows-x64-v3.6.4.zip`**](https://github.com/${{ github.repository }}/releases/download/v3.6.4/Twilight-Windows-x64-v3.6.4.zip) | Extract ZIP and run `Twilight.exe` on Windows 10/11 (64-bit) |
+            | 📦 **Full Source Code** | [**`Twilight-Music-v3.6.4-Full-Project.zip`**](https://github.com/${{ github.repository }}/releases/download/v3.6.4/Twilight-Music-v3.6.4-Full-Project.zip) | Complete Flutter + React/Express source bundle |
 
             ---
 
-            ### ✨ What's New in v3.6.3 (Build 63):
+            ### ✨ What's New in v3.6.4 (Build 64):
             - **Zero Download Stalls at 98%-99%**: Fixed infinite chunk retry loops on HTTP 403/503 responses, buffered Range chunks atomically, replaced rigid 60s download timeouts with an inactivity watchdog, added `headersTimeoutOnly` streaming for `/api/download/:videoId`, and guarded IndexedDB completion against aborted/blocked transactions.
             - **100% Exact YouTube Video Audio Matching**: Non-curated YouTube videos play their exact clicked video audio directly without substituting third-party studio/cover recordings, and offline caches validate duration before saving or playing.
             - **Instant Next-Track Switching & Zero Loading Stalls**: Fixed AbortError retries, synchronous playback state resets, `audio.load()` pipeline resets, and queue alignment when switching songs.
@@ -109,9 +109,9 @@ jobs:
             - **Guest-First Clean Startup & Working Auth**: Removed hardcoded personal login accounts and verified full Email/Password Sign-Up, Sign-In, and Sign-Out.
             - **Zero Console Errors & Multi-Platform Reliability**: Eliminated YouTube search soft-timeout noise and unnecessary 502 offline-check requests alongside tuned Android ExoPlayer buffering and hardened network security.
           files: |
-            build/app/outputs/flutter-apk/Twilight-Android-v3.6.3.apk
+            build/app/outputs/flutter-apk/Twilight-Android-v3.6.4.apk
             build/app/outputs/flutter-apk/app-release.apk
-            Twilight-Music-v3.6.3-Full-Project.zip
+            Twilight-Music-v3.6.4-Full-Project.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -123,7 +123,7 @@ jobs:
           name: ${{ env.LEGACY_RELEASE_NAME }}
           make_latest: false
           files: |
-            build/app/outputs/flutter-apk/Twilight-Android-v3.6.3.apk
+            build/app/outputs/flutter-apk/Twilight-Android-v3.6.4.apk
             build/app/outputs/flutter-apk/Twilight-Android-v3.5.2.apk
             build/app/outputs/flutter-apk/Twilight-Android-v3.0.0.apk
             build/app/outputs/flutter-apk/app-release.apk
@@ -135,7 +135,7 @@ jobs:
   # 2. WINDOWS DESKTOP RELEASE x64 ZIP (Windows Runner)
   # ---------------------------------------------------------------------------
   build-windows:
-    name: Build Windows x64 Release (v3.6.3)
+    name: Build Windows x64 Release (v3.6.4)
     runs-on: windows-latest
 
     steps:
@@ -160,16 +160,16 @@ jobs:
       - name: Package Windows Release ZIP
         shell: pwsh
         run: |
-          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "Twilight-Windows-x64-v3.6.3.zip" -Force
-          Copy-Item "Twilight-Windows-x64-v3.6.3.zip" "Twilight-Windows-x64-v3.0.0.zip" -Force
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "Twilight-Windows-x64-v3.6.4.zip" -Force
+          Copy-Item "Twilight-Windows-x64-v3.6.4.zip" "Twilight-Windows-x64-v3.0.0.zip" -Force
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Twilight-Windows-x64-v3.6.3
-          path: Twilight-Windows-x64-v3.6.3.zip
+          name: Twilight-Windows-x64-v3.6.4
+          path: Twilight-Windows-x64-v3.6.4.zip
 
-      - name: Attach Windows x64 ZIP to GitHub Release (v3.6.3)
+      - name: Attach Windows x64 ZIP to GitHub Release (v3.6.4)
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
         with:
@@ -177,7 +177,7 @@ jobs:
           name: ${{ env.RELEASE_NAME }}
           make_latest: true
           files: |
-            Twilight-Windows-x64-v3.6.3.zip
+            Twilight-Windows-x64-v3.6.4.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -197,7 +197,7 @@ jobs:
   # 3. APPLE iOS RELEASE IPA (macOS Runner)
   # ---------------------------------------------------------------------------
   build-ios:
-    name: Build Apple iOS IPA (v3.6.3)
+    name: Build Apple iOS IPA (v3.6.4)
     runs-on: macos-latest
 
     steps:
@@ -230,16 +230,16 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO
           mkdir -p Payload
           cp -r build/ios_derived/Build/Products/Release-iphoneos/Runner.app Payload/Runner.app
-          zip -r Twilight-iOS-v3.6.3.ipa Payload
-          cp Twilight-iOS-v3.6.3.ipa Twilight-iOS-v3.0.0.ipa
+          zip -r Twilight-iOS-v3.6.4.ipa Payload
+          cp Twilight-iOS-v3.6.4.ipa Twilight-iOS-v3.0.0.ipa
 
       - name: Upload iOS IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Twilight-iOS-v3.6.3
-          path: Twilight-iOS-v3.6.3.ipa
+          name: Twilight-iOS-v3.6.4
+          path: Twilight-iOS-v3.6.4.ipa
 
-      - name: Attach iOS IPA to GitHub Release (v3.6.3)
+      - name: Attach iOS IPA to GitHub Release (v3.6.4)
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
         with:
@@ -247,7 +247,7 @@ jobs:
           name: ${{ env.RELEASE_NAME }}
           make_latest: true
           files: |
-            Twilight-iOS-v3.6.3.ipa
+            Twilight-iOS-v3.6.4.ipa
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

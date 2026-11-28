@@ -10,7 +10,6 @@ import '../../data/datasources/youtube_remote_datasource.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/repositories/music_repository.dart';
 import '../../core/utils/logger.dart';
-import '../../core/utils/formatters.dart';
 import '../../core/services/youtube_audio_source.dart';
 import '../../core/services/audio_stream_extractor.dart';
 import '../../core/services/artwork_service.dart';
@@ -103,10 +102,10 @@ class PlayerProvider extends ChangeNotifier {
       _audioPlayer = AudioPlayer(
         audioLoadConfiguration: const AudioLoadConfiguration(
           androidLoadControl: AndroidLoadControl(
-            minBufferDuration: Duration(seconds: 25),
-            maxBufferDuration: Duration(seconds: 60),
-            bufferForPlaybackDuration: Duration(milliseconds: 1500),
-            bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 3500),
+            minBufferDuration: Duration(seconds: 15),
+            maxBufferDuration: Duration(seconds: 45),
+            bufferForPlaybackDuration: Duration(milliseconds: 500),
+            bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 1200),
           ),
         ),
         handleInterruptions: true,
@@ -726,33 +725,43 @@ class PlayerProvider extends ChangeNotifier {
             return true;
           }
 
-          try {
-            final searchRes = await _yt.search
-                .search('${effectiveSong.title} ${effectiveSong.artist}')
-                .timeout(const Duration(seconds: 4));
-            for (final v in searchRes.take(5)) {
-              if (matchesTargetSong(v.title, v.duration?.inSeconds ?? 0)) {
-                cleanId = v.id.value;
-                break;
-              }
-            }
-          } catch (_) {}
+          final ytFuture = _yt.search
+              .search('${effectiveSong.title} ${effectiveSong.artist}')
+              .then<String?>((searchRes) {
+                for (final v in searchRes.take(5)) {
+                  if (matchesTargetSong(v.title, v.duration?.inSeconds ?? 0)) {
+                    return v.id.value;
+                  }
+                }
+                return null;
+              })
+              .catchError((_) => null);
 
-          if (cleanId.length != 11 && !cleanId.startsWith('js_')) {
+          final dsFuture = () async {
             final tempClient = http.Client();
             try {
               final ytDatasource = YouTubeRemoteDatasource(client: tempClient, apiKey: '');
               final searchResult = await ytDatasource.searchAll('${effectiveSong.title} ${effectiveSong.artist}');
               for (final cand in searchResult.songs.take(5)) {
                 if (matchesTargetSong(cand.title, cand.durationSeconds)) {
-                  cleanId = cand.id;
-                  break;
+                  return cand.id;
                 }
               }
             } catch (_) {
             } finally {
               tempClient.close();
             }
+            return null;
+          }();
+
+          final matchedIds = await Future.wait<String?>([dsFuture, ytFuture])
+              .timeout(const Duration(milliseconds: 3500), onTimeout: () => [null, null]);
+          final pickedId = matchedIds.whereType<String>().firstWhere(
+                (id) => id.isNotEmpty,
+                orElse: () => '',
+              );
+          if (pickedId.isNotEmpty) {
+            cleanId = pickedId;
           }
         }
       }
@@ -805,8 +814,8 @@ class PlayerProvider extends ChangeNotifier {
 
       if (currentRequestId != _playRequestId) return;
 
-      // Start loading watchdog (25s safety net to clear spinner on slow networks)
-      _loadingWatchdog = Timer(const Duration(seconds: 25), () {
+      // Start loading watchdog (22s safety net to clear spinner on slow networks)
+      _loadingWatchdog = Timer(const Duration(seconds: 22), () {
         if (_isLoading && currentRequestId == _playRequestId) {
           // Bump _playRequestId so stale in-flight resolve/setAudioSource futures cannot resume after timeout
           _playRequestId++;
@@ -876,9 +885,16 @@ class PlayerProvider extends ChangeNotifier {
         );
 
         if (fallbackResult != null && currentRequestId == _playRequestId && !_intentionalPause) {
-          final fallbackArtUri = await ArtworkService.getArtworkUri(
-            thumbnailUrl: targetSong.thumbnailUrl,
+          final quickFallbackThumb = ArtworkService.normalizeThumbnailUrl(
+            targetSong.thumbnailUrl,
             songId: targetSong.id,
+          );
+          final fallbackArtUri = quickFallbackThumb.isNotEmpty ? Uri.tryParse(quickFallbackThumb) : null;
+          unawaited(
+            ArtworkService.getArtworkUri(
+              thumbnailUrl: targetSong.thumbnailUrl,
+              songId: targetSong.id,
+            ).catchError((_) => null),
           );
           if (currentRequestId != _playRequestId || _intentionalPause) return;
 
@@ -1354,47 +1370,12 @@ class PlayerProvider extends ChangeNotifier {
       if (!_isTest) {
         try {
           final query = seedSong != null
-              ? '${seedSong.title} ${seedSong.artist} music'
-              : 'popular music hits';
-          final searchResults = await _yt.search.search(query).timeout(const Duration(seconds: 4));
-          if (autoplayReqId != _playRequestId || _intentionalPause) return;
-          if (searchResults.isNotEmpty) {
-            final newTracks = searchResults
-                .where((v) => !_queue.any((q) => q.id == v.id.value))
-                .map((v) => Song(
-                      id: v.id.value,
-                      title: v.title,
-                      artist: v.author,
-                      channelId: v.channelId.value,
-                      thumbnailUrl: 'https://i.ytimg.com/vi/${v.id.value}/hqdefault.jpg',
-                      durationSeconds: v.duration?.inSeconds ?? 210,
-                      durationFormatted: Formatters.formatDuration(v.duration ?? const Duration(seconds: 210)),
-                      viewCount: v.engagement.viewCount,
-                      publishedAt: v.uploadDate,
-                    ))
-                .toList();
-
-            if (newTracks.isNotEmpty) {
-              _queue.addAll(newTracks.take(5));
-              _currentIndex = (_currentIndex + 1).clamp(0, _queue.length - 1);
-              await playSong(_queue[_currentIndex], queueIndex: _currentIndex);
-              return;
-            }
-          }
-        } catch (e) {
-          AppLogger.info('Autoplay related tracks fallback: $e');
-        }
-
-        if (autoplayReqId != _playRequestId || _intentionalPause) return;
-
-        try {
-          final query = seedSong != null
               ? '${seedSong.title} ${seedSong.artist}'
               : 'trending music hits';
           final tempClient = http.Client();
           try {
             final ytDatasource = YouTubeRemoteDatasource(client: tempClient, apiKey: '');
-            final remoteResults = await ytDatasource.searchAll(query).timeout(const Duration(seconds: 5));
+            final remoteResults = await ytDatasource.searchAll(query).timeout(const Duration(seconds: 4));
             if (autoplayReqId != _playRequestId || _intentionalPause) return;
             final newTracks = remoteResults.songs
                 .where((s) => !_queue.any((q) => q.id == s.id || q.isSameTrack(s)))
@@ -1409,7 +1390,7 @@ class PlayerProvider extends ChangeNotifier {
             tempClient.close();
           }
         } catch (e) {
-          AppLogger.info('Autoplay repository search fallback: $e');
+          AppLogger.info('Autoplay search fallback: $e');
         }
 
         if (autoplayReqId != _playRequestId || _intentionalPause) return;

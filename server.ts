@@ -1027,119 +1027,129 @@ async function resolveExactTrackStreamUrl(
   let fallbackSearchArtist = artist;
   let fallbackSearchDuration = effectiveDuration;
   if (rawJioSaavnId) {
-    try {
-      const detailsUrl = `https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${encodeURIComponent(
-        rawJioSaavnId
-      )}&_format=json&_marker=0&api_version=4&ctx=web6dot0`;
-      const detailsRes = await fetchWithRetry(
-        detailsUrl,
-        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
-        { retries: 1, timeoutMs: 2600 }
-      );
-      if (detailsRes.ok) {
-        const detailsData: any = await detailsRes.json();
-        const songItem =
-          detailsData?.[rawJioSaavnId] ||
-          (Array.isArray(detailsData?.songs) ? detailsData.songs[0] : null);
-        if (songItem) {
-          const itemTitle = decodeHtmlEntitiesServer(String(songItem?.title || songItem?.song || '')).trim();
-          const itemSub = decodeHtmlEntitiesServer(String(songItem?.subtitle || songItem?.more_info?.singers || '')).trim();
-          const itemDur = Number(songItem?.more_info?.duration || songItem?.duration || 0);
-          if (!fallbackSearchTitle && itemTitle) {
-            const parsed = extractCoreTrackAndArtist(itemTitle, itemSub);
-            fallbackSearchTitle = parsed.coreTitle || itemTitle;
-            if (!fallbackSearchArtist) fallbackSearchArtist = parsed.primaryArtist || itemSub;
+    const fetchOfficialById = async (): Promise<ResolvedStreamEntry | null> => {
+      try {
+        const detailsUrl = `https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=${encodeURIComponent(
+          rawJioSaavnId
+        )}&_format=json&_marker=0&api_version=4&ctx=web6dot0`;
+        const detailsRes = await fetchWithRetry(
+          detailsUrl,
+          { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+          { retries: 0, timeoutMs: 2200 }
+        );
+        if (detailsRes.ok) {
+          const detailsData: any = await detailsRes.json();
+          const songItem =
+            detailsData?.[rawJioSaavnId] ||
+            (Array.isArray(detailsData?.songs) ? detailsData.songs[0] : null);
+          if (songItem) {
+            const itemTitle = decodeHtmlEntitiesServer(String(songItem?.title || songItem?.song || '')).trim();
+            const itemSub = decodeHtmlEntitiesServer(String(songItem?.subtitle || songItem?.more_info?.singers || '')).trim();
+            const itemDur = Number(songItem?.more_info?.duration || songItem?.duration || 0);
+            if (!fallbackSearchTitle && itemTitle) {
+              const parsed = extractCoreTrackAndArtist(itemTitle, itemSub);
+              fallbackSearchTitle = parsed.coreTitle || itemTitle;
+              if (!fallbackSearchArtist) fallbackSearchArtist = parsed.primaryArtist || itemSub;
+            }
+            if (!fallbackSearchDuration && itemDur > 0) fallbackSearchDuration = itemDur;
           }
-          if (!fallbackSearchDuration && itemDur > 0) fallbackSearchDuration = itemDur;
-        }
-        const encMediaUrl =
-          songItem?.more_info?.encrypted_media_url || songItem?.encrypted_media_url;
-        if (encMediaUrl) {
-          const authUrl = `https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=${encodeURIComponent(
-            encMediaUrl
-          )}&bitrate=320&api_version=4&_format=json&ctx=web6dot0&_marker=0`;
-          const authRes = await fetchWithRetry(
-            authUrl,
-            { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
-            { retries: 1, timeoutMs: 2400 }
-          );
-          if (authRes.ok) {
-            const authData: any = await authRes.json();
-            const rawAuthUrl = String(authData?.auth_url || '');
-            if (rawAuthUrl) {
-              const directCdnUrl = rawAuthUrl
-                .replace(/^https?:\/\/web\.saavncdn\.com/i, 'https://aac.saavncdn.com')
-                .split('?')[0];
-              let rejectedByCdn = false;
-              try {
-                const probeRes = await fetchWithRetry(
-                  directCdnUrl,
-                  {
-                    method: 'HEAD',
-                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-                  },
-                  { retries: 0, timeoutMs: 1400 }
-                );
-                await probeRes.body?.cancel().catch(() => {});
-                if (probeRes.status >= 400) rejectedByCdn = true;
-              } catch {
-                // Accept freshly minted JioSaavn auth URL on transient CDN probe timeout
-              }
-              if (!rejectedByCdn) {
-                const resolved: ResolvedStreamEntry = {
-                  url: directCdnUrl,
-                  mimeType: 'audio/mp4',
-                  resolvedAt: Date.now(),
-                };
-                if (cacheKey) resolvedStreamCache.set(cacheKey, resolved);
-                return resolved;
+          const encMediaUrl =
+            songItem?.more_info?.encrypted_media_url || songItem?.encrypted_media_url;
+          if (encMediaUrl) {
+            const authUrl = `https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=${encodeURIComponent(
+              encMediaUrl
+            )}&bitrate=320&api_version=4&_format=json&ctx=web6dot0&_marker=0`;
+            const authRes = await fetchWithRetry(
+              authUrl,
+              { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+              { retries: 0, timeoutMs: 2000 }
+            );
+            if (authRes.ok) {
+              const authData: any = await authRes.json();
+              const rawAuthUrl = String(authData?.auth_url || '');
+              if (rawAuthUrl) {
+                const directCdnUrl = rawAuthUrl
+                  .replace(/^https?:\/\/web\.saavncdn\.com/i, 'https://aac.saavncdn.com')
+                  .split('?')[0];
+                let rejectedByCdn = false;
+                try {
+                  const probeRes = await fetchWithRetry(
+                    directCdnUrl,
+                    {
+                      method: 'HEAD',
+                      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+                    },
+                    { retries: 0, timeoutMs: 900 }
+                  );
+                  await probeRes.body?.cancel().catch(() => {});
+                  if (probeRes.status >= 400) rejectedByCdn = true;
+                } catch {
+                  // Accept freshly minted JioSaavn auth URL on transient CDN probe timeout
+                }
+                if (!rejectedByCdn) {
+                  return {
+                    url: directCdnUrl,
+                    mimeType: 'audio/mp4',
+                    resolvedAt: Date.now(),
+                  };
+                }
               }
             }
           }
         }
-      }
-    } catch {
-      // Fall through to saavn.sumit.co song ID backup
-    }
-    try {
-      const sumitDirectRes = await fetchWithRetry(
-        `https://saavn.sumit.co/api/songs/${encodeURIComponent(rawJioSaavnId)}`,
-        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
-        { retries: 0, timeoutMs: 2200 }
-      );
-      if (sumitDirectRes.ok) {
-        const sumitJson: any = await sumitDirectRes.json();
-        const item = Array.isArray(sumitJson?.data) ? sumitJson.data[0] : sumitJson?.data;
-        if (item && !fallbackSearchTitle) {
-          const parsed = extractCoreTrackAndArtist(String(item?.name || ''), '');
-          fallbackSearchTitle = parsed.coreTitle || String(item?.name || '');
-        }
-        const dls: any[] = Array.isArray(item?.downloadUrl) ? item.downloadUrl : [];
-        const fullUrl = String(dls[dls.length - 1]?.url || '');
-        if (fullUrl) {
-          let sumitRejected = false;
-          try {
-            const sumitProbe = await fetchWithRetry(
-              fullUrl,
-              { method: 'HEAD', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
-              { retries: 0, timeoutMs: 1400 }
-            );
-            await sumitProbe.body?.cancel().catch(() => {});
-            if (sumitProbe.status >= 400) sumitRejected = true;
-          } catch {}
-          if (!sumitRejected) {
-            const resolved: ResolvedStreamEntry = {
-              url: fullUrl,
-              mimeType: 'audio/mp4',
-              resolvedAt: Date.now(),
-            };
-            if (cacheKey) resolvedStreamCache.set(cacheKey, resolved);
-            return resolved;
+      } catch {}
+      return null;
+    };
+
+    const fetchSumitById = async (): Promise<ResolvedStreamEntry | null> => {
+      try {
+        const sumitDirectRes = await fetchWithRetry(
+          `https://saavn.sumit.co/api/songs/${encodeURIComponent(rawJioSaavnId)}`,
+          { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+          { retries: 0, timeoutMs: 2200 }
+        );
+        if (sumitDirectRes.ok) {
+          const sumitJson: any = await sumitDirectRes.json();
+          const item = Array.isArray(sumitJson?.data) ? sumitJson.data[0] : sumitJson?.data;
+          if (item && !fallbackSearchTitle) {
+            const parsed = extractCoreTrackAndArtist(String(item?.name || ''), '');
+            fallbackSearchTitle = parsed.coreTitle || String(item?.name || '');
+          }
+          const dls: any[] = Array.isArray(item?.downloadUrl) ? item.downloadUrl : [];
+          const rawUrl = String(dls[dls.length - 1]?.url || '');
+          const fullUrl = rawUrl.startsWith('http://') ? `https://${rawUrl.slice(7)}` : rawUrl;
+          if (fullUrl) {
+            let sumitRejected = false;
+            try {
+              const sumitProbe = await fetchWithRetry(
+                fullUrl,
+                { method: 'HEAD', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } },
+                { retries: 0, timeoutMs: 900 }
+              );
+              await sumitProbe.body?.cancel().catch(() => {});
+              if (sumitProbe.status >= 400) sumitRejected = true;
+            } catch {}
+            if (!sumitRejected) {
+              return {
+                url: fullUrl,
+                mimeType: 'audio/mp4',
+                resolvedAt: Date.now(),
+              };
+            }
           }
         }
-      }
-    } catch {
-      // Fall through to multi-source resolution tiers
+      } catch {}
+      return null;
+    };
+
+    const raceJs = await Promise.allSettled([fetchSumitById(), fetchOfficialById()]);
+    const directWinner =
+      (raceJs[0].status === 'fulfilled' && raceJs[0].value) ||
+      (raceJs[1].status === 'fulfilled' && raceJs[1].value) ||
+      null;
+    if (directWinner) {
+      if (cacheKey) resolvedStreamCache.set(cacheKey, directWinner);
+      return directWinner;
     }
   }
 
@@ -2382,8 +2392,9 @@ async function searchSaavnFallback(
         const mins = Math.floor(durSec / 60);
         const secs = durSec % 60;
         const rawImg = String(item?.image || '').trim();
-        const highResArt = rawImg
-          ? rawImg.replace(/150x150|50x50/g, '500x500')
+        const httpsImg = rawImg.startsWith('http://') ? `https://${rawImg.slice(7)}` : rawImg;
+        const highResArt = httpsImg
+          ? httpsImg.replace(/150x150|50x50/g, '500x500')
           : 'https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg';
 
         songMetaCache.set(trackId, { title, artist, durationSeconds: durSec });
@@ -2443,9 +2454,9 @@ async function searchSaavnFallback(
       const mins = Math.floor(durSec / 60);
       const secs = durSec % 60;
       const images: any[] = Array.isArray(item?.image) ? item.image : [];
-      const highResArt =
-        (images.length > 0 ? String(images[images.length - 1]?.url || '') : '') ||
-        'https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg';
+      const rawArt = images.length > 0 ? String(images[images.length - 1]?.url || '').trim() : '';
+      const httpsArt = rawArt.startsWith('http://') ? `https://${rawArt.slice(7)}` : rawArt;
+      const highResArt = httpsArt || 'https://i.ytimg.com/vi/fJ9rUzIMcZQ/hqdefault.jpg';
 
       songMetaCache.set(trackId, { title, artist, durationSeconds: durSec });
       songs.push({
@@ -2875,9 +2886,13 @@ app.get('/api/trending', async (_req: Request, res: Response) => {
         );
         const songs: any[] = [];
         const seen = new Set<string>();
+        const seenTracks = new Set<string>();
         for (const s of [...saavnTrending, ...singleYt, ...FALLBACK_POPULAR]) {
           if (!s?.id || seen.has(s.id)) continue;
+          const trackKey = `${String(s.title || '').toLowerCase().replace(/\s+/g, ' ').trim()}|${String(s.artist || '').split(',')[0].toLowerCase().replace(/\s+/g, ' ').trim()}`;
+          if (trackKey.length > 1 && seenTracks.has(trackKey)) continue;
           seen.add(s.id);
+          if (trackKey.length > 1) seenTracks.add(trackKey);
           songs.push(s);
           if (songs.length >= 16) break;
         }
@@ -3750,12 +3765,12 @@ function pushFullAppRepositoryToGitHub(cleanRepo: string, ghToken: string, tagNa
     execFileSync('git', [...baseArgs, 'add', '-A'], gitOpts);
     execFileSync(
       'git',
-      [...baseArgs, 'commit', '--allow-empty', '-m', `release: Twilight Music v3.6.3 (Build 63) — Exact YouTube Playback, Playlists & Multi-Platform Release`],
+      [...baseArgs, 'commit', '--allow-empty', '-m', `release: Twilight Music v3.6.4 (Build 64) — Instant Artwork, Fast Playback & Notification Icon Fix`],
       gitOpts
     );
     execFileSync('git', [...baseArgs, 'tag', '-f', tagName], gitOpts);
-    if (tagName !== 'v3.6.3') {
-      execFileSync('git', [...baseArgs, 'tag', '-f', 'v3.6.3'], gitOpts);
+    if (tagName !== 'v3.6.4') {
+      execFileSync('git', [...baseArgs, 'tag', '-f', 'v3.6.4'], gitOpts);
     }
     const commitSha = execFileSync('git', [...baseArgs, 'rev-parse', '--short', 'HEAD'], gitOpts)
       .toString()
@@ -3764,7 +3779,7 @@ function pushFullAppRepositoryToGitHub(cleanRepo: string, ghToken: string, tagNa
     const refSpecs = [
       'HEAD:refs/heads/main',
       `refs/tags/${tagName}:refs/tags/${tagName}`,
-      ...(tagName !== 'v3.6.3' ? ['refs/tags/v3.6.3:refs/tags/v3.6.3'] : []),
+      ...(tagName !== 'v3.6.4' ? ['refs/tags/v3.6.4:refs/tags/v3.6.4'] : []),
     ];
     execFileSync(
       'git',
@@ -3788,19 +3803,17 @@ function pushFullAppRepositoryToGitHub(cleanRepo: string, ghToken: string, tagNa
 // Release Metadata API Endpoint
 app.get('/api/release/info', (_req: Request, res: Response) => {
   res.json({
-    version: 'v3.6.3',
+    version: 'v3.6.4',
     legacyTag: 'v3.0.0',
-    buildNumber: 63,
+    buildNumber: 64,
     releaseDate: new Date().toISOString().slice(0, 10),
-    title: 'Twilight Music v3.6.3 — Exact YouTube Playback, Playlists & Full Reliability Release',
+    title: 'Twilight Music v3.6.4 — Instant Artwork, Fast Playback & Notification Polish',
     highlights: [
-      'Zero Download Stalls at 98%-99%: Resilient chunked downloads, inactivity watchdog, and /api/download streaming fix',
-      '100% Exact YouTube Video Audio Matching & Duration-Verified Offline Caches',
-      'Instant Next-Track Switching with Zero Loading Stalls',
-      'Complete Playlists Upgrade: Create, Rename, Delete, Shuffle, Toggle & Quick-Add Across All Screens',
-      'Smart Search & Bengali Phonetic Matching (e.g. tmi / level 5 -> LEVEL FIVE - TUMI)',
-      'Guest-First Clean Startup & Working Email/Password Auth',
-      'Native Multi-Platform Releases: Android APK (Twilight-Android-v3.6.3.apk), Apple iOS IPA (Twilight-iOS-v3.6.3.ipa), and Windows x64 ZIP (Twilight-Windows-x64-v3.6.3.zip)',
+      '100% Home & Card Artwork Fix: Excluded 11-char JioSaavn js_* IDs from fake ytimg.com rewrites, upgraded http:// CDN artwork to https://, added 500x500 -> 150x150 fallback, and deduplicated Home trending cards',
+      'Instant Song Startup & Reduced Loading Delays: Raced saavn.sumit.co + JioSaavn concurrently, bypassed broken YouTubeExplode search HTTP 400 bottlenecks, lazy-loaded SoundCloud client IDs, non-blocking notification artwork, and 500ms ExoPlayer startup buffering',
+      'Android MediaStyle Notification Fix: Added density-specific RGBA Twilight orbital icons (mdpi..xxxhdpi) for audio_service_stop.png to eliminate the solid white square icon',
+      'Zero Download Stalls at 98%-99%: Resilient chunked downloads and /api/download streaming fix',
+      'Native Multi-Platform Releases: Android APK (Twilight-Android-v3.6.4.apk), Apple iOS IPA (Twilight-iOS-v3.6.4.ipa), and Windows x64 ZIP (Twilight-Windows-x64-v3.6.4.zip)',
     ],
   });
 });
@@ -3833,7 +3846,7 @@ app.get(
 // Push Full App Codebase to GitHub & Publish v3.6.3 Release + Upload Archive directly to GitHub Releases
 app.post('/api/release/github', async (req: Request, res: Response) => {
   try {
-    const { repo = 'hasibcore/Twilight-Music', token, tagName = 'v3.6.3' } = req.body || {};
+    const { repo = 'hasibcore/Twilight-Music', token, tagName = 'v3.6.4' } = req.body || {};
     const ghToken = (token || process.env.GITHUB_TOKEN || '').trim();
 
     if (!ghToken) {

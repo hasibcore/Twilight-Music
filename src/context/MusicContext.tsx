@@ -387,7 +387,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const list: Song[] = saved ? JSON.parse(saved) : [POPULAR_FEATURED_SONGS[0], POPULAR_FEATURED_SONGS[3]];
       return list.map((s) => {
         const cleaned = isShortPreviewUrl(s.audioUrl) ? { ...s, audioUrl: undefined } : s;
-        return cleaned.id && cleaned.id.length === 11 && !cleaned.id.startsWith('sp_')
+        return cleaned.id && cleaned.id.length === 11 && !cleaned.id.startsWith('sp_') && !cleaned.id.startsWith('js_')
           ? { ...cleaned, thumbnailUrl: `https://i.ytimg.com/vi/${cleaned.id}/hqdefault.jpg` }
           : cleaned;
       });
@@ -402,7 +402,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const list: Song[] = saved ? JSON.parse(saved) : POPULAR_FEATURED_SONGS.slice(0, 4);
       return list.map((s) => {
         const cleaned = isShortPreviewUrl(s.audioUrl) ? { ...s, audioUrl: undefined } : s;
-        return cleaned.id && cleaned.id.length === 11 && !cleaned.id.startsWith('sp_')
+        return cleaned.id && cleaned.id.length === 11 && !cleaned.id.startsWith('sp_') && !cleaned.id.startsWith('js_')
           ? { ...cleaned, thumbnailUrl: `https://i.ytimg.com/vi/${cleaned.id}/hqdefault.jpg` }
           : cleaned;
       });
@@ -465,7 +465,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           ...s,
           audioUrl: cleanedAudio,
           thumbnailUrl:
-            s.id && s.id.length === 11 && !s.id.startsWith('sp_')
+            s.id && s.id.length === 11 && !s.id.startsWith('sp_') && !s.id.startsWith('js_')
               ? `https://i.ytimg.com/vi/${s.id}/hqdefault.jpg`
               : s.thumbnailUrl,
           offlineStatus: s.offlineStatus || 'verified',
