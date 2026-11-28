@@ -1145,6 +1145,11 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(musicContextTsx, /currentAttrSrc\.startsWith\('data:audio\/wav'\)/);
     assert.match(musicContextTsx, /if \(!loadedFromOfflineStorage && !abortController\.signal\.aborted\) \{\s*directResolvedUrl = await MusicApi\.resolveClientDirectStreamUrl\(normalizedSong\);/);
     assert.match(musicContextTsx, /if \(canUseYtIframeForExactVideo && !directResolvedUrl\)/);
+    assert.match(
+      musicContextTsx,
+      /Start the exact YouTube video immediately[\s\S]*ytFallbackWatchdogRef\.current = setTimeout[\s\S]*playerState !== 3[\s\S]*startHtml5StreamPlayback\(0, true\)/
+    );
+    assert.match(musicContextTsx, /if \(playerState === 1\) \{\s*isLoadingSyncRef\.current = false;\s*setIsLoading\(false\);/);
 
     // 4. Flutter supports direct js_<pid> extraction, skips hardcoded static masters on refresh, rejects 404 sumit URLs, falls back to YouTube search, preserves js_ IDs, and bumps _playRequestId in timeout watchdog
     assert.match(extractorDart, /_extractDirectJioSaavnById/);

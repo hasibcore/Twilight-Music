@@ -2532,10 +2532,26 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 : 0,
           });
           ytPlayerRef.current.playVideo();
-          isLoadingSyncRef.current = false;
-          setIsLoading(false);
-          setIsPlaying(true);
           setPlaybackError(null);
+          if (ytFallbackWatchdogRef.current) clearTimeout(ytFallbackWatchdogRef.current);
+          ytFallbackWatchdogRef.current = setTimeout(() => {
+            ytFallbackWatchdogRef.current = null;
+            if (
+              reqId !== playRequestIdRef.current ||
+              activeEngineRef.current !== 'yt' ||
+              intentionalPauseRef.current
+            ) {
+              return;
+            }
+            const playerState = ytPlayerRef.current?.getPlayerState?.();
+            if (playerState === 1) {
+              isLoadingSyncRef.current = false;
+              setIsLoading(false);
+              setIsPlaying(true);
+            } else if (playerState !== 3) {
+              startHtml5StreamPlayback(0, true);
+            }
+          }, 6000);
           return;
         } catch {}
       }
