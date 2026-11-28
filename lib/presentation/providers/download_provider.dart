@@ -82,29 +82,69 @@ class DownloadProvider extends ChangeNotifier {
     _lastError = null;
     notifyListeners();
 
+    DateTime lastProgressAt = DateTime.now();
+    final startedAt = lastProgressAt;
+    double lastNotifiedProgress = 0.08;
+    DateTime lastNotifyAt = startedAt;
+    Timer? watchdogTimer;
+    final completer = Completer<DownloadItem?>();
+
+    void failWatchdog(Object err) {
+      DownloadService.cancelDownload(song.id);
+      if (!completer.isCompleted) {
+        completer.completeError(err);
+      }
+    }
+
+    // Inactivity watchdog: allows large legitimate files (e.g. 120 MB) to finish without hitting a fixed 60s cutoff,
+    // while aborting genuinely stalled transfers cleanly within 30s and cleaning up the underlying task.
+    watchdogTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      final now = DateTime.now();
+      if (now.difference(lastProgressAt) >= const Duration(seconds: 30)) {
+        failWatchdog(
+          TimeoutException('Download stalled for 30 seconds. Please check your connection.'),
+        );
+      } else if (now.difference(startedAt) >= const Duration(minutes: 10)) {
+        failWatchdog(
+          TimeoutException('Download exceeded maximum 10-minute duration.'),
+        );
+      }
+    });
+
     try {
-      final item = await DownloadService.downloadTrack(
+      DownloadService.downloadTrack(
         song: song,
         onProgress: (progress) {
-          _downloadProgress[song.id] = progress;
-          notifyListeners();
+          final current = _downloadProgress[song.id] ?? 0.0;
+          final monotonic = progress > current ? progress : current;
+          _downloadProgress[song.id] = monotonic;
+          lastProgressAt = DateTime.now();
+          final now = lastProgressAt;
+          if ((monotonic - lastNotifiedProgress).abs() >= 0.01 ||
+              monotonic >= 0.99 ||
+              now.difference(lastNotifyAt).inMilliseconds >= 90) {
+            lastNotifiedProgress = monotonic;
+            lastNotifyAt = now;
+            notifyListeners();
+          }
         },
-      ).timeout(
-        const Duration(seconds: 60),
-        onTimeout: () {
-          throw TimeoutException('Download timed out after 60 seconds. Please check your connection.');
-        },
-      );
+      ).then((item) {
+        if (!completer.isCompleted) {
+          completer.complete(item);
+        }
+      }).catchError((Object err, StackTrace st) {
+        if (!completer.isCompleted) {
+          completer.completeError(err, st);
+        }
+      });
+
+      final item = await completer.future;
 
       if (item != null) {
         _downloads.removeWhere((d) =>
             d.song.id == song.id ||
             d.resolvedVideoId == item.resolvedVideoId);
         _downloads.insert(0, item);
-        _downloadProgress[song.id] = 1.0;
-        notifyListeners();
-        // Allow UI to animate to 100% and transition to downloaded checkmark
-        await Future.delayed(const Duration(milliseconds: 350));
       } else {
         _lastError = 'Download could not resolve a stream.';
       }
@@ -118,6 +158,8 @@ class DownloadProvider extends ChangeNotifier {
       _downloadProgress.remove(song.id);
       notifyListeners();
       return false;
+    } finally {
+      watchdogTimer.cancel();
     }
   }
 

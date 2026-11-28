@@ -1348,4 +1348,29 @@ describe('Twilight Music — Phase 4 Production QA Verification Suite', () => {
     assert.match(musicContextTsx, /https:\/\/www\.youtube\.com\/iframe_api/);
     assert.match(flutterExtractor, /_resolveQuranSurahDirectUrl/);
   });
+
+  it('Scenario 36: Verify download completion integrity (zero 98-99% hangs, HTTP 403/503 chunk error exits, inactivity watchdog, and /api/download headersTimeoutOnly)', () => {
+    const serverTs = fs.readFileSync(path.join(rootDir, 'server.ts'), 'utf8');
+    const musicContextTsx = fs.readFileSync(path.join(rootDir, 'src/context/MusicContext.tsx'), 'utf8');
+    const downloadServiceDart = fs.readFileSync(path.join(rootDir, 'lib/core/services/download_service.dart'), 'utf8');
+    const downloadProvDart = fs.readFileSync(path.join(rootDir, 'lib/presentation/providers/download_provider.dart'), 'utf8');
+
+    // Flutter DownloadService: fail fast on 401/403/404/410, never spin infinitely if !chunkSuccess, atomic chunkBuilder, report 1.0 after _saveDownloads
+    assert.match(downloadServiceDart, /if \(!chunkSuccess\)/);
+    assert.match(downloadServiceDart, /Download stalled at \$downloadedBytes\/\$totalBytes bytes/);
+    assert.match(downloadServiceDart, /chunkBuilder/);
+    assert.match(downloadServiceDart, /await _saveDownloads\(currentList\);[\s\S]*?onProgress\(1\.0\);/);
+
+    // Flutter DownloadProvider: progress inactivity watchdog cancels underlying download on stall instead of fixed 60s cutoff
+    assert.match(downloadProvDart, /DownloadService\.cancelDownload\(song\.id\)/);
+    assert.match(downloadProvDart, /Timer\.periodic/);
+
+    // Server /api/download & Web MusicContext: headersTimeoutOnly, headersSent guard, IDB onabort/onblocked, and offlineDownloadInFlightRef
+    const dlRouteSection = serverTs.slice(serverTs.indexOf("app.get('/api/download/:videoId'"));
+    assert.match(dlRouteSection, /headersTimeoutOnly: true/);
+    assert.match(dlRouteSection, /if \(!res\.headersSent\)/);
+    assert.match(musicContextTsx, /tx\.onabort = finish;/);
+    assert.match(musicContextTsx, /req\.onblocked = \(\) => finish\(null\);/);
+    assert.match(musicContextTsx, /offlineDownloadInFlightRef/);
+  });
 });

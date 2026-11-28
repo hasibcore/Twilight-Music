@@ -351,26 +351,27 @@ class DownloadService {
 
       onProgress(0.99);
 
-      // 4. Fast non-blocking thumbnail fetch for offline artwork display (max 1.5s, never hangs completion)
+      // 4. Fast non-blocking thumbnail fetch for offline artwork display (max 1.2s, closes client cleanly)
       String? savedThumbPath;
       final thumbUrlToFetch = song.thumbnailUrl.isNotEmpty ? song.thumbnailUrl : targetSong.thumbnailUrl;
       if (thumbUrlToFetch.isNotEmpty) {
+        final thumbClient = http.Client();
         try {
           final uri = Uri.tryParse(thumbUrlToFetch);
           if (uri != null) {
-            final thumbRes = await http.get(uri).timeout(const Duration(milliseconds: 1500));
+            final thumbRes = await thumbClient.get(uri).timeout(const Duration(milliseconds: 1200));
             if (thumbRes.statusCode == 200 && thumbRes.bodyBytes.length > 500) {
               final thumbFile = File(thumbFilePath);
-              await thumbFile.writeAsBytes(thumbRes.bodyBytes);
+              await thumbFile.writeAsBytes(thumbRes.bodyBytes, flush: true);
               savedThumbPath = thumbFilePath;
             }
           }
         } catch (e) {
           AppLogger.info('Optional thumbnail cache skipped or timed out: $e');
+        } finally {
+          thumbClient.close();
         }
       }
-
-      onProgress(1.0);
 
       final cleanSong = Song(
         id: song.id,
@@ -396,7 +397,7 @@ class DownloadService {
         resolvedVideoId: cleanId,
       );
 
-      // Persist in metadata
+      // Persist metadata BEFORE reporting 100% so Downloads tab & isDownloaded see it immediately
       final currentList = loadSavedDownloads();
       currentList.removeWhere((i) =>
           i.song.id == song.id ||
@@ -406,10 +407,11 @@ class DownloadService {
       currentList.insert(0, item);
       await _saveDownloads(currentList);
 
-      AppLogger.info('Successfully downloaded track: "${song.title}" (${(finalFileSize / (1024 * 1024)).toStringAsFixed(1)} MB)');
-
       // Invalidate in-memory downloads cache so next play sees this file
       YouTubeAudioSource.invalidateDownloadsCache();
+      onProgress(1.0);
+
+      AppLogger.info('Successfully downloaded track: "${song.title}" (${(finalFileSize / (1024 * 1024)).toStringAsFixed(1)} MB)');
 
       return item;
     } catch (e) {
@@ -424,6 +426,26 @@ class DownloadService {
       } catch (_) {}
       rethrow;
     }
+  }
+
+  /// Exposed for automated unit verification of chunked Range / 200-OK / 416 / error recovery.
+  @visibleForTesting
+  static Future<int> downloadUrlWithResilientRangesForTest({
+    required String url,
+    Map<String, String> headers = const {},
+    required String tmpFilePath,
+    int knownTotalBytes = 0,
+    String songId = 'test_song',
+    void Function(double progress)? onProgress,
+  }) {
+    return _downloadUrlWithResilientRanges(
+      url: url,
+      headers: headers,
+      tmpFilePath: tmpFilePath,
+      knownTotalBytes: knownTotalBytes,
+      songId: songId,
+      onProgress: onProgress ?? (_) {},
+    );
   }
 
   /// Downloads stream with Range requests to avoid 20KB/s throttling & infinite stalls
@@ -449,6 +471,15 @@ class DownloadService {
     final sink = file.openWrite();
     int downloadedBytes = 0;
     int totalBytes = knownTotalBytes;
+    double maxReportedProgress = 0.08;
+
+    void reportMonotonic(double p) {
+      final clamped = p.clamp(0.08, 0.98);
+      if (clamped > maxReportedProgress) {
+        maxReportedProgress = clamped;
+        onProgress(clamped);
+      }
+    }
 
     final client = http.Client();
     try {
@@ -476,6 +507,7 @@ class DownloadService {
 
           bool chunkSuccess = false;
           int retries = 0;
+          int? lastStatusCode;
 
           while (!chunkSuccess && retries < 3) {
             if (isCancelled()) {
@@ -488,44 +520,35 @@ class DownloadService {
               final req = http.Request('GET', Uri.parse(url));
               req.headers.addAll(rangeHeaders);
 
-              final streamedRes = await client.send(req).timeout(const Duration(seconds: 8));
-              if (streamedRes.statusCode == 200 || streamedRes.statusCode == 206) {
+              final streamedRes = await client.send(req).timeout(const Duration(seconds: 10));
+              lastStatusCode = streamedRes.statusCode;
+
+              if (streamedRes.statusCode == 206) {
                 // Update exact totalBytes from Content-Range header if provided (e.g. "bytes 0-524287/16813294")
                 final contentRange = streamedRes.headers['content-range'];
                 if (contentRange != null && contentRange.contains('/')) {
                   final exactTotal = int.tryParse(contentRange.split('/').last.trim());
                   if (exactTotal != null && exactTotal > 0) {
                     totalBytes = exactTotal;
+                    if (downloadedBytes >= totalBytes) {
+                      await streamedRes.stream.drain<void>().catchError((_) {});
+                      chunkSuccess = true;
+                      break;
+                    }
                   }
                 }
 
-                int bytesInThisChunk = 0;
-                await for (final chunk in streamedRes.stream.timeout(const Duration(seconds: 6))) {
+                // Buffer 512 KB chunk atomically so a mid-chunk stall never corrupts file offsets
+                final chunkBuilder = BytesBuilder(copy: false);
+                await for (final chunk in streamedRes.stream.timeout(const Duration(seconds: 10))) {
                   if (isCancelled()) {
                     throw Exception('Download cancelled by user');
                   }
-                  sink.add(chunk);
-                  downloadedBytes += chunk.length;
-                  bytesInThisChunk += chunk.length;
-                  final progress = 0.08 + (0.90 * (downloadedBytes / totalBytes));
-                  onProgress(progress.clamp(0.08, 0.98));
+                  chunkBuilder.add(chunk);
+                  reportMonotonic(0.08 + (0.90 * ((downloadedBytes + chunkBuilder.length) / totalBytes)));
                 }
 
-                // Only mark complete if 200 OK delivered the full payload (>= 95% of expected total)
-                if (streamedRes.statusCode == 200) {
-                  if (downloadedBytes >= (totalBytes * 0.95).round()) {
-                    chunkSuccess = true;
-                    downloadedBytes = totalBytes;
-                    break;
-                  }
-                  retries++;
-                  if (retries >= 3) {
-                    throw Exception('Download stream truncated at $downloadedBytes/$totalBytes bytes');
-                  }
-                  await Future.delayed(const Duration(milliseconds: 250));
-                  continue;
-                }
-                if (bytesInThisChunk == 0) {
+                if (chunkBuilder.length == 0) {
                   retries++;
                   if (retries >= 3) {
                     throw Exception('Download chunk returned 0 bytes at $downloadedBytes/$totalBytes');
@@ -533,45 +556,112 @@ class DownloadService {
                   await Future.delayed(const Duration(milliseconds: 250));
                   continue;
                 }
+
+                final completedChunk = chunkBuilder.takeBytes();
+                sink.add(completedChunk);
+                downloadedBytes += completedChunk.length;
+                reportMonotonic(0.08 + (0.90 * (downloadedBytes / totalBytes)));
                 chunkSuccess = true;
-              } else if (streamedRes.statusCode == 416) {
-                // Range Not Satisfiable: Stream has finished sending all bytes
-                chunkSuccess = true;
-                downloadedBytes = totalBytes;
-                break;
-              } else {
+              } else if (streamedRes.statusCode == 200) {
+                // Server ignored Range and is streaming from byte 0: skip already-written prefix cleanly
+                if (streamedRes.contentLength != null && streamedRes.contentLength! > 0) {
+                  totalBytes = streamedRes.contentLength!;
+                }
+                int bytesToSkip = start;
+                await for (final chunk in streamedRes.stream.timeout(const Duration(seconds: 10))) {
+                  if (isCancelled()) {
+                    throw Exception('Download cancelled by user');
+                  }
+                  if (bytesToSkip >= chunk.length) {
+                    bytesToSkip -= chunk.length;
+                    continue;
+                  }
+                  final slice = bytesToSkip > 0 ? chunk.sublist(bytesToSkip) : chunk;
+                  bytesToSkip = 0;
+                  sink.add(slice);
+                  downloadedBytes += slice.length;
+                  reportMonotonic(0.08 + (0.90 * (downloadedBytes / totalBytes)));
+                }
+
+                // Only mark complete if 200 OK delivered the full payload (>= 95% of expected total)
+                if (downloadedBytes >= (totalBytes * 0.95).round()) {
+                  chunkSuccess = true;
+                  downloadedBytes = totalBytes;
+                  break;
+                }
                 retries++;
-                await Future.delayed(const Duration(milliseconds: 200));
+                if (retries >= 3) {
+                  throw Exception('Download stream truncated at $downloadedBytes/$totalBytes bytes');
+                }
+                await Future.delayed(const Duration(milliseconds: 250));
+                continue;
+              } else if (streamedRes.statusCode == 416) {
+                await streamedRes.stream.drain<void>().catchError((_) {});
+                final contentRange = streamedRes.headers['content-range'];
+                if (contentRange != null && contentRange.contains('/')) {
+                  final exactTotal = int.tryParse(contentRange.split('/').last.trim());
+                  if (exactTotal != null && exactTotal > 0) {
+                    totalBytes = exactTotal;
+                  }
+                }
+                if (downloadedBytes > 0 && downloadedBytes >= (totalBytes * 0.95).round()) {
+                  chunkSuccess = true;
+                  downloadedBytes = totalBytes;
+                  break;
+                }
+                retries = 3;
+                throw Exception('Download range unsatisfiable at $downloadedBytes/$totalBytes bytes');
+              } else {
+                await streamedRes.stream.drain<void>().catchError((_) {});
+                // Non-retriable HTTP rejections (expired signed URL / forbidden / gone) must fail fast, not spin
+                if (streamedRes.statusCode == 401 ||
+                    streamedRes.statusCode == 403 ||
+                    streamedRes.statusCode == 404 ||
+                    streamedRes.statusCode == 410) {
+                  retries = 3;
+                  throw Exception('Download HTTP ${streamedRes.statusCode} at $downloadedBytes/$totalBytes bytes');
+                }
+                retries++;
+                await Future.delayed(const Duration(milliseconds: 250));
               }
             } catch (e) {
               if (isCancelled()) rethrow;
               retries++;
-              await Future.delayed(const Duration(milliseconds: 250));
               if (retries >= 3) {
                 rethrow;
               }
+              await Future.delayed(const Duration(milliseconds: 250));
             }
+          }
+
+          // Never loop back into while(downloadedBytes < totalBytes) when all chunk retries failed
+          if (!chunkSuccess) {
+            throw Exception(
+              'Download stalled at $downloadedBytes/$totalBytes bytes (HTTP ${lastStatusCode ?? "unknown"})',
+            );
           }
 
           if (downloadedBytes >= totalBytes) break;
         }
       } else {
-        // Fallback single stream with chunk timeout watchdog
+        // Fallback single stream with chunk timeout watchdog & dynamic progress denominator
         final req = http.Request('GET', Uri.parse(url));
         req.headers.addAll(headers);
-        final streamedRes = await client.send(req).timeout(const Duration(seconds: 8));
+        final streamedRes = await client.send(req).timeout(const Duration(seconds: 10));
         if (streamedRes.statusCode != 200 && streamedRes.statusCode != 206) {
           throw Exception('Stream HTTP status ${streamedRes.statusCode}');
         }
-        final streamTotal = streamedRes.contentLength ?? 4000000;
-        await for (final chunk in streamedRes.stream.timeout(const Duration(seconds: 6))) {
+        int streamTotal = streamedRes.contentLength ?? 0;
+        await for (final chunk in streamedRes.stream.timeout(const Duration(seconds: 10))) {
           if (isCancelled()) {
             throw Exception('Download cancelled by user');
           }
           sink.add(chunk);
           downloadedBytes += chunk.length;
-          final progress = 0.08 + (0.90 * (downloadedBytes / streamTotal));
-          onProgress(progress.clamp(0.08, 0.98));
+          final effectiveTotal = streamTotal > 0
+              ? streamTotal
+              : (downloadedBytes < 4000000 ? 4000000 : (downloadedBytes * 1.15).round());
+          reportMonotonic(0.08 + (0.90 * (downloadedBytes / effectiveTotal)));
         }
       }
 
@@ -607,7 +697,7 @@ class DownloadService {
     try {
       final playlistRes = await client
           .get(Uri.parse(url), headers: headers)
-          .timeout(const Duration(seconds: 6));
+          .timeout(const Duration(seconds: 8));
       if (playlistRes.statusCode != 200) {
         throw Exception('HLS playlist HTTP ${playlistRes.statusCode}');
       }
@@ -639,7 +729,7 @@ class DownloadService {
 
       final segmentBytes = List<Uint8List?>.filled(segmentUrls.length, null);
       int completedCount = 0;
-      const int batchSize = 4;
+      const int batchSize = 6;
 
       for (int batchStart = 0; batchStart < segmentUrls.length; batchStart += batchSize) {
         if (isCancelled()) {
@@ -659,13 +749,16 @@ class DownloadService {
               try {
                 final res = await client
                     .get(Uri.parse(segUrl), headers: headers)
-                    .timeout(const Duration(seconds: 6));
+                    .timeout(const Duration(seconds: 8));
                 if (res.statusCode == 200 || res.statusCode == 206) {
                   fetched = res.bodyBytes;
                   break;
                 }
               } catch (_) {}
               await Future.delayed(Duration(milliseconds: 180 * (attempt + 1)));
+            }
+            if (isCancelled()) {
+              throw Exception('Download cancelled by user');
             }
             if (fetched == null || fetched.isEmpty) {
               throw Exception('Failed to download HLS segment $idx');
@@ -676,6 +769,10 @@ class DownloadService {
             onProgress(progress.clamp(0.08, 0.96));
           }),
         );
+      }
+
+      if (isCancelled()) {
+        throw Exception('Download cancelled by user');
       }
 
       final builder = BytesBuilder(copy: false);

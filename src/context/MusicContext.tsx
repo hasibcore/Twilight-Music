@@ -106,6 +106,14 @@ const OFFLINE_IDB_STORE = 'audio_blobs';
 function openOfflineAudioDb(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (db: IDBDatabase | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(db);
+    };
+    const timer = setTimeout(() => finish(null), 3500);
     try {
       const req = indexedDB.open(OFFLINE_IDB_NAME, 1);
       req.onupgradeneeded = () => {
@@ -114,10 +122,11 @@ function openOfflineAudioDb(): Promise<IDBDatabase | null> {
           db.createObjectStore(OFFLINE_IDB_STORE);
         }
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
+      req.onsuccess = () => finish(req.result);
+      req.onerror = () => finish(null);
+      req.onblocked = () => finish(null);
     } catch {
-      resolve(null);
+      finish(null);
     }
   });
 }
@@ -126,13 +135,25 @@ async function saveOfflineBlobToIdb(songId: string, blob: Blob): Promise<void> {
   const db = await openOfflineAudioDb();
   if (!db) return;
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        db.close();
+      } catch {}
+      resolve();
+    };
+    const timer = setTimeout(finish, 4500);
     try {
       const tx = db.transaction(OFFLINE_IDB_STORE, 'readwrite');
       tx.objectStore(OFFLINE_IDB_STORE).put(blob, songId);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
+      tx.oncomplete = finish;
+      tx.onerror = finish;
+      tx.onabort = finish;
     } catch {
-      resolve();
+      finish();
     }
   });
 }
@@ -141,16 +162,28 @@ async function getOfflineBlobFromIdb(songId: string): Promise<Blob | null> {
   const db = await openOfflineAudioDb();
   if (!db) return null;
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (val: Blob | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        db.close();
+      } catch {}
+      resolve(val);
+    };
+    const timer = setTimeout(() => finish(null), 3500);
     try {
       const tx = db.transaction(OFFLINE_IDB_STORE, 'readonly');
       const req = tx.objectStore(OFFLINE_IDB_STORE).get(songId);
       req.onsuccess = () => {
         const res = req.result;
-        resolve(res instanceof Blob && res.size > 1000 ? res : null);
+        finish(res instanceof Blob && res.size > 1000 ? res : null);
       };
-      req.onerror = () => resolve(null);
+      req.onerror = () => finish(null);
+      tx.onabort = () => finish(null);
     } catch {
-      resolve(null);
+      finish(null);
     }
   });
 }
@@ -159,13 +192,25 @@ async function deleteOfflineBlobFromIdb(songId: string): Promise<void> {
   const db = await openOfflineAudioDb();
   if (!db) return;
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        db.close();
+      } catch {}
+      resolve();
+    };
+    const timer = setTimeout(finish, 3500);
     try {
       const tx = db.transaction(OFFLINE_IDB_STORE, 'readwrite');
       tx.objectStore(OFFLINE_IDB_STORE).delete(songId);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
+      tx.oncomplete = finish;
+      tx.onerror = finish;
+      tx.onabort = finish;
     } catch {
-      resolve();
+      finish();
     }
   });
 }
@@ -453,6 +498,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const playDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
+  const offlineDownloadInFlightRef = useRef<Set<string>>(new Set());
   const hasInitializedStreamRef = useRef<boolean>(false);
   const isPrimingAudioRef = useRef<boolean>(false);
   const audioUnlockedRef = useRef<boolean>(false);
@@ -1639,15 +1685,15 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const fetchAudioBlobWithRetry = async (
     url: string,
     retries = 2,
-    timeoutMs = 12000
+    timeoutMs = 15000
   ): Promise<Blob | null> => {
     const endpointLabel = url.split('?')[0];
     for (let attempt = 0; attempt <= retries; attempt++) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const connectTimer = setTimeout(() => controller.abort(), Math.min(timeoutMs, 15000));
       try {
         const res = await fetch(url, { signal: controller.signal });
-        clearTimeout(timer);
+        clearTimeout(connectTimer);
         const ct = (res.headers.get('content-type') || '').toLowerCase();
         const expectedLen = Number(res.headers.get('content-length') || '0');
         if (
@@ -1656,7 +1702,43 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           !ct.includes('application/json') &&
           !ct.includes('mpegurl')
         ) {
-          const blob = await res.blob();
+          let blob: Blob;
+          if (res.body && typeof res.body.getReader === 'function') {
+            const reader = res.body.getReader();
+            const chunks: Uint8Array[] = [];
+            try {
+              while (true) {
+                let chunkTimer: ReturnType<typeof setTimeout> | null = null;
+                const idleTimeoutPromise = new Promise<never>((_, reject) => {
+                  chunkTimer = setTimeout(() => {
+                    try {
+                      controller.abort();
+                    } catch {}
+                    reject(new Error('Blob chunk read timeout'));
+                  }, Math.max(20000, Math.min(timeoutMs, 35000)));
+                });
+                let readRes: ReadableStreamReadResult<Uint8Array>;
+                try {
+                  readRes = await Promise.race([reader.read(), idleTimeoutPromise]);
+                } finally {
+                  if (chunkTimer) {
+                    clearTimeout(chunkTimer);
+                    chunkTimer = null;
+                  }
+                }
+                if (readRes.done) break;
+                if (readRes.value && readRes.value.byteLength > 0) {
+                  chunks.push(readRes.value);
+                }
+              }
+            } finally {
+              reader.cancel().catch(() => {});
+            }
+            const mimeType = ct ? ct.split(';')[0].trim() : '';
+            blob = new Blob(chunks as BlobPart[], mimeType ? { type: mimeType } : undefined);
+          } else {
+            blob = await res.blob();
+          }
           const isComplete = expectedLen <= 0 || blob.size >= expectedLen * 0.9;
           if (isComplete && (await isHealthyAudioBlob(blob))) {
             return blob;
@@ -1685,7 +1767,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           });
         }
       } catch (err: any) {
-        clearTimeout(timer);
+        clearTimeout(connectTimer);
         if (attempt < retries) {
           StreamLogger.logRetry('offlineBlobFetch', 'Retrying blob download after network error', {
             attempt: attempt + 1,
@@ -3328,6 +3410,11 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const persistSongToOfflineCache = async (song: Song) => {
     const normalized = normalizeTrackArtwork(song);
+    if (offlineDownloadInFlightRef.current.has(normalized.id)) {
+      return;
+    }
+    offlineDownloadInFlightRef.current.add(normalized.id);
+
     setDownloads((prev) => {
       const filtered = prev.filter((s) => s.id !== normalized.id);
       return [{ ...normalized, offlineStatus: 'downloading' }, ...filtered];
@@ -3383,9 +3470,13 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       }
 
+      const blobFetchTimeoutMs = Math.max(
+        35000,
+        Math.min(180000, (normalized.durationSeconds || 240) * 400)
+      );
       if (!audioBlob) {
         for (const url of candidateUrls) {
-          const downloadedBlob = await fetchAudioBlobWithRetry(url, 2, 25000);
+          const downloadedBlob = await fetchAudioBlobWithRetry(url, 2, blobFetchTimeoutMs);
           if (
             downloadedBlob &&
             (await isHealthyAudioBlob(downloadedBlob)) &&
@@ -3405,16 +3496,18 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           audioBlob.type === mimeType ? audioBlob : new Blob([audioBlob], { type: mimeType });
 
         if ('caches' in window) {
-          const cache = await caches.open(OFFLINE_CACHE_NAME);
-          await cache.put(
-            `/offline-audio/${encodeURIComponent(normalized.id)}`,
-            new Response(typedBlob, {
-              headers: {
-                'Content-Type': mimeType,
-                'Content-Length': String(typedBlob.size),
-              },
-            })
-          );
+          try {
+            const cache = await caches.open(OFFLINE_CACHE_NAME);
+            await cache.put(
+              `/offline-audio/${encodeURIComponent(normalized.id)}`,
+              new Response(typedBlob, {
+                headers: {
+                  'Content-Type': mimeType,
+                  'Content-Length': String(typedBlob.size),
+                },
+              })
+            );
+          } catch {}
         }
         await saveOfflineBlobToIdb(normalized.id, typedBlob);
       }
@@ -3434,6 +3527,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setDownloads((prev) =>
         prev.map((s) => (s.id === normalized.id ? { ...s, offlineStatus: 'missing' } : s))
       );
+    } finally {
+      offlineDownloadInFlightRef.current.delete(normalized.id);
     }
   };
 

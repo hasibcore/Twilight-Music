@@ -121,17 +121,17 @@ function detectVisitorPlatform() {
   let targetUrl = '#downloads';
 
   if (/android/i.test(ua)) {
-    targetUrl = 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.2/Twilight-Android-v3.6.2.apk';
+    targetUrl = 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.3/Twilight-Android-v3.6.3.apk';
     highlightPlatformCard('card-android');
     if (labelEl) labelEl.textContent = 'Download for Android (APK)';
-    if (subEl) subEl.textContent = 'Free APK • v3.6.2 Official';
+    if (subEl) subEl.textContent = 'Free APK • v3.6.3 Official';
   } else if (/iPad|iPhone|iPod/.test(ua) && !window.MSStream) {
-    targetUrl = 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.2/Twilight-iOS-v3.6.2.ipa';
+    targetUrl = 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.3/Twilight-iOS-v3.6.3.ipa';
     highlightPlatformCard('card-ios');
     if (labelEl) labelEl.textContent = 'Download for iOS (IPA)';
     if (subEl) subEl.textContent = 'IPA Sideload & Web PWA';
   } else if (/Win/i.test(platform) || /Windows/i.test(ua)) {
-    targetUrl = 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.2/Twilight-Windows-x64-v3.6.2.zip';
+    targetUrl = 'https://github.com/hasibcore/Twilight-Music/releases/download/v3.6.3/Twilight-Windows-x64-v3.6.3.zip';
     highlightPlatformCard('card-windows');
     if (labelEl) labelEl.textContent = 'Download for Windows (x64)';
     if (subEl) subEl.textContent = 'Portable Standalone ZIP & EXE';

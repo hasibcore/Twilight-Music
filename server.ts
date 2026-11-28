@@ -2795,8 +2795,8 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
     ok: true,
     status: 'healthy',
-    version: '3.6.2',
-    buildNumber: 62,
+    version: '3.6.3',
+    buildNumber: 63,
     timestamp: new Date().toISOString(),
   });
 });
@@ -3598,11 +3598,27 @@ app.get('/api/download/:videoId', async (req: Request, res: Response) => {
   }
 
   if (resolvedStream?.url && resolvedStream.url.startsWith('https://')) {
+    let clientClosed = false;
+    const clientAbortController = new AbortController();
+    req.on('close', () => {
+      clientClosed = true;
+      try {
+        clientAbortController.abort();
+      } catch {}
+    });
+
     try {
-      const upstreamRes = await fetch(resolvedStream.url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-        signal: AbortSignal.timeout(15000),
-      });
+      const upstreamRes = await fetchWithRetry(
+        resolvedStream.url,
+        { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', ...(resolvedStream.headers || {}) } },
+        {
+          retries: 1,
+          timeoutMs: 12000,
+          baseDelayMs: 250,
+          signal: clientAbortController.signal,
+          headersTimeoutOnly: true,
+        }
+      );
       if (upstreamRes.ok && upstreamRes.body) {
         const ext = resolvedStream.mimeType.includes('mp4') ? 'm4a' : 'mp3';
         res.setHeader(
@@ -3614,20 +3630,69 @@ app.get('/api/download/:videoId', async (req: Request, res: Response) => {
         if (contentLen) res.setHeader('Content-Length', contentLen);
 
         const reader = upstreamRes.body.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) res.write(Buffer.from(value));
+        const onAbort = () => reader.cancel().catch(() => {});
+        clientAbortController.signal.addEventListener('abort', onAbort, { once: true });
+        try {
+          while (!clientClosed) {
+            const readPromise = reader.read();
+            let chunkTimer: ReturnType<typeof setTimeout> | null = null;
+            const timeoutPromise = new Promise<{ done: boolean; value?: Uint8Array }>((_, reject) => {
+              chunkTimer = setTimeout(() => reject(new Error('Download chunk read timeout')), 25000);
+            });
+            let readResult: { done: boolean; value?: Uint8Array };
+            try {
+              readResult = await Promise.race([readPromise, timeoutPromise]);
+            } finally {
+              if (chunkTimer) {
+                clearTimeout(chunkTimer);
+                chunkTimer = null;
+              }
+            }
+            const { done, value } = readResult;
+            if (done) break;
+            if (value && value.byteLength > 0) {
+              const canContinue = res.write(Buffer.from(value));
+              if (!canContinue && !clientClosed) {
+                await new Promise<void>((resolve) => {
+                  const cleanup = () => {
+                    res.removeListener('drain', cleanup);
+                    res.removeListener('close', cleanup);
+                    res.removeListener('error', cleanup);
+                    resolve();
+                  };
+                  res.once('drain', cleanup);
+                  res.once('close', cleanup);
+                  res.once('error', cleanup);
+                });
+              }
+            }
+          }
+        } finally {
+          clientAbortController.signal.removeEventListener('abort', onAbort);
+          reader.cancel().catch(() => {});
         }
-        res.end();
+        if (!res.writableEnded) {
+          res.end();
+        }
         return;
       }
     } catch {
-      // fallback below
+      // fallback below if headers not yet sent
+    }
+
+    if (res.headersSent) {
+      if (!res.writableEnded) {
+        res.end();
+      }
+      return;
     }
   }
 
-  res.status(502).json({ error: 'Audio download unavailable' });
+  if (!res.headersSent) {
+    res.status(502).json({ error: 'Audio download unavailable' });
+  } else if (!res.writableEnded) {
+    res.end();
+  }
 });
 
 // Helper: Build live v3.0.0 project release archive (.tar.gz) containing current AI Studio codebase
@@ -3685,12 +3750,12 @@ function pushFullAppRepositoryToGitHub(cleanRepo: string, ghToken: string, tagNa
     execFileSync('git', [...baseArgs, 'add', '-A'], gitOpts);
     execFileSync(
       'git',
-      [...baseArgs, 'commit', '--allow-empty', '-m', `release: Twilight Music v3.6.2 (Build 62) — Exact YouTube Playback, Playlists & Multi-Platform Release`],
+      [...baseArgs, 'commit', '--allow-empty', '-m', `release: Twilight Music v3.6.3 (Build 63) — Exact YouTube Playback, Playlists & Multi-Platform Release`],
       gitOpts
     );
     execFileSync('git', [...baseArgs, 'tag', '-f', tagName], gitOpts);
-    if (tagName !== 'v3.6.2') {
-      execFileSync('git', [...baseArgs, 'tag', '-f', 'v3.6.2'], gitOpts);
+    if (tagName !== 'v3.6.3') {
+      execFileSync('git', [...baseArgs, 'tag', '-f', 'v3.6.3'], gitOpts);
     }
     const commitSha = execFileSync('git', [...baseArgs, 'rev-parse', '--short', 'HEAD'], gitOpts)
       .toString()
@@ -3699,7 +3764,7 @@ function pushFullAppRepositoryToGitHub(cleanRepo: string, ghToken: string, tagNa
     const refSpecs = [
       'HEAD:refs/heads/main',
       `refs/tags/${tagName}:refs/tags/${tagName}`,
-      ...(tagName !== 'v3.6.2' ? ['refs/tags/v3.6.2:refs/tags/v3.6.2'] : []),
+      ...(tagName !== 'v3.6.3' ? ['refs/tags/v3.6.3:refs/tags/v3.6.3'] : []),
     ];
     execFileSync(
       'git',
@@ -3723,18 +3788,19 @@ function pushFullAppRepositoryToGitHub(cleanRepo: string, ghToken: string, tagNa
 // Release Metadata API Endpoint
 app.get('/api/release/info', (_req: Request, res: Response) => {
   res.json({
-    version: 'v3.6.2',
+    version: 'v3.6.3',
     legacyTag: 'v3.0.0',
-    buildNumber: 62,
+    buildNumber: 63,
     releaseDate: new Date().toISOString().slice(0, 10),
-    title: 'Twilight Music v3.6.2 — Exact YouTube Playback, Playlists & Full Reliability Release',
+    title: 'Twilight Music v3.6.3 — Exact YouTube Playback, Playlists & Full Reliability Release',
     highlights: [
+      'Zero Download Stalls at 98%-99%: Resilient chunked downloads, inactivity watchdog, and /api/download streaming fix',
       '100% Exact YouTube Video Audio Matching & Duration-Verified Offline Caches',
       'Instant Next-Track Switching with Zero Loading Stalls',
       'Complete Playlists Upgrade: Create, Rename, Delete, Shuffle, Toggle & Quick-Add Across All Screens',
       'Smart Search & Bengali Phonetic Matching (e.g. tmi / level 5 -> LEVEL FIVE - TUMI)',
       'Guest-First Clean Startup & Working Email/Password Auth',
-      'Native Multi-Platform Releases: Android APK (Twilight-Android-v3.6.2.apk), Apple iOS IPA (Twilight-iOS-v3.6.2.ipa), and Windows x64 ZIP (Twilight-Windows-x64-v3.6.2.zip)',
+      'Native Multi-Platform Releases: Android APK (Twilight-Android-v3.6.3.apk), Apple iOS IPA (Twilight-iOS-v3.6.3.ipa), and Windows x64 ZIP (Twilight-Windows-x64-v3.6.3.zip)',
     ],
   });
 });
@@ -3764,10 +3830,10 @@ app.get(
   }
 );
 
-// Push Full App Codebase to GitHub & Publish v3.6.2 Release + Upload Archive directly to GitHub Releases
+// Push Full App Codebase to GitHub & Publish v3.6.3 Release + Upload Archive directly to GitHub Releases
 app.post('/api/release/github', async (req: Request, res: Response) => {
   try {
-    const { repo = 'hasibcore/Twilight-Music', token, tagName = 'v3.6.2' } = req.body || {};
+    const { repo = 'hasibcore/Twilight-Music', token, tagName = 'v3.6.3' } = req.body || {};
     const ghToken = (token || process.env.GITHUB_TOKEN || '').trim();
 
     if (!ghToken) {
