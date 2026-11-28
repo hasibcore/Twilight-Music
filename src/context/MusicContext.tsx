@@ -2509,7 +2509,38 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ytReadyRef.current &&
         ytPlayerRef.current;
 
-      // Resolve exact full-length direct HTML5 stream first so playback never stalls behind a hidden autoplay-blocked YT IFrame
+      // Start the exact YouTube video immediately for standard video IDs. This removes the
+      // remote resolver delay from the initial tap and makes playback start within the IFrame.
+      if (canUseYtIframeForExactVideo) {
+        try {
+          activeEngineRef.current = 'yt';
+          hasInitializedStreamRef.current = true;
+          streamResolvedAtRef.current = Date.now();
+          if (audioRef.current) {
+            audioRef.current.pause();
+          }
+          try {
+            ytPlayerRef.current.unMute?.();
+          } catch {}
+          ytPlayerRef.current.setVolume(Math.round(stateRef.current.volume * 100));
+          ytPlayerRef.current.setPlaybackRate(stateRef.current.playbackSpeed);
+          ytPlayerRef.current.loadVideoById({
+            videoId: cleanId,
+            startSeconds:
+              options?.startPosition && options.startPosition > 1
+                ? Math.floor(options.startPosition)
+                : 0,
+          });
+          ytPlayerRef.current.playVideo();
+          isLoadingSyncRef.current = false;
+          setIsLoading(false);
+          setIsPlaying(true);
+          setPlaybackError(null);
+          return;
+        } catch {}
+      }
+
+      // Resolve exact full-length direct HTML5 stream for tracks that cannot use the IFrame fast path.
       if (!loadedFromOfflineStorage && !abortController.signal.aborted) {
         directResolvedUrl = await MusicApi.resolveClientDirectStreamUrl(normalizedSong);
         if (directResolvedUrl && !abortController.signal.aborted) {

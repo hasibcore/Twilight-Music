@@ -101,6 +101,8 @@ jobs:
             ---
 
             ### ✨ What's New in v3.6.3 (Build 63):
+            - **Instant Play Start & Loading Fix**: Standard YouTube tracks now start immediately through exact-video IFrame playback instead of waiting on remote stream resolution.
+            - **Reliable Card Artwork**: Broken or missing track, mix, and artist images now fall back to the Twilight app icon instead of rendering empty placeholders.
             - **Zero Download Stalls at 98%-99%**: Fixed infinite chunk retry loops on HTTP 403/503 responses, buffered Range chunks atomically, replaced rigid 60s download timeouts with an inactivity watchdog, added `headersTimeoutOnly` streaming for `/api/download/:videoId`, and guarded IndexedDB completion against aborted/blocked transactions.
             - **100% Exact YouTube Video Audio Matching**: Non-curated YouTube videos play their exact clicked video audio directly without substituting third-party studio/cover recordings, and offline caches validate duration before saving or playing.
             - **Instant Next-Track Switching & Zero Loading Stalls**: Fixed AbortError retries, synchronous playback state resets, `audio.load()` pipeline resets, and queue alignment when switching songs.

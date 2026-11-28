@@ -30,6 +30,13 @@ const ensureYtThumb = (s: Song): Song =>
     ? { ...s, thumbnailUrl: `https://i.ytimg.com/vi/${s.id}/hqdefault.jpg` }
     : s;
 
+const handleArtworkError = (event: React.SyntheticEvent<HTMLImageElement>) => {
+  const image = event.currentTarget;
+  if (image.dataset.fallbackApplied === 'true') return;
+  image.dataset.fallbackApplied = 'true';
+  image.src = '/assets/images/twilight_icon.png';
+};
+
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenSearch,
   onOpenPlaylistModal,
@@ -216,6 +223,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   <img
                     src={song.thumbnailUrl}
                     alt={song.title}
+                    onError={handleArtworkError}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                   <button
@@ -316,7 +324,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   }`}
                 >
                   <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-slate-800 shrink-0">
-                    <img src={song.thumbnailUrl} alt={song.title} className="w-full h-full object-cover" />
+                    <img
+                      src={song.thumbnailUrl}
+                      alt={song.title}
+                      onError={handleArtworkError}
+                      className="w-full h-full object-cover"
+                    />
                     <div
                       className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity ${
                         isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
@@ -377,7 +390,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               className="group flex flex-col items-center shrink-0 cursor-pointer w-24 sm:w-28 text-center"
             >
               <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-slate-800 border-2 border-transparent group-hover:border-indigo-500 group-hover:scale-105 transition-all shadow-lg mb-2 relative">
-                <img src={artist.thumbnailUrl} alt={artist.name} className="w-full h-full object-cover" />
+                <img
+                  src={artist.thumbnailUrl}
+                  alt={artist.name}
+                  onError={handleArtworkError}
+                  className="w-full h-full object-cover"
+                />
                 <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                   <Play className="w-6 h-6 text-white fill-white" />
                 </div>
@@ -420,6 +438,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     <img
                       src={song.thumbnailUrl}
                       alt={song.title}
+                      onError={handleArtworkError}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <button
